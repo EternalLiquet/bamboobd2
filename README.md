@@ -11,7 +11,7 @@ There is no diagnostic implementation yet. In particular, this repository contai
 3. [Workflow and review gates](docs/WORKFLOW.md)
 4. [Future Jev adapter proposal](docs/JEV_PROPOSAL.md)
 
-For project intent and current state, see [`EternalLiquet/gpt-projects-files/bamboobd2`](https://github.com/EternalLiquet/gpt-projects-files/tree/master/bamboobd2). That directory is planning context; this repository is the implementation source of truth.
+For project intent and current state, see the companion [`gpt-projects-files/bamboobd2` draft PR](https://github.com/EternalLiquet/gpt-projects-files/pull/6/files). That directory is planning context; this repository is the implementation source of truth.
 
 ## First engineering milestone
 
