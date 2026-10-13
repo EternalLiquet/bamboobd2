@@ -11,8 +11,8 @@ There is no diagnostic implementation yet. In particular, this repository contai
 3. [Workflow and review gates](docs/WORKFLOW.md)
 4. [Future Jev adapter proposal](docs/JEV_PROPOSAL.md)
 
-For project intent and current state, see the companion [`gpt-projects-files/bamboobd2` draft PR](https://github.com/EternalLiquet/gpt-projects-files/pull/6/files). That directory is planning context; this repository is the implementation source of truth.
+For current scope and evidence, start with [project status](PROJECT_STATUS.md). [Issues](https://github.com/EternalLiquet/bamboobd2/issues) hold the live planning backlog; [pull requests](https://github.com/EternalLiquet/bamboobd2/pulls) show proposed changes. This public repository is sufficient to understand the project.
 
 ## First engineering milestone
 
-Define a sanitized capture format and an offline importer/replay harness with fake transport and golden fixtures. Establish actual vehicle, adapter, ECU, and transport facts before selecting a protocol library or attempting any live test. See [workflow](docs/WORKFLOW.md) for the issue and verification standard.
+Define the first Android diagnostic milestone in [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2), including fake transport and sanitized replay acceptance. Establish actual vehicle, adapter, ECU, and transport facts before selecting a protocol library or attempting any live test. See [workflow](docs/WORKFLOW.md) for the issue and verification standard.

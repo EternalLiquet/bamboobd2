@@ -1,6 +1,10 @@
 # Repository instructions
 
-Read `docs/SAFETY_AND_EVIDENCE.md` and `docs/WORKFLOW.md` before planning changes. `CLAUDE.md` adds Claude-specific roles. The project-files companion records intent; the code and verified behavior live here.
+Read `PROJECT_STATUS.md` first, then `docs/SAFETY_AND_EVIDENCE.md`, `docs/WORKFLOW.md`, and the relevant issue or PR before planning changes. Verify the live repository state; the dated status summary may lag. `CLAUDE.md` adds Claude-specific roles. The code and verified behavior live here.
+
+Update the public status summary when a milestone or blocker materially changes. Keep it short and link live issues or PRs; do not copy private project-file details or personal information into public artifacts.
+
+Optional context for people with access: [`gpt-projects-files/bamboobd2`](https://github.com/EternalLiquet/gpt-projects-files/tree/master/bamboobd2). Access is not required; this public repository and its Issues and PRs must be sufficient for contributors. Do not copy private material into public artifacts without approval.
 
 **Future work approval gate:** For every edit request after the 2026-10-13 documentation bootstrap, inspect first, present the proposed file-by-file diff or a precise patch for owner review, and wait for the owner's explicit **“go”** before editing files. The 2026-10-13 authorization covered documentation and agent scaffolding only. A general request, plan approval, or tool availability is not the future “go.” If the proposal changes, show the revised diff and wait again.
 
