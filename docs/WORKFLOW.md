@@ -1,0 +1,14 @@
+# Small issue and review workflow
+
+1. Open one issue for a falsifiable question or bounded deliverable. State evidence, competing hypothesis, affected files, safety boundary, acceptance checks and stop condition. Use the [issue template](templates/issue.md).
+2. Before a **future** edit, inspect the repo, prepare a file-by-file proposed diff, and wait for explicit owner “go” per `AGENTS.md`. This bootstrap was separately authorized.
+3. Work on a branch. Keep protocol observations in [evidence logs](templates/evidence-log.md), consequential choices in [ADRs](templates/adr.md), and external-source comparisons in [research notes](templates/research-note.md). Cite exact versions and licenses; distinguish a maintainer claim from an independent test.
+4. For code later, introduce a sanitized capture/replay fixture before a live dependency. Version golden input and expected output separately. Hash source input, explain intended decoder deltas, and retain a minimized failing fixture. Property tests should cover stream chunking, irrelevant frames and valid round trips where an encoder exists. Fuzz only offline parsers with limits. Use a fake transport for timeout, negative response, reconnect and ordering behavior.
+5. An independent reviewer checks safety scope, provenance/license, tests, negative cases and the exact commit hash. Re-run checks against that commit after changes; earlier results do not transfer. The reviewer cannot promote an inference to a verified vehicle fact.
+6. Before completion, inspect the full diff and check status, disclose commands run and failures, obtain actual advisor review where available, and list remaining vehicle validation. Do not claim integration or hardware verification from documentation alone.
+
+There are no build or test commands yet because there is no code. For this documentation bootstrap, validate JSON, agent frontmatter, links, scope and Git diff. Add a real command only after the corresponding implementation exists.
+
+## Claude setup review
+
+The project settings use documented `model` and `advisorModel`; agent frontmatter uses documented `model`, `tools`, and `maxTurns`. For the Anthropic API, Claude Code v2.1.293+ is needed for Haiku 5.5. The `sonnet` alias currently resolves to Sonnet 5.5, so the requested Sonnet 5 is pinned by full name. Provider mapping and account access still need runtime verification with `/model`, `/advisor`, `/agents`, and `/tasks`. Restart Claude Code after first adding agents. A tool allowlist prevents these workers from gaining edit or shell tools, but model context and web requests are still data exposure paths. Advisor calls are model-driven, may be inherited by subagents and add usage; prose cannot force checkpoint timing or cap cost. [Model configuration](https://code.claude.com/docs/en/model-config), [advisor](https://code.claude.com/docs/en/advisor), [subagents](https://code.claude.com/docs/en/sub-agents) (checked 2026-10-13).
