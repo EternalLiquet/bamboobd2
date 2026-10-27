@@ -10,9 +10,10 @@ There is no diagnostic implementation yet. In particular, this repository contai
 2. [Research and candidate stack](docs/RESEARCH.md)
 3. [Workflow and review gates](docs/WORKFLOW.md)
 4. [Future Jev adapter proposal](docs/JEV_PROPOSAL.md)
+5. [Android milestone 1 design (proposed)](docs/ANDROID_MILESTONE_1.md) and [live-test gate](docs/LIVE_TEST_GATE.md)
 
 For current scope and evidence, start with [project status](PROJECT_STATUS.md). [Issues](https://github.com/EternalLiquet/bamboobd2/issues) hold the live planning backlog; [pull requests](https://github.com/EternalLiquet/bamboobd2/pulls) show proposed changes. This public repository is sufficient to understand the project.
 
 ## First engineering milestone
 
-Define the first Android diagnostic milestone in [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2), including fake transport and sanitized replay acceptance. Establish actual vehicle, adapter, ECU, and transport facts before selecting a protocol library or attempting any live test. See [workflow](docs/WORKFLOW.md) for the issue and verification standard.
+The first Android diagnostic milestone is proposed in [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2) and [its design](docs/ANDROID_MILESTONE_1.md), including fake transport and sanitized replay acceptance. Establish actual vehicle, adapter, ECU, and transport facts before selecting a protocol library or attempting any live test. See [workflow](docs/WORKFLOW.md) for the issue and verification standard.
