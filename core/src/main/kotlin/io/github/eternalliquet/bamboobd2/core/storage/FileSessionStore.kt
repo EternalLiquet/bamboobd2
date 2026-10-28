@@ -39,6 +39,8 @@ interface SessionStore {
  * itself is not separately synced, so a power loss right after a save may lose
  * that save, but not corrupt an earlier one. If the platform cannot move
  * atomically the save fails visibly; there is no non-atomic fallback.
+ * Use one store instance per directory: the lock is per instance, and a new
+ * instance's startup cleanup removes leftover temp files.
  * Requires java.nio.file, available on Android from API 26.
  */
 class FileSessionStore(

@@ -61,7 +61,11 @@ enum class SessionOutcome {
 @Serializable
 data class SessionEvent(val atMillis: Long, val kind: String, val detail: String = "")
 
-/** Schema v1 session record, as described in docs/ANDROID_MILESTONE_1.md. */
+/**
+ * Schema v1 session record, as described in docs/ANDROID_MILESTONE_1.md. v1 also
+ * carries [dtcKindsRead] and the FAILED outcome. v1 is unreleased; a file
+ * without [dtcKindsRead] reopens with its codes shown as not read.
+ */
 @Serializable
 data class SessionRecord(
     val schemaVersion: Int,
