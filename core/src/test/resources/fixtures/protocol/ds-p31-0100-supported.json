@@ -1,0 +1,11 @@
+{
+  "id": "ds-p31-0100-supported",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p31: '41 00 BE 1F B8 10' reply to 01 00 (PID bitmap)",
+  "request": "0100",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "0100\rSEARCHING...\r41 00 BE 1F B8 10\r\r>",
+  "expected": "supported:-=01,03,04,05,06,07,0C,0D,0E,0F,10,11,13,14,15,1C"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "rule-0105-negative",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed: negative response 7F <service> <code>",
+  "request": "0105",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "7F 01 12\r\r>",
+  "expected": "negative:-:01:12"
+}

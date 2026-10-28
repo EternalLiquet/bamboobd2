@@ -1,0 +1,11 @@
+{
+  "id": "rule-03-same-bytes-noncan",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327 data sheet ELM327DSJ p34: without a count byte the same bytes are codes 0101, 3300 and filler",
+  "request": "03",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "43 01 01 33 00 00 00\r\r>",
+  "expected": "dtcs:-/P0101/STORED;-/P3300/STORED"
+}

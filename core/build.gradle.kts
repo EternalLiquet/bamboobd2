@@ -97,3 +97,5 @@ val verifyCorePurity by tasks.registering {
 tasks.named("check") {
     dependsOn(verifyApiNegativeControl, verifyCorePurity)
 }
+
+apply(from = "../gradle/transport-registry.gradle.kts")

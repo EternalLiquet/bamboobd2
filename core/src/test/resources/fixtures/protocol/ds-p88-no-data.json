@@ -1,0 +1,11 @@
+{
+  "id": "ds-p88-no-data",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p88: NO DATA means no reply within the timeout",
+  "request": "0105",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "NO DATA\r\r>",
+  "expected": "nodata"
+}

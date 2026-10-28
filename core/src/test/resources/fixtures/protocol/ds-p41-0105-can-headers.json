@@ -1,0 +1,11 @@
+{
+  "id": "ds-p41-0105-can-headers",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p41: '7E8 03 41 05 46 00 00 00 00' (single frame, padded)",
+  "request": "0105",
+  "headers": true,
+  "form": "CAN_11BIT",
+  "reply": "7E8 03 41 05 46 00 00 00 00\r\r>",
+  "expected": "reading:°C:7E8=30.0"
+}

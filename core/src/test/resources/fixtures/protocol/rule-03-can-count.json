@@ -1,0 +1,11 @@
+{
+  "id": "rule-03-can-count",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327 data sheet ELM327DSJ p34: CAN adds a DTC count in the second byte",
+  "request": "03",
+  "headers": false,
+  "form": "CAN_11BIT",
+  "reply": "43 01 01 33 00 00 00\r\r>",
+  "expected": "dtcs:-/P0133/STORED"
+}
