@@ -21,36 +21,39 @@ val verifyTransportRegistry by tasks.registering {
     inputs.files(sources.map { fileTree(it) { include("**/*.kt", "**/*.java") } })
     inputs.file(pinnedFile)
     doLast {
-        // A declaration's supertypes: Kotlin "class X(...) : A, B" after the balanced
-        // constructor parentheses, or Java "extends/implements" before the body.
-        // Returns null when the header has a shape this scan does not understand.
+        // Each class/object header runs from its name to its body "{" or the next
+        // declaration. If the header names AdapterTransport, it must be either a
+        // parsed supertype (Kotlin ": ..." after the constructor, Java "extends/
+        // implements") or only a constructor parameter inside cleanly balanced
+        // parentheses. Anything else fails closed as unparseable.
         val anyDeclaration = Regex("""\b(?:class|object|interface)\s+\w+""")
         val header = Regex("""\b(?:class|object)\s+(\w+)""")
-        fun skipBalanced(text: String, start: Int, open: Char, close: Char): Int {
+        val transportName = Regex("""\bAdapterTransport\b""")
+        val modifier = Regex("""(private|internal|protected|public|constructor)\b|@[\w.]+""")
+        // Index after the matching close, or -1 if it does not close before [limit].
+        fun skipBalanced(text: String, start: Int, limit: Int, open: Char, close: Char): Int {
             var depth = 0
-            for (i in start until text.length) {
+            for (i in start until limit) {
                 if (text[i] == open) depth++
                 if (text[i] == close && --depth == 0) return i + 1
             }
-            return text.length
+            return -1
         }
-        fun supertypes(text: String, from: Int): String? {
+        // The supertype text of a header, "" for none, or null when the header is not understood.
+        fun supertypes(text: String, from: Int, limit: Int): String? {
             var i = from
-            fun skipSpace() { while (i < text.length && text[i].isWhitespace()) i++ }
+            fun skipSpace() { while (i < limit && text[i].isWhitespace()) i++ }
             skipSpace()
-            if (i < text.length && text[i] == '<') i = skipBalanced(text, i, '<', '>')
-            // Constructor modifiers and annotations, e.g. "internal constructor(...)" or "@Inject constructor(...)".
+            if (i < limit && text[i] == '<') i = skipBalanced(text, i, limit, '<', '>').takeIf { it >= 0 } ?: return null
             while (true) {
                 skipSpace()
-                val word = Regex("""(private|internal|protected|public|constructor)\b|@[\w.]+""").matchAt(text, i) ?: break
+                val word = modifier.matchAt(text, i)?.takeIf { it.range.last < limit } ?: break
                 i = word.range.last + 1
-                if (word.value.startsWith("@") && i < text.length && text[i] == '(') i = skipBalanced(text, i, '(', ')')
+                if (word.value.startsWith("@") && i < limit && text[i] == '(') i = skipBalanced(text, i, limit, '(', ')').takeIf { it >= 0 } ?: return null
             }
             skipSpace()
-            if (i < text.length && text[i] == '(') i = skipBalanced(text, i, '(', ')')
-            val next = anyDeclaration.find(text, i)?.range?.first ?: text.length
-            val end = listOf(text.indexOf('{', i), text.indexOf("\n\n", i), next).filter { it >= 0 }.minOrNull() ?: text.length
-            val tail = text.substring(i, end).trim()
+            if (i < limit && text[i] == '(') i = skipBalanced(text, i, limit, '(', ')').takeIf { it >= 0 } ?: return null
+            val tail = text.substring(i, limit).trim()
             return when {
                 tail.isEmpty() -> ""
                 tail.startsWith(":") || tail.startsWith("extends") || tail.startsWith("implements") -> tail
@@ -58,7 +61,6 @@ val verifyTransportRegistry by tasks.registering {
             }
         }
         val anonymous = Regex("""object\s*:\s*[^{]*?\bAdapterTransport\b|new\s+AdapterTransport\s*\(""")
-        val transportName = Regex("""\bAdapterTransport\b""")
         val kind = Regex("""TransportKind\.(\w+)""")
         val found = sortedSetOf<String>()
         val problems = mutableListOf<String>()
@@ -67,21 +69,22 @@ val verifyTransportRegistry by tasks.registering {
                 val text = file.readText()
                 val path = file.relativeTo(repoRoot).invariantSeparatorsPath
                 anonymous.findAll(text).forEach { problems += "anonymous AdapterTransport in $path; give it a name and pin it" }
-                header.findAll(text).forEach { h ->
-                    // Fail closed: a header this scan cannot parse must not name the interface at all.
-                    if (supertypes(text, h.range.last + 1) == null) {
-                        val end = listOf(text.indexOf('{', h.range.last), anyDeclaration.find(text, h.range.last + 1)?.range?.first ?: -1)
-                            .filter { it >= 0 }.minOrNull() ?: text.length
-                        if (transportName.containsMatchIn(text.substring(h.range.last, end))) {
-                            problems += "cannot parse the declaration of ${h.groupValues[1]} in $path; simplify its header or update this check"
+                header.findAll(text).forEach { m ->
+                    val from = m.range.last + 1
+                    val next = anyDeclaration.find(text, from)?.range?.first ?: text.length
+                    val brace = text.indexOf('{', from).takeIf { it >= 0 } ?: text.length
+                    val limit = minOf(next, brace)
+                    if (!transportName.containsMatchIn(text.substring(from, limit))) return@forEach
+                    val supers = supertypes(text, from, limit)
+                    when {
+                        supers != null && transportName.containsMatchIn(supers) -> {
+                            // Look for the kind only inside this declaration, up to the next one.
+                            val declared = kind.find(text.substring(m.range.last, next))?.groupValues?.get(1) ?: "UNDECLARED"
+                            found += "$path ${m.groupValues[1]} $declared"
                         }
+                        supers != null -> Unit // named only as a constructor parameter
+                        else -> problems += "cannot parse the declaration of ${m.groupValues[1]} in $path; simplify its header or update this check"
                     }
-                }
-                header.findAll(text).filter { transportName.containsMatchIn(supertypes(text, it.range.last + 1).orEmpty()) }.forEach { m ->
-                    // Look for the kind only inside this declaration, up to the next one.
-                    val end = anyDeclaration.find(text, m.range.last + 1)?.range?.first ?: text.length
-                    val declared = kind.find(text.substring(m.range.last, end))?.groupValues?.get(1) ?: "UNDECLARED"
-                    found += "$path ${m.groupValues[1]} $declared"
                 }
             }
         }
