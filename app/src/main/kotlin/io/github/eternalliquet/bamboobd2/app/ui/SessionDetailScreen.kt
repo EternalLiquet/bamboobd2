@@ -26,6 +26,7 @@ fun SessionDetailScreen(vm: AppViewModel, id: String, onBack: () -> Unit) {
     LaunchedEffect(id) { loaded = Result.success(vm.load(id)) }
     DiagnosticScaffold(
         title = stringResource(R.string.session_title),
+        provenance = loaded?.getOrNull()?.provenance,
         navigationIcon = { BackButton(onBack) },
     ) { padding ->
         Column(

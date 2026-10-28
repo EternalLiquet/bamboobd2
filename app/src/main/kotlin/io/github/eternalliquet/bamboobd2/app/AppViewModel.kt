@@ -1,8 +1,12 @@
 package io.github.eternalliquet.bamboobd2.app
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.eternalliquet.bamboobd2.core.protocol.ReplayScript
+import io.github.eternalliquet.bamboobd2.core.protocol.ReplayTransport
+import io.github.eternalliquet.bamboobd2.core.reader.ElmObdReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
@@ -22,6 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.AbstractLongTimeSource
+import kotlin.time.DurationUnit
 
 /** Save progress for one session, keyed by session id in [AppViewModel.saveStatus]. */
 sealed interface SaveStatus {
@@ -48,8 +54,17 @@ class AppViewModel @JvmOverloads constructor(
     private val _saveStatus = MutableStateFlow<Map<String, SaveStatus>>(emptyMap())
     val saveStatus: StateFlow<Map<String, SaveStatus>> = _saveStatus.asStateFlow()
 
+    /** The synthetic replay scripts bundled with `:core`. */
+    val replays: List<ReplayScript> by lazy { ReplayTransport.bundledIds.map(ReplayTransport::bundled) }
+
     fun start(scenario: FakeScenario) {
         controller.start(FakeReader(scenario))
+    }
+
+    /** Runs a bundled script through the real protocol path; the session is REPLAY, never live. */
+    fun startReplay(id: String) {
+        val script = replays.first { it.id == id }
+        controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
     }
 
     fun cancel() = controller.cancel()
@@ -85,4 +100,9 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     suspend fun load(id: String): SessionRecord? = withContext(io) { store.load(id) }
+}
+
+/** Main-dispatcher delays are scheduled on uptime, so replay timing reads the same clock. */
+private object UptimeTimeSource : AbstractLongTimeSource(DurationUnit.MILLISECONDS) {
+    override fun read(): Long = SystemClock.uptimeMillis()
 }

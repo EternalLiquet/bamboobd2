@@ -2,8 +2,13 @@
 <resources>
     <string name="app_name">BambooBD2</string>
     <string name="simulated_banner">SIMULATED — not a vehicle scan</string>
-    <string name="home_title">Start a simulated session</string>
+    <string name="replay_banner">REPLAY — scripted adapter data, not a live scan</string>
+    <string name="offline_banner">OFFLINE — no adapter or vehicle connection</string>
+    <string name="home_title">Start an offline session</string>
     <string name="home_explainer">Pick a scripted scenario. No adapter or car is involved.</string>
+    <string name="simulated_heading">Simulated</string>
+    <string name="replay_heading">Replay</string>
+    <string name="replay_explainer">Scripted adapter replies run through the real protocol code.</string>
     <string name="start">Start</string>
     <string name="saved_sessions">Saved sessions</string>
     <string name="session_title">Session</string>
@@ -16,6 +21,8 @@
     <string name="status_complete">Complete</string>
     <string name="status_cancelled">Cancelled: partial results</string>
     <string name="status_failed">Stopped by an error: partial results</string>
+    <string name="status_disconnected">Disconnected: partial results. Not reconnected.</string>
+    <string name="stop_reason">Reason: %1$s</string>
     <string name="codes_heading">Generic emissions codes</string>
     <string name="no_codes">No generic emissions codes reported. This doesn\'t mean the car has no faults.</string>
     <string name="codes_scope">Generic OBD-II engine codes only, not body, ABS, airbag or other modules.</string>
@@ -23,6 +30,8 @@
     <string name="not_read">Not read</string>
     <string name="unsupported">Not reported by this vehicle</string>
     <string name="unknown_capability">Unknown: support could not be confirmed</string>
+    <string name="no_data">No data: no reply to the request</string>
+    <string name="reading_failed">No value: %1$s</string>
     <string name="code_stored">stored</string>
     <string name="code_pending">pending</string>
     <string name="no_saved_sessions">No saved sessions yet.</string>

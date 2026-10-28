@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
@@ -25,13 +26,13 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 fun SessionResults(record: SessionRecord, showStatus: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showStatus) {
-            val status = when (record.outcome) {
-                SessionOutcome.COMPLETE -> stringResource(R.string.status_complete)
-                SessionOutcome.CANCELLED -> stringResource(R.string.status_cancelled)
-                SessionOutcome.FAILED -> stringResource(R.string.status_failed)
-                null -> stringResource(R.string.reading_progress)
+            Text(statusText(record.outcome), style = MaterialTheme.typography.titleMedium)
+            // Why a session stopped, as the reader reported it.
+            if (record.outcome == SessionOutcome.FAILED || record.outcome == SessionOutcome.DISCONNECTED) {
+                record.events.lastOrNull()?.detail?.takeIf { it.isNotEmpty() }?.let {
+                    Text(stringResource(R.string.stop_reason, it), style = MaterialTheme.typography.bodyMedium)
+                }
             }
-            Text(status, style = MaterialTheme.typography.titleMedium)
         }
 
         Text(stringResource(R.string.codes_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
@@ -48,20 +49,36 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         HorizontalDivider()
         Text(stringResource(R.string.readings_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         ObdPid.entries.forEach { pid ->
-            val reading = record.readings.firstOrNull { it.pid == pid.code }
-            val value = when (val r = reading?.result) {
-                is ReadingResult.Value -> "${formatValue(r.value)} ${r.unit}"
-                ReadingResult.Unsupported -> stringResource(R.string.unsupported)
-                ReadingResult.UnknownCapability -> stringResource(R.string.unknown_capability)
-                null -> stringResource(R.string.not_read)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(pidLabel(pid)))
-                Text(value)
+            // One row per responder; a PID never read shows once as "Not read".
+            val results = record.readings.filter { it.pid == pid.code }.map { it.result }.ifEmpty { listOf(null) }
+            results.forEach { result ->
+                val value = when (result) {
+                    is ReadingResult.Value -> "${formatValue(result.value)} ${result.unit}" + (result.ecu?.let { " ($it)" } ?: "")
+                    ReadingResult.Unsupported -> stringResource(R.string.unsupported)
+                    ReadingResult.UnknownCapability -> stringResource(R.string.unknown_capability)
+                    ReadingResult.NoData -> stringResource(R.string.no_data)
+                    is ReadingResult.Failed -> stringResource(R.string.reading_failed, result.reason)
+                    null -> stringResource(R.string.not_read)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(stringResource(pidLabel(pid)))
+                    Text(value, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
             }
         }
     }
 }
+
+@Composable
+fun statusText(outcome: SessionOutcome?): String = stringResource(
+    when (outcome) {
+        SessionOutcome.COMPLETE -> R.string.status_complete
+        SessionOutcome.CANCELLED -> R.string.status_cancelled
+        SessionOutcome.FAILED -> R.string.status_failed
+        SessionOutcome.DISCONNECTED -> R.string.status_disconnected
+        null -> R.string.reading_progress
+    },
+)
 
 private fun pidLabel(pid: ObdPid) = when (pid) {
     ObdPid.ENGINE_LOAD -> R.string.pid_04

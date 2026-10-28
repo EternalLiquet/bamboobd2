@@ -8,7 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import io.github.eternalliquet.bamboobd2.app.ui.SIMULATED_BANNER_TAG
+import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import java.util.concurrent.TimeUnit
 import org.junit.Before
 import org.junit.Rule
@@ -31,7 +31,7 @@ class AppFlowTest {
         rule.activity.filesDir.resolve("sessions").deleteRecursively()
     }
 
-    private fun bannerShown() = rule.onNodeWithTag(SIMULATED_BANNER_TAG).assertIsDisplayed()
+    private fun bannerShown() = rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertIsDisplayed()
 
     private fun runSessionToEnd() {
         // FakeReader steps use main-looper delays; advance Robolectric's clock past all of them.
@@ -42,8 +42,8 @@ class AppFlowTest {
     @Test
     fun completeTwoCodesSessionSavesAndReopensWithBannerOnEveryScreen() {
         bannerShown()
-        rule.onNodeWithText("Two codes").performClick()
-        rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithText("Two codes").performScrollTo().performClick()
+        rule.onNodeWithText("Start").performScrollTo().performClick()
         bannerShown()
         runSessionToEnd()
         rule.onNodeWithText("Complete").assertIsDisplayed()
@@ -54,7 +54,7 @@ class AppFlowTest {
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Saved")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Done").performScrollTo().performClick()
 
-        rule.onNodeWithText("Saved sessions").performClick()
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         bannerShown()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("SIMULATED · fake:two_codes · Complete")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("SIMULATED · fake:two_codes · Complete").performClick()
@@ -67,8 +67,8 @@ class AppFlowTest {
 
     @Test
     fun noCodesSessionDoesNotClaimTheCarIsFaultFree() {
-        rule.onNodeWithText("No codes").performClick()
-        rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithText("No codes").performScrollTo().performClick()
+        rule.onNodeWithText("Start").performScrollTo().performClick()
         runSessionToEnd()
         rule.onNodeWithText("No generic emissions codes reported. This doesn't mean the car has no faults.")
             .assertIsDisplayed()
@@ -76,16 +76,16 @@ class AppFlowTest {
 
     @Test
     fun unsupportedPidIsShownAsNotReported() {
-        rule.onNodeWithText("Unsupported reading").performClick()
-        rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithText("Unsupported reading").performScrollTo().performClick()
+        rule.onNodeWithText("Start").performScrollTo().performClick()
         runSessionToEnd()
         rule.onNodeWithText("Not reported by this vehicle").assertIsDisplayed()
     }
 
     @Test
     fun cancelSavesPartialSessionThatReopensAsCancelled() {
-        rule.onNodeWithText("Two codes").performClick()
-        rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithText("Two codes").performScrollTo().performClick()
+        rule.onNodeWithText("Start").performScrollTo().performClick()
         // Two steps (supported map, stored codes) at 400 ms each, then cancel.
         ShadowLooper.idleMainLooper(900, TimeUnit.MILLISECONDS)
         rule.onNodeWithText("Cancel").performScrollTo().performClick()
@@ -96,7 +96,7 @@ class AppFlowTest {
         rule.onNodeWithText("Save").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Saved")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Done").performScrollTo().performClick()
-        rule.onNodeWithText("Saved sessions").performClick()
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         rule.waitUntil(5_000) {
             rule.onAllNodes(hasText("SIMULATED · fake:two_codes · Cancelled: partial results")).fetchSemanticsNodes().isNotEmpty()
         }
