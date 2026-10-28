@@ -25,14 +25,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
+import io.github.eternalliquet.bamboobd2.app.SaveStatus
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 
 @Composable
 fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
     val state by vm.session.collectAsStateWithLifecycle()
-    val lastSave by vm.lastSave.collectAsStateWithLifecycle()
-    val saving by vm.saving.collectAsStateWithLifecycle()
+    val saveStatuses by vm.saveStatus.collectAsStateWithLifecycle()
 
     // Back cancels a running session; after it finishes, back leaves the screen.
     BackHandler {
@@ -64,16 +64,19 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
                 }
                 is SessionState.Finished -> {
                     SessionResults(s.record, showStatus = true)
-                    val saveMessage = when (val r = lastSave) {
+                    // Only this session's save counts, not one still finishing for an earlier session.
+                    val status = saveStatuses[s.record.id]
+                    val result = (status as? SaveStatus.Done)?.result
+                    val saveMessage = when (result) {
                         is SaveResult.Saved -> stringResource(R.string.saved_ok)
-                        is SaveResult.Failed -> stringResource(R.string.save_failed, r.reason)
+                        is SaveResult.Failed -> stringResource(R.string.save_failed, result.reason)
                         null -> null
                     }
                     saveMessage?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = vm::save, enabled = !saving && lastSave !is SaveResult.Saved, modifier = Modifier.weight(1f)) {
+                        Button(onClick = vm::save, enabled = status != SaveStatus.Saving && result !is SaveResult.Saved, modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.save))
                         }
                         OutlinedButton(onClick = onDone, modifier = Modifier.weight(1f)) {

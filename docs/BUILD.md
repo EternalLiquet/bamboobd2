@@ -21,6 +21,32 @@ The project has two Gradle builds. `core/` is a standalone plain Kotlin/JVM buil
 
 Lint reports newer AGP, Compose BOM, navigation and lifecycle versions. They are held back on purpose because they need AGP 9.
 
+## Dependency licenses
+
+Checked on 2026-10-28 from each pinned artifact's published POM (`<licenses>` element) unless noted. Build and test dependencies are not part of the release APK; `ui-test-manifest` is included in debug builds only.
+
+| Dependency (pinned version) | Used for | License | Source checked |
+| --- | --- | --- | --- |
+| Gradle wrapper 8.14.3 | build | Apache-2.0 | `LICENSE` at tag `v8.14.3` of gradle/gradle |
+| Android Gradle Plugin `com.android.tools.build:gradle` 8.13.2 | build | Apache-2.0 | POM, Google Maven |
+| Kotlin Gradle plugin, serialization plugin, Compose compiler plugin 2.4.21 | build | Apache-2.0 | POMs, Maven Central |
+| `kotlin-stdlib` 2.4.21 | core and app | Apache-2.0 | POM, Maven Central |
+| `kotlinx-coroutines-core` 1.11.0 | core and app | Apache-2.0 | POM, Maven Central |
+| `kotlinx-serialization-json` 1.12.0 | core | Apache-2.0 | POM, Maven Central |
+| Animal Sniffer Gradle plugin `ru.vyarus.animalsniffer` 2.0.1 | build check | MIT | POM has no license element; `LICENSE` at tag `2.0.1` of xvik/gradle-animalsniffer-plugin |
+| `com.toasttab.android:gummy-bears-api-26` 0.16.0 | build check (API signature data) | Apache-2.0 | POM, Maven Central |
+| Compose BOM 2026.06.01: `ui` and `ui-tooling-preview` 1.11.4, `material3` 1.4.0, `material-icons-core` 1.7.8 | app | Apache-2.0 | POMs, Google Maven |
+| `activity-compose` 1.13.0 | app | Apache-2.0 | POM, Google Maven |
+| `lifecycle-viewmodel-compose` and `lifecycle-runtime-compose` 2.9.4 | app | Apache-2.0 | POMs, Google Maven |
+| `navigation-compose` 2.9.8 | app | Apache-2.0 | POM, Google Maven |
+| `ui-test-junit4` 1.11.4, `ui-test-manifest` 1.11.4 (debug only) | tests | Apache-2.0 | POMs, Google Maven |
+| `androidx.test:core` 1.7.0 | tests | Apache-2.0 | POM, Google Maven |
+| `kotlinx-coroutines-test` 1.11.0 | tests | Apache-2.0 | POM, Maven Central |
+| Robolectric 4.17 | tests | MIT | POM, Maven Central |
+| JUnit 4.13.2 | tests | EPL-1.0 | POM, Maven Central |
+
+This covers the directly pinned dependencies. Their transitive dependencies were not inventoried one by one.
+
 ## Commands
 
 Core only. This needs no Android SDK and never resolves the Android Gradle Plugin, because `core/settings.gradle.kts` has no `google()` repository:

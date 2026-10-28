@@ -13,17 +13,29 @@ import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 import io.github.eternalliquet.bamboobd2.core.storage.SessionStore
 import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
 import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Wiring only: connects the core controller and store to the screens. */
-class AppViewModel(application: Application) : AndroidViewModel(application) {
+/** Save progress for one session, keyed by session id in [AppViewModel.saveStatus]. */
+sealed interface SaveStatus {
+    data object Saving : SaveStatus
+    data class Done(val result: SaveResult) : SaveStatus
+}
 
-    private val store: SessionStore = FileSessionStore(File(application.filesDir, "sessions"))
+/** Wiring only: connects the core controller and store to the screens. */
+class AppViewModel @JvmOverloads constructor(
+    application: Application,
+    private val store: SessionStore = FileSessionStore(File(application.filesDir, "sessions")),
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) : AndroidViewModel(application) {
+
     private val controller = SessionController(viewModelScope)
 
     val session: StateFlow<SessionState> = controller.state
@@ -31,41 +43,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _saved = MutableStateFlow<List<StoredSession>>(emptyList())
     val saved: StateFlow<List<StoredSession>> = _saved.asStateFlow()
 
-    private val _lastSave = MutableStateFlow<SaveResult?>(null)
-    val lastSave: StateFlow<SaveResult?> = _lastSave.asStateFlow()
-
-    private val _saving = MutableStateFlow(false)
-    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+    // Keyed by session id, so a save that finishes after the user has moved on
+    // updates only its own session, never the one on screen.
+    private val _saveStatus = MutableStateFlow<Map<String, SaveStatus>>(emptyMap())
+    val saveStatus: StateFlow<Map<String, SaveStatus>> = _saveStatus.asStateFlow()
 
     fun start(scenario: FakeScenario) {
-        _lastSave.value = null
         controller.start(FakeReader(scenario))
     }
 
     fun cancel() = controller.cancel()
 
     fun save() {
-        val finished = session.value as? SessionState.Finished ?: return
-        if (_saving.value || _lastSave.value is SaveResult.Saved) return
-        _saving.value = true
+        val record = (session.value as? SessionState.Finished)?.record ?: return
+        val id = record.id
+        // One save at a time per session, and none after it has been saved.
+        val current = _saveStatus.value[id]
+        if (current == SaveStatus.Saving || (current as? SaveStatus.Done)?.result is SaveResult.Saved) return
+        _saveStatus.update { it + (id to SaveStatus.Saving) }
         viewModelScope.launch {
-            try {
-                _lastSave.value = withContext(Dispatchers.IO) { store.save(finished.record) }
-            } finally {
-                _saving.value = false
+            val result = try {
+                withContext(io) { store.save(record) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SaveResult.Failed(e.message ?: e::class.simpleName.orEmpty())
             }
+            _saveStatus.update { it + (id to SaveStatus.Done(result)) }
             refreshSaved()
         }
     }
 
     fun finishSession() {
-        _lastSave.value = null
         controller.reset()
+        // Forget finished results; an in-flight save keeps its entry until it completes.
+        _saveStatus.update { statuses -> statuses.filterValues { it == SaveStatus.Saving } }
     }
 
     fun refreshSaved() {
-        viewModelScope.launch { _saved.value = withContext(Dispatchers.IO) { store.list() } }
+        viewModelScope.launch { _saved.value = withContext(io) { store.list() } }
     }
 
-    suspend fun load(id: String): SessionRecord? = withContext(Dispatchers.IO) { store.load(id) }
+    suspend fun load(id: String): SessionRecord? = withContext(io) { store.load(id) }
 }
