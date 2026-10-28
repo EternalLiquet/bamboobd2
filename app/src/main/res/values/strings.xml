@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BambooBD2</string>
+    <string name="simulated_banner">SIMULATED — not a vehicle scan</string>
+    <string name="home_title">Start a simulated session</string>
+    <string name="home_explainer">Pick a scripted scenario. No adapter or car is involved.</string>
+    <string name="start">Start</string>
+    <string name="saved_sessions">Saved sessions</string>
+    <string name="session_title">Session</string>
+    <string name="reading_progress">Reading…</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="saved_ok">Saved</string>
+    <string name="save_failed">Not saved: %1$s</string>
+    <string name="done">Done</string>
+    <string name="status_complete">Complete</string>
+    <string name="status_cancelled">Cancelled: partial results</string>
+    <string name="codes_heading">Generic emissions codes</string>
+    <string name="no_codes">No generic emissions codes reported. This doesn\'t mean the car has no faults.</string>
+    <string name="codes_scope">Generic OBD-II engine codes only, not body, ABS, airbag or other modules.</string>
+    <string name="readings_heading">Readings</string>
+    <string name="not_read">Not read</string>
+    <string name="unsupported">Not reported by this vehicle</string>
+    <string name="unknown_capability">Unknown: support could not be confirmed</string>
+    <string name="code_stored">stored</string>
+    <string name="code_pending">pending</string>
+    <string name="no_saved_sessions">No saved sessions yet.</string>
+    <string name="unreadable_file">Unreadable file %1$s: %2$s</string>
+    <string name="session_missing">This session could not be opened.</string>
+    <string name="back">Back</string>
+    <string name="pid_04">Engine load</string>
+    <string name="pid_05">Coolant temperature</string>
+    <string name="pid_0c">Engine speed</string>
+    <string name="pid_0d">Vehicle speed</string>
+</resources>
