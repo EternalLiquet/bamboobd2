@@ -6,7 +6,9 @@
 // reaches AdapterTransport only through another base type is not detected, so new
 // base types must not be introduced without updating this check.
 // Adding a transport or changing its kind fails this check until the pinned file
-// is updated in review. A LIVE kind additionally needs its own live-gate review.
+// is updated in review. A LIVE entry must also carry "reviewed:<reference>" naming
+// the review that pinned it. That records code review only: running a LIVE
+// transport on hardware still needs the separate live-stage go (LIVE_TEST_GATE.md).
 
 val repoRoot: File = listOf(rootDir, rootDir.parentFile).first { File(it, "transport-registry.txt").isFile }
 
@@ -112,12 +114,26 @@ val verifyTransportRegistry by tasks.registering {
                 }
             }
         }
-        val pinned = pinnedFile.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.toSortedSet()
+        // Each line: <file> <class> <kind> [reviewed:<reference>]
+        val lines = pinnedFile.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        val reviewed = mutableSetOf<String>()
+        val pinned = lines.map { line ->
+            val parts = line.split(Regex("""\s+"""))
+            val key = parts.take(3).joinToString(" ")
+            val extra = parts.drop(3)
+            if (extra.isNotEmpty() && (extra.size > 1 || !Regex("""reviewed:\S+""").matches(extra.single()))) {
+                problems += "unexpected text in transport-registry.txt: $line"
+            }
+            if (extra.isNotEmpty()) reviewed += key
+            key
+        }.toSortedSet()
         (found - pinned).forEach { problems += "not in transport-registry.txt: $it" }
         (pinned - found).forEach { problems += "pinned but not found: $it" }
-        found.filter { it.endsWith(" LIVE") || it.endsWith(" UNDECLARED") }.forEach { problems += "needs live-gate review or a declared kind: $it" }
+        found.filter { it.endsWith(" UNDECLARED") }.forEach { problems += "needs a declared kind: $it" }
+        found.filter { it.endsWith(" LIVE") && it !in reviewed }.forEach { problems += "LIVE transport needs a reviewed:<reference> entry: $it" }
         check(problems.isEmpty()) { problems.joinToString("\n") }
-        logger.lifecycle("Transport registry: ${found.size} implementation(s), none LIVE, all pinned")
+        val live = found.count { it.endsWith(" LIVE") }
+        logger.lifecycle("Transport registry: ${found.size} implementation(s), all pinned; $live LIVE, each with a review reference")
     }
 }
 

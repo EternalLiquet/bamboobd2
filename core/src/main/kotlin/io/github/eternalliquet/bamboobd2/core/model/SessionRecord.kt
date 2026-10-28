@@ -3,7 +3,7 @@ package io.github.eternalliquet.bamboobd2.core.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Where a session's data came from. No live source exists in this milestone. */
+/** Where a session's data came from. Readers derive it from their transport's kind; callers cannot set it. */
 @Serializable
 enum class Provenance {
     /** Scripted by [io.github.eternalliquet.bamboobd2.core.reader.FakeReader] or a fake transport; not a vehicle scan. */
@@ -11,6 +11,9 @@ enum class Provenance {
 
     /** Adapter bytes replayed from a script or sanitized capture; not a live scan. */
     REPLAY,
+
+    /** Read over a real adapter connection. */
+    LIVE,
 }
 
 @Serializable

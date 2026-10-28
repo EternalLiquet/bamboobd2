@@ -81,8 +81,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
-// F11: the merged manifest must not request Bluetooth, location or Internet
-// access in this milestone.
+// F11, revised for the Bluetooth Classic transport stage (#12): the merged manifest
+// requests exactly the reviewed Bluetooth set below and nothing else that reaches
+// outside the phone. No Internet, location, scanning, discovery or advertising.
 androidComponents {
     onVariants { variant ->
         val name = variant.name.replaceFirstChar { it.uppercase() }
@@ -93,11 +94,24 @@ androidComponents {
             inputs.file(manifest)
             doLast {
                 val text = manifest.get().asFile.readText()
-                val requested = Regex("""uses-permission[^>]*android:name="([^"]+)"""").findAll(text).map { it.groupValues[1] }.toList()
-                val forbidden = requested.filter { p ->
-                    p.contains("BLUETOOTH") || p.contains("LOCATION") || p == "android.permission.INTERNET"
+                val tags = Regex("""<uses-permission(?:-sdk-23)?\b[^>]*>""").findAll(text).map { it.value }.toList()
+                val requested = tags.map { Regex("""android:name="([^"]+)"""").find(it)!!.groupValues[1] }
+                // Each allowed Bluetooth permission with the maxSdkVersion it must carry (null: none).
+                val allowedBluetooth = mapOf(
+                    "android.permission.BLUETOOTH" to "30",
+                    "android.permission.BLUETOOTH_CONNECT" to null,
+                )
+                val problems = mutableListOf<String>()
+                tags.zip(requested).forEach { (tag, p) ->
+                    val maxSdk = Regex("""android:maxSdkVersion="(\d+)"""").find(tag)?.groupValues?.get(1)
+                    when {
+                        p in allowedBluetooth -> if (maxSdk != allowedBluetooth[p]) problems += "$p must have maxSdkVersion ${allowedBluetooth[p]}, has $maxSdk"
+                        p.contains("BLUETOOTH") || p.contains("LOCATION") || p == "android.permission.INTERNET" ||
+                            p == "android.permission.NEARBY_WIFI_DEVICES" -> problems += "forbidden: $p"
+                    }
                 }
-                check(forbidden.isEmpty()) { "Forbidden permissions in merged manifest: $forbidden" }
+                allowedBluetooth.keys.filter { it !in requested }.forEach { problems += "expected but missing: $it" }
+                check(problems.isEmpty()) { "Merged manifest permissions: ${problems.joinToString("; ")}" }
                 logger.lifecycle("Merged $name manifest permissions: ${requested.ifEmpty { listOf("none") }}")
             }
         }
@@ -105,6 +119,7 @@ androidComponents {
     }
 }
 
+// Name kept from milestone 1 so existing commands still work; it now checks the revised F11 set.
 tasks.register("verifyNoForbiddenPermissions") {
     group = "verification"
     dependsOn("verifyNoForbiddenPermissionsDebug", "verifyNoForbiddenPermissionsRelease")

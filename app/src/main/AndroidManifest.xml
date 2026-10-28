@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No permissions: milestone 1 is offline and simulated (F11). -->
+<!--
+  Bluetooth Classic connection to an already-paired adapter only (#12, F11 revised).
+  No discovery or scanning, so no BLUETOOTH_SCAN, BLUETOOTH_ADMIN or location.
+  No Internet. See docs/BLUETOOTH_TRANSPORT.md.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 11 and lower: install-time permission for Classic communication. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <!-- Android 12 and higher: runtime permission to talk to already-paired devices. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Bluetooth is optional: the offline modes work without it. -->
+    <uses-feature
+        android:name="android.hardware.bluetooth"
+        android:required="false" />
 
     <application
         android:allowBackup="false"

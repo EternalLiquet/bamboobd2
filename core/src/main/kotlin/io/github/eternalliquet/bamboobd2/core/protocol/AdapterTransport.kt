@@ -3,7 +3,8 @@ package io.github.eternalliquet.bamboobd2.core.protocol
 /**
  * What kind of source a transport is. Every [AdapterTransport] implementation in
  * any module is listed with its kind in `transport-registry.txt` and checked by
- * the `verifyTransportRegistry` task (G2). No live kind exists in this milestone.
+ * the `verifyTransportRegistry` task (G2). A LIVE entry must also name its review
+ * in that file; declaring LIVE is not permission to run it on hardware.
  */
 enum class TransportKind {
     /** Scripted in code; sessions over it are SIMULATED. */
@@ -11,6 +12,9 @@ enum class TransportKind {
 
     /** Replays a [ReplayScript]; sessions over it are REPLAY. */
     REPLAY,
+
+    /** A real connection to an adapter; sessions over it are LIVE. */
+    LIVE,
 }
 
 /** The connection is gone. Readers never reconnect; a new connection means a new session. */
