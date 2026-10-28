@@ -1,0 +1,11 @@
+{
+  "id": "rule-0105-wrong-pid",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed: a reply for another PID never yields a value",
+  "request": "0105",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "41 0C 1A F8\r\r>",
+  "expected": "malformed"
+}

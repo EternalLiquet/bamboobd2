@@ -1,0 +1,11 @@
+{
+  "id": "ds-p45-0104-load-raw",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "secondary",
+  "source": "ELM327 data sheet ELM327DSJ p45 shows load byte 3F in a reply; scaling 100A/255 is from a secondary source (docs/PROTOCOL.md)",
+  "request": "0104",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "41 04 3F\r\r>",
+  "expected": "reading:%:-=24.7"
+}

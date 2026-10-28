@@ -1,0 +1,11 @@
+{
+  "id": "ds-p31-0105-coolant",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p31: '41 05 7B' is 123 - 40 = 83 °C",
+  "request": "0105",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "41 05 7B\r\r>",
+  "expected": "reading:°C:-=83.0"
+}

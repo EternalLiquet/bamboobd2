@@ -129,7 +129,7 @@ object ElmResponseParser {
     /**
      * Headers off (AT H0, the default). Each line is one message, except CAN
      * multi-frame replies, which start with a three-digit byte count followed by
-     * numbered lines "0:", "1:", ... (pp43-45). Responders are not identifiable.
+     * numbered lines "0:", "1:", ... (pp42-45). Responders are not identifiable.
      */
     private fun parseWithoutHeaders(lines: List<String>): ParsedResponse {
         val messages = mutableListOf<EcuMessage>()
@@ -162,7 +162,7 @@ object ElmResponseParser {
 
     /**
      * Headers on, 11-bit CAN: each line is "<3-digit ID> <PCI> <data> [padding]"
-     * with ISO 15765-2 framing visible (p41, p44): single frame PCI 0n, first frame
+     * with ISO 15765-2 framing visible (p41, p43): single frame PCI 0n, first frame
      * 1n nn, consecutive frames 2n. Frames are grouped per responder ID.
      */
     private fun parseCanWithHeaders(lines: List<String>): ParsedResponse {
@@ -210,7 +210,7 @@ object ElmResponseParser {
 
     /**
      * Headers on, non-CAN: three header bytes, the data, then one check byte
-     * (p43, e.g. "48 6B 10 41 00 BE 3E B8 11 FA"). The third header byte is the
+     * (p42, e.g. "48 6B 10 41 00 BE 3E B8 11 FA"). The third header byte is the
      * responder's address. The check byte is dropped, not verified.
      */
     private fun parseNonCanWithHeaders(lines: List<String>): ParsedResponse {

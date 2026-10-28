@@ -1,0 +1,11 @@
+{
+  "id": "rule-03-can-multiframe-numbered",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327 data sheet ELM327DSJ p45 numbered multi-frame layout ('00A', '0:', '1:')",
+  "request": "03",
+  "headers": false,
+  "form": "CAN_11BIT",
+  "reply": "00A\r0: 43 04 01 33 01 71\r1: 04 20 C1 23 00 00 00\r\r>",
+  "expected": "dtcs:-/P0133/STORED;-/P0171/STORED;-/P0420/STORED;-/U0123/STORED"
+}

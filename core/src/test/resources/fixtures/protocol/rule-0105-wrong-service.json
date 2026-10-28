@@ -1,0 +1,11 @@
+{
+  "id": "rule-0105-wrong-service",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed: a reply for another service never yields a value",
+  "request": "0105",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "43 01 33 00 00 00 00\r\r>",
+  "expected": "malformed"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ds-p41-0100-can-headers",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p41: '7E8 06 41 00 BE 3F B8 13 00' with headers on",
+  "request": "0100",
+  "headers": true,
+  "form": "CAN_11BIT",
+  "reply": "7E8 06 41 00 BE 3F B8 13 00\r\r>",
+  "expected": "supported:7E8=01,03,04,05,06,07,0B,0C,0D,0E,0F,10,11,13,14,15,1C,1F,20"
+}

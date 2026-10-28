@@ -1,0 +1,11 @@
+{
+  "id": "rule-03-can-multiframe-headers",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327 data sheet ELM327DSJ p43 first/consecutive frame layout (10 nn / 21) and p34 DTC table",
+  "request": "03",
+  "headers": true,
+  "form": "CAN_11BIT",
+  "reply": "7E8 10 0A 43 04 01 33 01 71\r7E8 21 04 20 C1 23 00 00 00\r\r>",
+  "expected": "dtcs:7E8/P0133/STORED;7E8/P0171/STORED;7E8/P0420/STORED;7E8/U0123/STORED"
+}

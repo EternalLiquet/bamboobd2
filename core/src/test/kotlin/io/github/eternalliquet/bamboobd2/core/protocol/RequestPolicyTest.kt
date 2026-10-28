@@ -1,0 +1,92 @@
+package io.github.eternalliquet.bamboobd2.core.protocol
+
+import java.security.MessageDigest
+import kotlin.random.Random
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** F9: deny by default, exact allowlist, nothing rejected reaches a transport. */
+class RequestPolicyTest {
+
+    private val allowlist = setOf("0100", "0104", "0105", "010C", "010D", "03", "07")
+
+    /** Records every write; used to show rejected requests never reach a transport. */
+    private class SpyTransport : AdapterTransport {
+        override val kind = TransportKind.FAKE
+        val written = mutableListOf<String>()
+        override suspend fun write(request: Request) { written += request.text }
+        override suspend fun read(): ByteArray? = null
+    }
+
+    private fun submit(spy: SpyTransport, text: String) = runBlocking {
+        when (val d = RequestPolicy.evaluate(text)) {
+            is PolicyDecision.Accepted -> spy.write(d.request)
+            is PolicyDecision.Rejected -> Unit
+        }
+    }
+
+    @Test
+    fun allowlistIsExactlyTheSevenReadOnlyRequestsAndPinned() {
+        assertEquals(allowlist, RequestPolicy.allowlist.toSet())
+        assertTrue(RequestPolicy.approvedAdapterCommands.isEmpty())
+        // Any change to the allowlist must update this pinned hash in review.
+        val digest = MessageDigest.getInstance("SHA-256").digest(RequestPolicy.allowlist.joinToString("\n").toByteArray())
+        assertEquals(PINNED_ALLOWLIST_SHA256, digest.joinToString("") { "%02x".format(it) })
+    }
+
+    @Test
+    fun explicitDangerousAndNearMissRequestsAreRejected() {
+        val rejected = listOf(
+            "04", "0400", "08", "09", "0902", "0A", "10", "11", "1101", "14", "19", "22", "22F190", "27", "2701", "2E",
+            "2F", "31", "3101", "34", "35", "36", "3E", "02", "0200", "05", "06", "0101", "0120", "0140", "010E",
+            "", " ", "\r", "\t", "0 4", "01 05", "010c", "0105 ", " 0105", "0105\r", "01050", "0105\r04",
+            "ATZ", "ATWS", "ATD", "ATSP0", "AT SP 0", "ATTP0", "ATSH7E0", "ATCRA7E8", "ATPP2CSV81", "ATSD00",
+            "ATSI", "ATFI", "ATMA", "ATE0", "ATH1", "ATI", "atz",
+        )
+        val spy = SpyTransport()
+        for (text in rejected) {
+            assertTrue("'$text' must be rejected", RequestPolicy.evaluate(text) is PolicyDecision.Rejected)
+            submit(spy, text)
+        }
+        assertTrue(spy.written.isEmpty())
+    }
+
+    @Test
+    fun randomStringsAreAcceptedIffExactlyAllowlisted() {
+        val random = Random(9)
+        val alphabet = "0123456789ABCDEFabcdefATSPZHI \r\n\t\u0000"
+        val spy = SpyTransport()
+        val candidates = (1..20_000).map {
+            if (random.nextInt(10) == 0) {
+                allowlist.random(random) // make sure accepted inputs are exercised too
+            } else {
+                String(CharArray(random.nextInt(0, 7)) { alphabet.random(random) })
+            }
+        }
+        for (text in candidates) {
+            val accepted = RequestPolicy.evaluate(text) is PolicyDecision.Accepted
+            assertEquals("'$text'", text in allowlist, accepted)
+            submit(spy, text)
+        }
+        assertTrue(spy.written.all { it in allowlist })
+        assertTrue(spy.written.isNotEmpty())
+    }
+
+    @Test
+    fun encodedRequestIsCanonicalTextAndCarriageReturn() {
+        val r = RequestPolicy.vehicle(VehicleRequest.ENGINE_RPM)
+        assertEquals("010C\r", String(r.encoded(), Charsets.US_ASCII))
+    }
+
+    @Test
+    fun transportWriteAcceptsOnlyARequest() {
+        val write = AdapterTransport::class.java.declaredMethods.single { it.name == "write" }
+        assertEquals(Request::class.java, write.parameterTypes.first())
+    }
+
+    private companion object {
+        const val PINNED_ALLOWLIST_SHA256 = "e36627b54e95471033cded46080ef7fdf49bc739e12e2b1de6bb8a2821730530"
+    }
+}

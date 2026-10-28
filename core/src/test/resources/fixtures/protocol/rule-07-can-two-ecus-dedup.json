@@ -1,0 +1,11 @@
+{
+  "id": "rule-07-can-two-ecus-dedup",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327 data sheet ELM327DSJ p34 and p41: per-ECU attribution with headers on; repeated frame is deduplicated",
+  "request": "07",
+  "headers": true,
+  "form": "CAN_11BIT",
+  "reply": "7E8 04 47 01 01 33 00 00 00\r7E9 06 47 02 01 33 04 20 00\r7E8 04 47 01 01 33 00 00 00\r\r>",
+  "expected": "dtcs:7E8/P0133/PENDING;7E9/P0133/PENDING;7E9/P0420/PENDING"
+}

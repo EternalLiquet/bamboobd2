@@ -1,0 +1,11 @@
+{
+  "id": "ds-p31-010C-rpm",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "primary",
+  "source": "ELM327 data sheet ELM327DSJ p31-32: '41 0C 1A F8' is 6904 / 4 = 1726 rpm",
+  "request": "010C",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "41 0C 1A F8\r\r>",
+  "expected": "reading:rpm:-=1726.0"
+}
