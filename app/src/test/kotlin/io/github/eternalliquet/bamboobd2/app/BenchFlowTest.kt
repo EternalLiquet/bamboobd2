@@ -100,6 +100,9 @@ class BenchFlowTest {
         waitForText("Running the bench check on VEEPEAK")
         rule.onNodeWithText("Cancel").performScrollTo().performClick()
         waitForText("Result for VEEPEAK: cancelled")
+        // ATI was sent and the shadow adapter never answered: interrupted, not "not run".
+        rule.onNodeWithText("ATI: interrupted after sending").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("AT@1: not run").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("ATRV: not run").performScrollTo().assertIsDisplayed()
     }
 }

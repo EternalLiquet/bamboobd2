@@ -31,6 +31,8 @@
     <string name="bench_stop_cancelled">cancelled</string>
     <string name="bench_not_run">not run</string>
     <string name="bench_no_reply">no reply</string>
+    <string name="bench_interrupted">interrupted after sending</string>
+    <string name="bench_write_interrupted">write interrupted, may not have been sent</string>
     <string name="bench_empty_reply">(empty reply)</string>
     <string name="home_title">Start an offline session</string>
     <string name="home_explainer">Pick a scripted scenario. No adapter or car is involved.</string>

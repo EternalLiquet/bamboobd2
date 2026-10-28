@@ -129,6 +129,8 @@ private fun Result(device: String, result: BenchResult) {
         val outcome = when (val o = step.outcome) {
             is BenchOutcome.Reply -> o.lines.joinToString(" | ").ifEmpty { stringResource(R.string.bench_empty_reply) }
             is BenchOutcome.NoReply -> stringResource(R.string.bench_no_reply) + if (o.partial.isNotEmpty()) ": ${o.partial}" else ""
+            is BenchOutcome.Interrupted -> stringResource(R.string.bench_interrupted) + if (o.partial.isNotEmpty()) ": ${o.partial}" else ""
+            BenchOutcome.WriteInterrupted -> stringResource(R.string.bench_write_interrupted)
             BenchOutcome.NotRun -> stringResource(R.string.bench_not_run)
         }
         Text("${step.command}: $outcome", style = MaterialTheme.typography.bodyLarge)

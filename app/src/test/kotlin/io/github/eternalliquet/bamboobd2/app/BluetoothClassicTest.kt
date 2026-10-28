@@ -27,7 +27,9 @@ import java.io.PipedOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -183,6 +185,40 @@ class BluetoothClassicTest {
         } catch (e: TransportClosedException) {
             // expected
         }
+    }
+
+    @Test
+    fun cancellingAStalledWriteIsCancellationNotADisconnect() = runBlocking {
+        val closed = CountDownLatch(1)
+        val writing = CountDownLatch(1)
+        val socket = object : RfcommSocket {
+            override fun connect() = Unit
+            override val input: InputStream = PipedInputStream(PipedOutputStream(), 64)
+            override val output: OutputStream = object : OutputStream() {
+                override fun write(b: Int) {
+                    writing.countDown()
+                    // A stalled RFCOMM write: it ends only when the socket is closed.
+                    closed.await()
+                    throw IOException("socket closed")
+                }
+            }
+            override fun close() = closed.countDown()
+        }
+        val transport = BluetoothClassicTransport(socket, Dispatchers.IO)
+        var thrown: Throwable? = null
+        val job = launch(Dispatchers.Default) {
+            try {
+                transport.write(RequestPolicy.adapter(AdapterCommand.VERSION_ID))
+            } catch (e: Throwable) {
+                thrown = e
+                throw e
+            }
+        }
+        assertTrue(writing.await(2, TimeUnit.SECONDS))
+        job.cancel()
+        withTimeout(2_000) { job.join() }
+        assertTrue("socket closed on cancel", closed.await(0, TimeUnit.SECONDS))
+        assertTrue("expected cancellation, got $thrown", thrown is CancellationException && thrown !is TransportClosedException)
     }
 
     @Test

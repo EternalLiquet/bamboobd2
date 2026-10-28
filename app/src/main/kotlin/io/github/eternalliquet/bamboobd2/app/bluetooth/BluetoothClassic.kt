@@ -26,6 +26,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 /*
@@ -151,6 +153,8 @@ class BluetoothClassicTransport internal constructor(
                 }
             }
         } catch (e: IOException) {
+            // Our own close() on cancellation makes the write fail; report that as cancellation.
+            currentCoroutineContext().ensureActive()
             throw TransportClosedException("Bluetooth write failed: ${e.message}")
         }
     }

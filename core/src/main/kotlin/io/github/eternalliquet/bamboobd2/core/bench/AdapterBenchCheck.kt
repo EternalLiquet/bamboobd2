@@ -7,6 +7,7 @@ import io.github.eternalliquet.bamboobd2.core.protocol.RequestPolicy
 import io.github.eternalliquet.bamboobd2.core.protocol.ResponseAssembler
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
 import io.github.eternalliquet.bamboobd2.core.reader.AdapterProfile
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -18,6 +19,12 @@ sealed interface BenchOutcome {
     /** No prompt before the deadline; [partial] is whatever text arrived. */
     data class NoReply(val partial: String) : BenchOutcome
 
+    /** Sent, but the check was cancelled before the prompt; [partial] is whatever text arrived. */
+    data class Interrupted(val partial: String) : BenchOutcome
+
+    /** Cancelled while being written: it may or may not have reached the adapter. */
+    data object WriteInterrupted : BenchOutcome
+
     /** Not sent, because the check stopped earlier. */
     data object NotRun : BenchOutcome
 }
@@ -25,7 +32,7 @@ sealed interface BenchOutcome {
 data class BenchStep(
     val command: String,
     val outcome: BenchOutcome,
-    /** From the write to the prompt or deadline; null if not sent. */
+    /** From the write to the prompt, deadline or cancellation; null if not sent. */
     val elapsedMillis: Long? = null,
     /** How many separate reads delivered the reply. */
     val chunks: Int = 0,
@@ -58,10 +65,34 @@ class AdapterBenchCheck(
 ) {
     private val done = mutableListOf<BenchStep>()
     private var unsolicited = ""
+    private var assembler = ResponseAssembler()
 
-    /** The result so far, as if the check stopped now for [stop]. Use after cancelling [run]. */
-    fun partial(stop: BenchStop = BenchStop.CANCELLED, detail: String = ""): BenchResult =
-        BenchResult(done + COMMANDS.drop(done.size).map { BenchStep(it.text, BenchOutcome.NotRun) }, stop, detail, unsolicited)
+    /** The command being written or awaited, so a cancellation can report it as interrupted. */
+    private class InFlight(val command: AdapterCommand, val started: TimeMark) {
+        var written = false
+        var chunks = 0
+    }
+    private var inFlight: InFlight? = null
+
+    /**
+     * The result so far, as if the check stopped now for [stop]. Use after cancelling
+     * [run]: a command still in flight is reported as interrupted (with any partial
+     * reply), and only commands never sent are [BenchOutcome.NotRun].
+     */
+    fun partial(stop: BenchStop = BenchStop.CANCELLED, detail: String = ""): BenchResult {
+        val interrupted = inFlight?.let { f ->
+            val outcome = if (f.written) BenchOutcome.Interrupted(assembler.pending().trim()) else BenchOutcome.WriteInterrupted
+            BenchStep(f.command.text, outcome, f.started.elapsedNow().inWholeMilliseconds, f.chunks)
+        }
+        val recorded = done + listOfNotNull(interrupted)
+        val unsent = COMMANDS.drop(recorded.size).map { BenchStep(it.text, BenchOutcome.NotRun) }
+        return BenchResult(recorded + unsent, stop, detail, unsolicited)
+    }
+
+    private fun record(step: BenchStep) {
+        done += step
+        inFlight = null
+    }
 
     suspend fun run(): BenchResult {
         try {
@@ -71,30 +102,30 @@ class AdapterBenchCheck(
         }
         // A fresh buffer, so text read during the quiet window doesn't prefix the first reply.
         // Text arriving after that window would still land in it; the report shows it as-is.
-        val assembler = ResponseAssembler()
+        assembler = ResponseAssembler()
         for (command in COMMANDS) {
-            val started = timeSource.markNow()
-            var chunks = 0
+            val flight = InFlight(command, timeSource.markNow()).also { inFlight = it }
             val reply = try {
                 transport.write(guard(RequestPolicy.adapter(command)))
+                flight.written = true
                 withTimeoutOrNull(profile.adapterCommandMillis) {
                     var completed = emptyList<String>()
                     while (completed.isEmpty()) {
                         completed = assembler.feed(transport.read() ?: throw TransportClosedException("stream ended"))
-                        chunks++
+                        flight.chunks++
                     }
                     completed.first()
                 }
             } catch (e: TransportClosedException) {
-                done += BenchStep(command.text, BenchOutcome.NoReply(assembler.pending().trim()), started.elapsedNow().inWholeMilliseconds, chunks)
+                record(BenchStep(command.text, BenchOutcome.NoReply(assembler.pending().trim()), flight.started.elapsedNow().inWholeMilliseconds, flight.chunks))
                 return partial(BenchStop.DISCONNECTED, "during ${command.text}")
             }
-            val elapsed = started.elapsedNow().inWholeMilliseconds
+            val elapsed = flight.started.elapsedNow().inWholeMilliseconds
             if (reply == null) {
-                done += BenchStep(command.text, BenchOutcome.NoReply(assembler.pending().trim()), elapsed, chunks)
+                record(BenchStep(command.text, BenchOutcome.NoReply(assembler.pending().trim()), elapsed, flight.chunks))
                 return partial(BenchStop.NO_RESPONSE, "no prompt after ${command.text}")
             }
-            done += BenchStep(command.text, BenchOutcome.Reply(replyLines(reply, command)), elapsed, chunks)
+            record(BenchStep(command.text, BenchOutcome.Reply(replyLines(reply, command)), elapsed, flight.chunks))
         }
         return partial(BenchStop.COMPLETE)
     }
@@ -143,6 +174,8 @@ object BenchReport {
             val outcome = when (val o = step.outcome) {
                 is BenchOutcome.Reply -> o.lines.joinToString(" | ").ifEmpty { "(empty reply)" }
                 is BenchOutcome.NoReply -> "no reply" + if (o.partial.isNotEmpty()) ", partial: ${o.partial.oneLine()}" else ""
+                is BenchOutcome.Interrupted -> "interrupted after sending" + if (o.partial.isNotEmpty()) ", partial: ${o.partial.oneLine()}" else ", nothing received"
+                BenchOutcome.WriteInterrupted -> "write interrupted, may not have been sent"
                 BenchOutcome.NotRun -> "not run"
             }
             appendLine("${step.command}: $outcome$timing")

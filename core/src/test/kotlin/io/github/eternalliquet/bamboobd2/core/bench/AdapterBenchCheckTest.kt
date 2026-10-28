@@ -1,6 +1,9 @@
 package io.github.eternalliquet.bamboobd2.core.bench
 
+import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
 import io.github.eternalliquet.bamboobd2.core.protocol.PolicyDecision
+import io.github.eternalliquet.bamboobd2.core.protocol.TransportKind
+import kotlinx.coroutines.awaitCancellation
 import io.github.eternalliquet.bamboobd2.core.protocol.ReplayChunk
 import io.github.eternalliquet.bamboobd2.core.protocol.ReplayScript
 import io.github.eternalliquet.bamboobd2.core.protocol.ReplayStep
@@ -104,18 +107,52 @@ class AdapterBenchCheckTest {
     }
 
     @Test
-    fun cancellationLeavesThePartialResultReadable() = runTest {
-        val t = transport(listOf(ati, step("AT@1"), atrv))
+    fun cancellingWhileAwaitingASentCommandRecordsItAsInterrupted() = runTest {
+        // ATI completes; AT@1 is sent and gets "OBDII to" with no prompt; then the user cancels.
+        val t = transport(listOf(ati, step("AT@1", 10L to "OBDII to"), atrv))
         val check = AdapterBenchCheck(t, timeSource = testScheduler.timeSource)
         val job = async { check.run() }
         advanceTimeBy(500)
         runCurrent()
         job.cancel()
         runCurrent()
+        assertTrue("cancellation propagates", job.isCancelled)
+
         val r = check.partial()
         assertEquals(BenchStop.CANCELLED, r.stop)
+        assertEquals(listOf("ATI", "AT@1"), t.writes)
         assertEquals(BenchOutcome.Reply(listOf("ELM327 v1.5")), r.steps[0].outcome)
+        assertEquals(BenchOutcome.Interrupted("OBDII to"), r.steps[1].outcome)
+        assertEquals(1, r.steps[1].chunks)
+        assertTrue(r.steps[1].elapsedMillis!! > 0)
+        assertEquals(BenchStep("ATRV", BenchOutcome.NotRun), r.steps[2])
+        val report = BenchReport.text(r, "0.1.0-poc", "Android 15 (API 35)")
+        assertTrue(report, "ATI: ELM327 v1.5 [30 ms, 2 chunk(s)]" in report)
+        assertTrue(report, "AT@1: interrupted after sending, partial: OBDII to [" in report)
+        assertTrue(report, "1 chunk(s)]" in report.lines().single { it.startsWith("AT@1") })
+        assertTrue(report, "ATRV: not run" in report)
+    }
+
+    /** A transport whose write never completes, to cancel the check mid-write. */
+    private class StallingTransport : AdapterTransport {
+        override val kind: TransportKind = TransportKind.FAKE
+        override suspend fun write(request: Request) = awaitCancellation()
+        override suspend fun read(): ByteArray? = awaitCancellation()
+    }
+
+    @Test
+    fun cancellingDuringAWriteDoesNotClaimTheCommandWasSent() = runTest {
+        val check = AdapterBenchCheck(StallingTransport(), timeSource = testScheduler.timeSource)
+        val job = async { check.run() }
+        advanceTimeBy(500)
+        runCurrent()
+        job.cancel()
+        runCurrent()
+        assertTrue(job.isCancelled)
+        val r = check.partial()
+        assertEquals(BenchOutcome.WriteInterrupted, r.steps[0].outcome)
         assertEquals(BenchOutcome.NotRun, r.steps[1].outcome)
-        assertFalse("ATRV" in t.writes)
+        val report = BenchReport.text(r, "0.1.0-poc", "Android 15 (API 35)")
+        assertTrue(report, "ATI: write interrupted, may not have been sent" in report)
     }
 }
