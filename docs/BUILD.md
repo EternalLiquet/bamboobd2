@@ -55,7 +55,7 @@ Core only. This needs no Android SDK and never resolves the Android Gradle Plugi
 ./gradlew -p core check
 ```
 
-It runs the core unit tests, the G1 purity scan (`verifyCorePurity`), the API-26 Animal Sniffer check, and the negative control (`verifyApiNegativeControl`), which must flag a deliberate later-API call.
+It runs the core unit tests, the G1 purity scan (`verifyCorePurity`), the API-26 Animal Sniffer check, the negative control (`verifyApiNegativeControl`), which must flag a deliberate later-API call, and the G2 transport registry (`verifyTransportRegistry`, see [PROTOCOL.md](PROTOCOL.md)). The root build's `check` runs the registry check too.
 
 Android app (needs the SDK, via `ANDROID_HOME` or `local.properties`):
 

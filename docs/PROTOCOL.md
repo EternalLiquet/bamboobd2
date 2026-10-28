@@ -1,0 +1,88 @@
+# Protocol core: sources, rules and the proposed adapter command list
+
+This covers issue #9: request policy, ELM327-style framing and the generic OBD-II decoders in `:core` (`core/src/main/kotlin/.../core/protocol/`). All of it runs offline against `FakeTransport`. Nothing here has been sent to an adapter or a vehicle.
+
+## Sources
+
+| Source | What it is used for | How it was obtained |
+| --- | --- | --- |
+| **ELM327 data sheet, revision ELM327DSJ** (Elm Electronics, 94 pages) | Command termination, prompt, echo, status texts, header and multi-frame layouts, the DTC table, and the 0100, coolant and RPM worked examples | `elmelectronics.com` is blocked by this environment's network policy. Two independent GitHub copies were byte-identical (SHA-256 `43cab005c9e1678325a3ba64066db93e09e2a78a23eb5fa360ee1eaf9a585428`): [PowerBroker2/ELMduino `reference/ELM327DS.pdf`](https://github.com/PowerBroker2/ELMduino/blob/master/reference/ELM327DS.pdf) and [Obeisance/Arduino_OBD_interface_for_Torque `ELM327DS.pdf`](https://github.com/Obeisance/Arduino_OBD_interface_for_Torque/blob/master/ELM327DS.pdf). Retrieved 2026-10-28. Anyone with access to the vendor site should confirm the revision |
+| [python-OBD](https://github.com/brendan-w/python-OBD) at commit `a378bdd` (GPL-2.0): `obd/decoders.py`, `obd/UnitsAndScaling.py` | **Secondary** cross-check only, for engine load and vehicle speed scaling | Read, not copied. It is a third-party library, not a standard |
+| SAE J1979 / ISO 15031-5 | The governing standard for the formulas | **Not accessed**: paid standard, not available here |
+
+Page numbers below refer to ELM327DSJ.
+
+## Request policy (F9)
+
+- Only `RequestPolicy` creates a `Request`; its constructor is internal to `:core`, and `AdapterTransport.write` takes only a `Request`.
+- Deny by default. Accepted vehicle requests are exactly `0100`, `0104`, `0105`, `010C`, `010D`, `03`, `07`. The allowlist's SHA-256 is pinned in `RequestPolicyTest`.
+- Only the exact canonical text is accepted. The ELM327 ignores spaces and control characters and is case-insensitive (p9), so `0 4` would reach a vehicle as mode 04. Variants are rejected, not normalized.
+- Empty and whitespace-only lines are rejected: a single carriage return repeats the last command (p9, p11).
+- **All AT commands are rejected.** The list below is a proposal awaiting owner approval.
+
+## Framing (F1, F5)
+
+- Commands end with a carriage return (p8). Replies end with a carriage return and an optional linefeed, and the `>` prompt means the adapter is idle (p8–9). A reply is complete only at the prompt; text after the first prompt belongs to the next reply.
+- NUL bytes are dropped, as the data sheet advises (p9).
+- Echo is on by default (`E1`, p17); a first line repeating the command is removed.
+- Status texts map to typed results (pp87–89): `?`, `UNABLE TO CONNECT`, `CAN ERROR`, `BUFFER FULL`, `STOPPED`, `BUS ERROR`, `BUS BUSY`, `DATA ERROR`, `<DATA ERROR`, `FB ERROR`, `<RX ERROR`, `LV RESET`, `ACT ALERT`, `LP ALERT`, `ERRxx`, and a `BUS INIT: ...ERROR` line. `SEARCHING...` is skipped. `NO DATA` is its own result and never means "unsupported". An error line anywhere in a reply wins over data lines.
+- The caller states the format; it is not guessed from the bytes:
+  - **Headers off** (default, p18): each line is one message with no responder identity. A CAN multi-frame reply starts with a three-digit byte count and numbered lines `0:`, `1:`, … (pp42–45). Bytes beyond the count are ignored.
+  - **Headers on, 11-bit CAN**: `<ID> <PCI> <data> [padding]` (p41, p43). Single frames `0n`, first frames `1n nn`, consecutive frames `2n` in sequence, grouped per responder ID. Out-of-order, orphaned or truncated frames are malformed.
+  - **Headers on, non-CAN**: three header bytes, data, one check byte (p42). The third header byte identifies the responder. The check byte is dropped, not verified.
+  - 29-bit CAN and other shapes are not handled and come back malformed.
+
+## Decoding (F2, F6, F8, F13)
+
+- A reply decodes to a value only when its service byte is the request's service + 0x40 and, for mode 01, its PID byte matches. Otherwise it is malformed. Mode 01 replies must also have the exact data length.
+- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8).
+- **Readings**:
+
+  | PID | Formula | Source |
+  | --- | --- | --- |
+  | 05 coolant | A − 40 °C | Primary: `41 05 7B` → 83 °C (p31) |
+  | 0C RPM | (256A + B) / 4 | Primary: `41 0C 1A F8` → 1726 rpm (pp31–32) |
+  | 04 engine load | 100A / 255 % | **Secondary only** (python-OBD) |
+  | 0D vehicle speed | A km/h | **Secondary only** (python-OBD) |
+
+- **Trouble codes (03 stored, 07 pending)**: the first hex digit maps to P0–P3, C0–C3, B0–B3, U0–U3 (p34). Non-CAN replies have no count byte, and `00 00` pairs are filler. CAN replies carry a count in the second byte (p34), and anything after the counted codes must be zero padding. The same bytes therefore decode differently by protocol form, and the form must be stated. Codes are attributed to a responder when headers are on, and deduplicated by (responder, code) in first-seen order.
+- **Negative responses** `7F <service> <code>` are reported with their code. `7F xx 78` is "response pending" (p45). How long to wait for it belongs to the session layer (#10).
+
+## Proposed adapter command list (NOT APPROVED)
+
+None of these are allowed by `RequestPolicy`. The owner needs to approve an exact list before any is added. All are adapter-local settings or reads; none of them sends a message to a vehicle.
+
+| Command | Purpose | Page | Why |
+| --- | --- | --- | --- |
+| `ATE0` | Echo off | p17 | Smaller, unambiguous replies. The parser also handles echo on |
+| `ATL0` | Linefeeds off | p20 | Predictable line endings. The parser also handles linefeeds |
+| `ATH1` | Headers on | p18 | Needed to attribute codes and readings to a responder (p34) |
+| `ATDPN` | Describe the protocol by number | p17 | Tells CAN from non-CAN, which DTC decoding needs. Read only |
+| `ATI` | Print the version ID | p18 | Adapter identification for L1 evidence |
+| `AT@1` | Display the device description | p28 | Adapter identification for L1 evidence |
+| `ATRV` | Read the input voltage | p24 | Supports the live gate's low-voltage stop criterion |
+
+**Deliberately excluded:**
+- **Resets and defaults:** `ATZ`, `ATWS`, `ATD`.
+- **Protocol selection or search:** `ATSP`, `ATTP`, `ATSS`.
+- **Addressing and filters:** `ATSH`, `ATCRA`, `ATCF`, `ATCM`, `ATCP`, `ATTA`, `ATSR`, `ATRA`.
+- **Nonvolatile memory:** `ATPP`, `ATSD`.
+- **Bus initiation and wakeup:** `ATSI`, `ATFI`, `ATSW`, `ATWM`, `ATKW`.
+- **Monitoring:** `ATMA`, `ATMR`, `ATMT`, `ATMP`.
+- **Timeouts:** `ATST`. The session layer (#10) will decide whether a timeout command is needed.
+
+**Open point for L2:** the data sheet says ELM327 chips ship set to automatic protocol search (p20). Even without `ATSP0`, the first vehicle request may make the adapter search protocols. That is adapter-originated vehicle traffic and must be decided in the L2 plan ([LIVE_TEST_GATE.md](LIVE_TEST_GATE.md)).
+
+## Fixtures (F16)
+
+Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file each. Required fields:
+- `provenance`: `SYNTHETIC`, or `SANITIZED_CAPTURE` with `sha256` and `evidenceLog`.
+- `sourceTier`: `primary` (a data sheet example), `constructed` (built from a cited rule) or `secondary`.
+- `source`: the citation.
+- `request`, `headers`, `form`, `reply`, `expected`.
+
+`ReadPlanAndHygieneTest` rejects missing metadata, non-allowlisted requests, mode 09 replies and VIN-shaped tokens. All current fixtures are synthetic; no capture has been imported.
+
+## Transport registry (G2)
+
+`transport-registry.txt` lists every `AdapterTransport` implementation in `core/` and `app/` with its declared kind. Today that is `FakeTransport` and a test spy, both `FAKE`. `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`, and fails on any unlisted, removed, undeclared or `LIVE` transport.
