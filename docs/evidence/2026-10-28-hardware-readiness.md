@@ -29,9 +29,9 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 | --- | --- |
 | Printed hardware revision or label text on the adapter; label photo | Owner, before L1 (redact any serial number) |
 | Adapter firmware and chip. `ATI` reports "ELM327 v1.5" (see below), but many adapters, including clones, report that string, so it does not identify the chip or firmware | Not resolvable from `ATI` alone; record as reported |
-| Whether the unit pairs over Classic with this phone, and how reliably | L1 |
-| Chunk sizes, timing and status strings | L1 (the bench check records timing and chunk counts per command) |
-| Supply voltage seen by the adapter on the bench | L1 (`ATRV`; this is the adapter's input measurement, not a vehicle value) |
+| How reliably the unit connects over Classic (one session observed; it was already paired) | Observed during L2 and later use |
+| Timing and chunking of vehicle replies (adapter commands: about 30–37 ms, one chunk each) | L2 |
+| `ATRV` accuracy (11.3–11.4 V reported in accessory mode) | A multimeter check on the battery, if wanted |
 | What the adapter does on a vehicle (protocol search, ECUs answering) | L2 |
 
 ## L1 readiness
@@ -40,10 +40,10 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 | --- | --- |
 | Host phone | Available (owner). Android 17 (API 37) |
 | Adapter | Available (owner). Label details still to be recorded |
-| Bench 12 V supply and a correct adapter power fixture | **Not confirmed: L1 is blocked on this.** No purchase or improvised wiring is authorized. Options for the owner: use an existing bench supply with a proper OBD-II power fixture if one is already on hand, obtain one deliberately (owner decision), or keep L1 blocked |
+| Bench 12 V supply and a correct adapter power fixture | **None, and none planned** (owner, 2026-10-28). The requirement was dropped: L1 is now an adapter-only check in the parked car |
 | Operator | The owner |
 | Software | The offline bench path from #12 (adapter-only, rejects every vehicle request), pending its review and the L1 go |
-| Authorization | **Pending.** L1 needs its own reviewed plan and the owner's written go naming L1 in its issue |
+| Authorization | **L1 satisfied by owner decision, 2026-10-28**, on the strength of the owner-run check below. L2 is not authorized by this |
 
 ## Owner-run observation outside the L1 gate (2026-10-28)
 
@@ -69,4 +69,4 @@ The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) w
   - Behavior on a bench supply.
   - The chip or firmware behind the "ELM327 v1.5" string.
   - Whether `ATRV` is accurate. It is the adapter's own measurement of its input. 11.3–11.4 V in accessory mode with loads on is plausible, but lower than a healthy battery at rest (typically about 12.4–12.7 V); checking with a meter would settle it.
-- **Open decision for the owner:** L1 is defined as a bench supply with the adapter out of the car. Either keep that definition and still run L1 on a bench, or revise L1 to allow an adapter-only check in the parked car with the engine off. The revision would be made in the L1 issue before more hardware runs.
+- **Owner decision (2026-10-28):** with no bench supply, L1 is redefined as this in-car adapter-only check, and **this run satisfies it**. The owner judged that further L1 runs would prove nothing that L2 won't show. The limits above stay recorded; they are not blockers for L2.

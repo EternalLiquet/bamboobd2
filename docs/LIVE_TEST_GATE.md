@@ -7,7 +7,7 @@ Nothing below is authorized, including powering or connecting any adapter. This 
 | Stage | What happens | Vehicle traffic |
 | --- | --- | --- |
 | L0 | Offline: fake reader, fake transport, synthetic and sanitized replay (current) | None |
-| L1 | Bench: adapter powered from a bench 12 V supply, not plugged into a car; the host device (phone first) connects; adapter-local commands only | None |
+| L1 | Adapter-only: the host device (phone first) connects and sends adapter-local commands only. Originally on a bench 12 V supply; revised 2026-10-28 by the owner (no bench supply exists or is planned) to the adapter in the parked car's OBD-II port, engine off. **Satisfied 2026-10-28** (see below) | None from our code; adapter-originated traffic unmeasured |
 | L2 | Parked, ignition on, engine off: allowlisted generic reads only (`0100`, `03`, `07`) | Read-only, generic |
 | L3 | Parked, engine running outdoors or ventilated, in park with parking brake: the four live PIDs | Read-only, generic |
 
@@ -17,7 +17,7 @@ A stage is approved for one **host platform, transport medium and adapter model*
 
 ## Evidence needed before L1
 
-Current status (2026-10-28): phone (Android 17, API 37), adapter and operator are recorded, the adapter label is still to be recorded, and **the bench supply is not confirmed, so L1 is blocked**. An owner-run adapter-only check in the parked car (outside this gate) is recorded in the readiness note, not as an L1 result. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
+**Status (2026-10-28): L1 is satisfied by owner decision.** The owner has no bench supply and won't get one, so the bench requirement is dropped. The owner's adapter-only check in the parked car (engine off, accessory mode) answered L1's question: this phone connects to this adapter over Bluetooth Classic, and it answers `ATI`, `AT@1` and `ATRV`. Further L1 runs (repeat-connection reliability, chip identity, `ATRV` accuracy) are judged not worth a separate stage; anything relevant will show up in L2. The adapter label is still unrecorded. The rest of this section is kept as the original L1 checklist. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
 
 These are documentation items. None requires powering or connecting the adapter.
 
