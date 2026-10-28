@@ -21,7 +21,34 @@ val verifyTransportRegistry by tasks.registering {
     inputs.files(sources.map { fileTree(it) { include("**/*.kt", "**/*.java") } })
     inputs.file(pinnedFile)
     doLast {
-        val declaration = Regex("""(?:class|object)\s+(\w+)[^{]*?(?::|implements)\s*[^{]*?\bAdapterTransport\b""")
+        // A declaration's supertypes: Kotlin "class X(...) : A, B" after the balanced
+        // constructor parentheses, or Java "extends/implements" before the body.
+        val header = Regex("""\b(?:class|object)\s+(\w+)""")
+        fun skipBalanced(text: String, start: Int, open: Char, close: Char): Int {
+            var depth = 0
+            for (i in start until text.length) {
+                if (text[i] == open) depth++
+                if (text[i] == close && --depth == 0) return i + 1
+            }
+            return text.length
+        }
+        fun supertypes(text: String, from: Int): String {
+            var i = from
+            fun skipSpace() { while (i < text.length && text[i].isWhitespace()) i++ }
+            skipSpace()
+            if (i < text.length && text[i] == '<') i = skipBalanced(text, i, '<', '>')
+            // Constructor modifiers, e.g. "internal constructor(...)".
+            while (true) {
+                skipSpace()
+                val word = Regex("""(private|internal|protected|public|constructor)\b""").matchAt(text, i) ?: break
+                i = word.range.last + 1
+            }
+            skipSpace()
+            if (i < text.length && text[i] == '(') i = skipBalanced(text, i, '(', ')')
+            val end = listOf(text.indexOf('{', i), text.indexOf("\n\n", i)).filter { it >= 0 }.minOrNull() ?: text.length
+            val tail = text.substring(i, end).trimStart()
+            return if (tail.startsWith(":") || tail.startsWith("extends") || tail.startsWith("implements")) tail else ""
+        }
         val anonymous = Regex("""object\s*:\s*[^{]*?\bAdapterTransport\b|new\s+AdapterTransport\s*\(""")
         val anyDeclaration = Regex("""\b(?:class|object|interface)\s+\w+""")
         val kind = Regex("""TransportKind\.(\w+)""")
@@ -32,7 +59,7 @@ val verifyTransportRegistry by tasks.registering {
                 val text = file.readText()
                 val path = file.relativeTo(repoRoot).invariantSeparatorsPath
                 anonymous.findAll(text).forEach { problems += "anonymous AdapterTransport in $path; give it a name and pin it" }
-                declaration.findAll(text).forEach { m ->
+                header.findAll(text).filter { Regex("""\bAdapterTransport\b""").containsMatchIn(supertypes(text, it.range.last + 1)) }.forEach { m ->
                     // Look for the kind only inside this declaration, up to the next one.
                     val end = anyDeclaration.find(text, m.range.last + 1)?.range?.first ?: text.length
                     val declared = kind.find(text.substring(m.range.last, end))?.groupValues?.get(1) ?: "UNDECLARED"
@@ -45,7 +72,7 @@ val verifyTransportRegistry by tasks.registering {
         (pinned - found).forEach { problems += "pinned but not found: $it" }
         found.filter { it.endsWith(" LIVE") || it.endsWith(" UNDECLARED") }.forEach { problems += "needs live-gate review or a declared kind: $it" }
         check(problems.isEmpty()) { problems.joinToString("\n") }
-        logger.lifecycle("Transport registry: ${found.size} implementation(s), all FAKE and pinned")
+        logger.lifecycle("Transport registry: ${found.size} implementation(s), none LIVE, all pinned")
     }
 }
 

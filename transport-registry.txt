@@ -4,3 +4,4 @@
 # only in review; a LIVE entry also needs its own live-gate review.
 core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/FakeTransport.kt FakeTransport FAKE
 core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/RequestPolicyTest.kt SpyTransport FAKE
+core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/ReplayTransport.kt ReplayTransport REPLAY

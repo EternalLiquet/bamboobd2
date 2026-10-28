@@ -8,6 +8,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.reader.DiagnosticReader
+import io.github.eternalliquet.bamboobd2.core.reader.DtcRead
 import io.github.eternalliquet.bamboobd2.core.reader.FakeReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 import kotlinx.coroutines.test.TestScope
@@ -59,7 +60,7 @@ class SessionControllerTest {
         val requested = mutableListOf<String>()
         val reader = object : DiagnosticReader by FakeReader(FakeScenario.UNSUPPORTED_PID, 100) {
             private val inner = FakeReader(FakeScenario.UNSUPPORTED_PID, 100)
-            override suspend fun readPid(pid: String): ReadingResult {
+            override suspend fun readPid(pid: String): List<ReadingResult> {
                 requested += pid
                 return inner.readPid(pid)
             }
@@ -78,9 +79,9 @@ class SessionControllerTest {
         val requested = mutableListOf<String>()
         val reader = object : DiagnosticReader by FakeReader(FakeScenario.NO_CODES, 100) {
             override suspend fun readSupportedPids(): SupportedPids = SupportedPids.Unknown
-            override suspend fun readPid(pid: String): ReadingResult {
+            override suspend fun readPid(pid: String): List<ReadingResult> {
                 requested += pid
-                return ReadingResult.Value(1.0, "x")
+                return listOf(ReadingResult.Value(1.0, "x"))
             }
         }
         val c = controller()
@@ -127,8 +128,8 @@ class SessionControllerTest {
     @Test
     fun readerErrorFinishesAsFailedWithPartialData() = runTest {
         val reader = object : DiagnosticReader by FakeReader(FakeScenario.TWO_CODES, 100) {
-            override suspend fun readDtcs(kind: DtcKind): List<Dtc> =
-                if (kind == DtcKind.PENDING) throw IllegalStateException("boom") else listOf(Dtc("P0133", DtcKind.STORED))
+            override suspend fun readDtcs(kind: DtcKind): DtcRead =
+                if (kind == DtcKind.PENDING) throw IllegalStateException("boom") else DtcRead.Read(listOf(Dtc("P0133", DtcKind.STORED)))
         }
         val c = controller()
         c.start(reader)
