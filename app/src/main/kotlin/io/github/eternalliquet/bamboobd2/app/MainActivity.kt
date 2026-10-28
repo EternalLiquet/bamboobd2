@@ -25,7 +25,9 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = nav, startDestination = "home") {
                     composable("home") {
                         HomeScreen(
+                            replays = vm.replays,
                             onStart = { scenario -> vm.start(scenario); nav.navigate("session") },
+                            onStartReplay = { id -> vm.startReplay(id); nav.navigate("session") },
                             onOpenSaved = { nav.navigate("saved") },
                         )
                     }

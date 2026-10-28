@@ -3,11 +3,14 @@ package io.github.eternalliquet.bamboobd2.core.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Where a session's data came from. Only simulated data exists in this milestone. */
+/** Where a session's data came from. No live source exists in this milestone. */
 @Serializable
 enum class Provenance {
-    /** Scripted by [io.github.eternalliquet.bamboobd2.core.reader.FakeReader]; not a vehicle scan. */
+    /** Scripted by [io.github.eternalliquet.bamboobd2.core.reader.FakeReader] or a fake transport; not a vehicle scan. */
     SIMULATED,
+
+    /** Adapter bytes replayed from a script or sanitized capture; not a live scan. */
+    REPLAY,
 }
 
 @Serializable
@@ -19,9 +22,14 @@ data class Dtc(val code: String, val kind: DtcKind, val ecu: String? = null)
 
 @Serializable
 sealed interface SupportedPids {
+    /**
+     * [pids] were confirmed by at least one responder. When [complete] is false,
+     * some responder never reported its map, so a PID missing from [pids] is
+     * unknown rather than unsupported.
+     */
     @Serializable
     @SerialName("known")
-    data class Known(val pids: List<String>) : SupportedPids
+    data class Known(val pids: List<String>, val complete: Boolean = true) : SupportedPids
 
     /** The supported-PID map could not be read. Nothing is requested on that basis. */
     @Serializable
@@ -33,7 +41,17 @@ sealed interface SupportedPids {
 sealed interface ReadingResult {
     @Serializable
     @SerialName("value")
-    data class Value(val value: Double, val unit: String) : ReadingResult
+    data class Value(val value: Double, val unit: String, val ecu: String? = null) : ReadingResult
+
+    /** The request was sent and the adapter reported NO DATA. This is not "unsupported". */
+    @Serializable
+    @SerialName("no_data")
+    data object NoData : ReadingResult
+
+    /** The request was sent but gave no usable value (adapter error, malformed or negative reply). */
+    @Serializable
+    @SerialName("failed")
+    data class Failed(val reason: String) : ReadingResult
 
     /** The supported-PID map says the vehicle does not report this PID. */
     @Serializable
@@ -54,8 +72,11 @@ enum class SessionOutcome {
     COMPLETE,
     CANCELLED,
 
-    /** The reader stopped with an unexpected error; data read so far is kept. */
+    /** The reader stopped with an error or no response; data read so far is kept. */
     FAILED,
+
+    /** The adapter connection ended; data read so far is kept. Never reconnected automatically. */
+    DISCONNECTED,
 }
 
 @Serializable

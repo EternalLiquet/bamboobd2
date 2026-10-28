@@ -37,7 +37,7 @@ Page numbers below refer to ELM327DSJ.
 ## Decoding (F2, F6, F8, F13)
 
 - A reply decodes to a value only when its service byte is the request's service + 0x40 and, for mode 01, its PID byte matches. Otherwise it is malformed. Mode 01 replies must also have the exact data length.
-- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8).
+- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8). If some responders report a map but another's reply stays pending (#10), the confirmed PIDs are still requested. Discovery is marked incomplete, so a PID missing from the maps is recorded as unknown rather than unsupported, and the saved session and the app keep showing that discovery was incomplete.
 - **Readings**:
 
   | PID | Formula | Source |
@@ -48,7 +48,7 @@ Page numbers below refer to ELM327DSJ.
   | 0D vehicle speed | A km/h | Same as PID 04 |
 
 - **Trouble codes (03 stored, 07 pending)**: the first hex digit maps to P0–P3, C0–C3, B0–B3, U0–U3 (p34). Non-CAN replies have no count byte, and `00 00` pairs are filler. CAN replies carry a count in the second byte (p34), and anything after the counted codes must be zero padding. The same bytes therefore decode differently by protocol form, and the form must be stated. Codes are attributed to a responder when headers are on, and deduplicated by (responder, code) in first-seen order.
-- **Negative responses** `7F <service> <code>` are reported with their code. `7F xx 78` is "response pending" (p45). How long to wait for it belongs to the session layer (#10).
+- **Negative responses** `7F <service> <code>` are reported with their code. `7F xx 78` is "response pending" (p45); see the session rules below.
 
 ## Approved adapter command list
 
@@ -75,6 +75,28 @@ The owner approved exactly these seven on 2026-10-28 (`AdapterCommand` in code).
 
 **Open point for L2:** the data sheet says ELM327 chips ship set to automatic protocol search (p20). Even without `ATSP0`, the first vehicle request may make the adapter search protocols. That is adapter-originated vehicle traffic and must be decided in the L2 plan ([LIVE_TEST_GATE.md](LIVE_TEST_GATE.md)).
 
+## Sessions over a transport (#10)
+
+`ElmObdReader` (`core/.../reader/`) is the one protocol path. Replay uses it today, and hardware later changes only the transport. It runs over any `AdapterTransport`, and its provenance comes from the transport's declared kind: `FAKE` gives `SIMULATED` and `REPLAY` gives `REPLAY`. No live kind exists.
+
+- **Order.**
+  1. `ATE0`, `ATL0` and `ATH1`, each of which must answer `OK`. Anything else stops the session.
+  2. `0100`, then `ATDPN`, which picks the reply form: protocols 1–5 are non-CAN, and 6 and 8 are 11-bit CAN. Any other answer stops the session, because 29-bit CAN and J1939 aren't handled.
+  3. `03`, `07`, and only the readings the supported-PID map allows.
+
+  `ATI`, `AT@1` and `ATRV` are approved but not used.
+- **Idle before writing.** Any character sent while the adapter is working interrupts it, so software must wait for the prompt (p9). Before each write the reader requires that no reply is still unfinished and that the adapter has been quiet for `quietMillis`. Before the first command it cannot know the adapter is at its prompt; quiet is all it checks. Text that arrives then belongs to no request and is discarded, with a `stale_reply_discarded` event. If a partial reply is still pending, the reader waits for its prompt first.
+- **Deadlines.** Each exchange has a deadline from write to prompt. Missing it covers no bytes, a partial reply and a missing prompt alike. If a `7F xx 78` line has arrived by then, the deadline is extended **once** by `pendingExtensionMillis`. The adapter applies its own 5 s pending timer for CAN and KWP (p45). The host extension is a second, bounded guard. A pending line counts as resolved only when a later final reply from the **same responder** follows it in the same response. Another responder's reply, or one that came before the pending line, doesn't resolve it. Values and codes from responders that did answer are kept, and each unresolved responder is recorded: a reading gets a "no final reply" failure for that responder, and a code list is kept but not marked as read, so the app never reports "no codes" from it. A response with only pending lines is recorded as "no final reply".
+- **Retry.** After a missed deadline the reader sends nothing. It waits up to `resyncMillis` for the prompt. If the prompt comes, the late reply is discarded and the same request is sent **once more**. If it doesn't, or the second try also misses its deadline, the session stops (`FAILED`). There is no reset, no other recovery command and no blind resend.
+- **Stops.** A closed transport gives `DISCONNECTED`. No reply, an adapter command answered with anything but `OK`, no usable protocol, or `LV RESET` (the adapter restarted and lost its settings) gives `FAILED`. Data read so far is kept with `complete=false`, and the reason is the last session event. The reader never reconnects; a new connection is a new session.
+- **Results.** A reading is a value per responder, `NO DATA`, or a failure with its reason. A code list that wasn't read isn't marked as read, so an empty list never reads as "no codes".
+- **Limits.**
+  - The deadlines in `AdapterProfile.PROVISIONAL` are invented for offline replay and unmeasured.
+  - A stray reply that arrives *after* a write can't be told apart from the real one unless its service or PID differs.
+  - Replay proves processing of the scripted bytes, not adapter timing.
+
+Replay scripts are described in [CAPTURE_IMPORT.md](CAPTURE_IMPORT.md). The four bundled ones are synthetic, built from the data sheet examples, with invented timing.
+
 ## Fixtures (F16)
 
 Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file each. Required fields:
@@ -87,4 +109,4 @@ Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file eac
 
 ## Transport registry (G2)
 
-`transport-registry.txt` lists every `AdapterTransport` implementation in any module's `src/` tree (Kotlin and Java) with its declared kind. Today that is `FakeTransport` and a test spy, both `FAKE`. `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`. It fails on an unlisted, removed, undeclared, anonymous or `LIVE` transport that directly names `AdapterTransport`. It is a source-text scan, so an implementation that reaches the interface only through another base type would not be detected; adding such a base type must come with an update to the check.
+`transport-registry.txt` lists every `AdapterTransport` implementation in any module's `src/` tree (Kotlin and Java) with its declared kind. Today that is `FakeTransport` and a test spy (`FAKE`) and `ReplayTransport` (`REPLAY`). `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`. It fails on an unlisted, removed, undeclared, anonymous or `LIVE` transport that directly names `AdapterTransport`. It reads each class's supertype list after any annotations and constructor parameters, so a class that only takes a transport as a parameter is not counted. Comments and string literals are blanked out first. A class header that names `AdapterTransport` in a shape the scan can't parse (for example a `where` clause) fails the check rather than being skipped. It is a source-text scan, so an implementation that reaches the interface only through another base type would not be detected; adding such a base type must come with an update to the check.

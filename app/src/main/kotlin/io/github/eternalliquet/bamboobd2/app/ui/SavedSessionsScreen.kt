@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
-import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
 import java.text.DateFormat
 import java.util.Date
@@ -42,11 +41,7 @@ fun SavedSessionsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onBack: () -
                     when (entry) {
                         is StoredSession.Readable -> {
                             val r = entry.record
-                            val status = when (r.outcome) {
-                                SessionOutcome.COMPLETE -> stringResource(R.string.status_complete)
-                                SessionOutcome.FAILED -> stringResource(R.string.status_failed)
-                                else -> stringResource(R.string.status_cancelled)
-                            }
+                            val status = statusText(r.outcome)
                             ListItem(
                                 headlineContent = { Text(DateFormat.getDateTimeInstance().format(Date(r.startedAt))) },
                                 supportingContent = { Text("${r.provenance} · ${r.sourceLabel} · $status") },

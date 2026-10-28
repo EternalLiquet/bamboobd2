@@ -35,17 +35,23 @@ class FakeReader(
         )
     }
 
-    override suspend fun readDtcs(kind: DtcKind): List<Dtc> {
+    override suspend fun readDtcs(kind: DtcKind): DtcRead {
         delay(stepDelayMillis)
-        if (scenario != FakeScenario.TWO_CODES) return emptyList()
-        return when (kind) {
-            DtcKind.STORED -> listOf(Dtc("P0133", DtcKind.STORED))
-            DtcKind.PENDING -> listOf(Dtc("P0171", DtcKind.PENDING))
-        }
+        if (scenario != FakeScenario.TWO_CODES) return DtcRead.Read(emptyList())
+        return DtcRead.Read(
+            when (kind) {
+                DtcKind.STORED -> listOf(Dtc("P0133", DtcKind.STORED))
+                DtcKind.PENDING -> listOf(Dtc("P0171", DtcKind.PENDING))
+            },
+        )
     }
 
-    override suspend fun readPid(pid: String): ReadingResult {
+    override suspend fun readPid(pid: String): List<ReadingResult> {
         delay(stepDelayMillis)
+        return listOf(value(pid))
+    }
+
+    private fun value(pid: String): ReadingResult {
         return when (pid) {
             ObdPid.ENGINE_LOAD.code -> ReadingResult.Value(50.2, ObdPid.ENGINE_LOAD.unit)
             ObdPid.COOLANT_TEMP.code -> ReadingResult.Value(83.0, ObdPid.COOLANT_TEMP.unit)

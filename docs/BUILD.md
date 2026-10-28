@@ -63,11 +63,11 @@ Android app (needs the SDK, via `ANDROID_HOME` or `local.properties`):
 ./gradlew :app:check :app:verifyNoForbiddenPermissions :app:assembleDebug
 ```
 
-`:app:check` runs lint and the Robolectric unit tests for both variants. `verifyNoForbiddenPermissions` fails if the merged manifest requests any Bluetooth, location or Internet permission (F11). The merged manifest contains only `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, an app-private permission that AndroidX core adds.
+`:app:check` runs lint and the Robolectric unit tests for both variants, including replay sessions. `verifyNoForbiddenPermissions` fails if the merged manifest requests any Bluetooth, location or Internet permission (F11). The merged manifest contains only `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, an app-private permission that AndroidX core adds.
 
 ## What the app tests do and don't show
 
-The app tests run under Robolectric, which executes Android framework code on the host JVM. They exercise the screens, navigation, the simulation banner and save/reopen. They are **not** a device or emulator run: file I/O uses the host JVM, not Android's runtime, and rendering is not pixel-accurate. The app has not been run on a phone or emulator.
+The app tests run under Robolectric, which executes Android framework code on the host JVM. They exercise the screens, navigation, the provenance banner, replay sessions and save/reopen. They are **not** a device or emulator run: file I/O uses the host JVM, not Android's runtime, and rendering is not pixel-accurate. The app has not been run on a phone or emulator.
 
 ## Environment notes (not part of the repository)
 

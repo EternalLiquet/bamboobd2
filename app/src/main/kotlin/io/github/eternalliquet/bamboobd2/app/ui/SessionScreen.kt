@@ -44,7 +44,12 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
     val finished = state is SessionState.Finished
     LaunchedEffect(finished) { if (finished) scroll.scrollTo(0) }
 
-    DiagnosticScaffold(title = stringResource(R.string.session_title)) { padding ->
+    val provenance = when (val s = state) {
+        SessionState.Idle -> null
+        is SessionState.Running -> s.record.provenance
+        is SessionState.Finished -> s.record.provenance
+    }
+    DiagnosticScaffold(title = stringResource(R.string.session_title), provenance = provenance) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)

@@ -1,0 +1,116 @@
+{
+  "id": "can-complete",
+  "label": "CAN, one stored code",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327DSJ: OK replies and echo (p17-18), headers-on 11-bit CAN layout and the 0100 reply '7E8 06 41 00 BE 1F B8 10' (p41), DPN 'A6' (pp17, 25-26), DTC count byte (p34), coolant 41 05 7B and RPM 41 0C 1A F8 (pp31-32), response pending 7F xx 78 (p45). Load and speed bytes are invented. The code P0133 is invented. Timing is invented, not measured.",
+  "steps": [
+    {
+      "request": "ATE0",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "ATE0\rOK\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "ATL0",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "OK\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "ATH1",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "OK\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "0100",
+      "chunks": [
+        {
+          "atMillis": 150,
+          "text": "SEARCHING...\r"
+        },
+        {
+          "atMillis": 400,
+          "text": "7E8 06 41 00 BE 1F B8 10\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "ATDPN",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "A6\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "03",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 04 43 01 01 33\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "07",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 02 47 00\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "0104",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 03 41 04 80\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "0105",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 03 7F 01 78\r"
+        },
+        {
+          "atMillis": 600,
+          "text": "7E8 03 41 05 7B\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "010C",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 04 41 0C 1A F8\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "010D",
+      "chunks": [
+        {
+          "atMillis": 40,
+          "text": "7E8 03 41 0D 00\r\r>"
+        }
+      ]
+    }
+  ]
+}

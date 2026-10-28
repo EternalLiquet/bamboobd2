@@ -9,6 +9,9 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.reader.DiagnosticReader
+import io.github.eternalliquet.bamboobd2.core.reader.DtcRead
+import io.github.eternalliquet.bamboobd2.core.reader.ReaderStoppedException
+import io.github.eternalliquet.bamboobd2.core.reader.StopReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +31,7 @@ sealed interface SessionState {
     data class Finished(val record: SessionRecord) : SessionState
 }
 
-enum class Step { SUPPORTED_PIDS, STORED_CODES, PENDING_CODES, READINGS }
+enum class Step { CONNECTING, SUPPORTED_PIDS, STORED_CODES, PENDING_CODES, READINGS }
 
 /**
  * Runs one read-only diagnostic session at a time and builds its record. The
@@ -55,45 +58,70 @@ class SessionController(
             sourceLabel = reader.sourceLabel,
             complete = false,
         )
-        _state.value = SessionState.Running(initial, Step.SUPPORTED_PIDS)
+        _state.value = SessionState.Running(initial, Step.CONNECTING)
         // ATOMIC: even if cancel() runs before the coroutine starts, it still
         // runs far enough to record the cancellation instead of staying Running.
         job = scope.launch(start = CoroutineStart.ATOMIC) {
             var record = initial
+            // Reader notes are recorded as they arrive, and on the way out.
+            fun withNotes(r: SessionRecord): SessionRecord {
+                val notes = reader.takeNotes()
+                if (notes.isEmpty()) return r
+                val now = clock.nowMillis()
+                return r.copy(events = r.events + notes.map { SessionEvent(now, it.kind, it.detail) })
+            }
             try {
-                record = record.copy(supportedPids = reader.readSupportedPids())
+                reader.open()
+                record = withNotes(record)
+                emitRunning(record, Step.SUPPORTED_PIDS)
+
+                record = withNotes(record.copy(supportedPids = reader.readSupportedPids()))
                 emitRunning(record, Step.STORED_CODES)
 
-                record = record.copy(
-                    dtcs = record.dtcs + reader.readDtcs(DtcKind.STORED),
-                    dtcKindsRead = record.dtcKindsRead + DtcKind.STORED,
-                )
-                emitRunning(record, Step.PENDING_CODES)
-
-                record = record.copy(
-                    dtcs = record.dtcs + reader.readDtcs(DtcKind.PENDING),
-                    dtcKindsRead = record.dtcKindsRead + DtcKind.PENDING,
-                )
-                emitRunning(record, Step.READINGS)
+                for (kind in listOf(DtcKind.STORED, DtcKind.PENDING)) {
+                    record = when (val read = reader.readDtcs(kind)) {
+                        is DtcRead.Read -> record.copy(dtcs = record.dtcs + read.codes, dtcKindsRead = record.dtcKindsRead + kind)
+                        // Codes kept, list not marked read: an incomplete list never counts as complete.
+                        is DtcRead.Incomplete -> record.copy(
+                            dtcs = record.dtcs + read.codes,
+                            events = record.events + SessionEvent(clock.nowMillis(), "codes_incomplete", "${kind.name.lowercase()}: ${read.reason}"),
+                        )
+                        // Not marked as read, so an empty list is never shown as "no codes".
+                        is DtcRead.NotRead -> record.copy(
+                            events = record.events + SessionEvent(clock.nowMillis(), "codes_not_read", "${kind.name.lowercase()}: ${read.reason}"),
+                        )
+                    }
+                    record = withNotes(record)
+                    emitRunning(record, if (kind == DtcKind.STORED) Step.PENDING_CODES else Step.READINGS)
+                }
 
                 for (pid in ObdPid.entries) {
-                    val result = when (val supported = record.supportedPids) {
+                    val results = when (val supported = record.supportedPids) {
                         // Never request a PID the vehicle says it lacks, or one we
                         // could not confirm.
-                        is SupportedPids.Known ->
-                            if (pid.code in supported.pids) reader.readPid(pid.code) else ReadingResult.Unsupported
-                        SupportedPids.Unknown -> ReadingResult.UnknownCapability
+                        is SupportedPids.Known -> when {
+                            pid.code in supported.pids -> reader.readPid(pid.code)
+                            // Only a complete discovery can say a PID is not supported.
+                            supported.complete -> listOf(ReadingResult.Unsupported)
+                            else -> listOf(ReadingResult.UnknownCapability)
+                        }
+                        SupportedPids.Unknown -> listOf(ReadingResult.UnknownCapability)
                     }
-                    record = record.copy(readings = record.readings + Reading(pid.code, result, clock.nowMillis()))
+                    val at = clock.nowMillis()
+                    record = withNotes(record.copy(readings = record.readings + results.map { Reading(pid.code, it, at) }))
                     emitRunning(record, Step.READINGS)
                 }
                 finish(record, SessionOutcome.COMPLETE)
             } catch (e: CancellationException) {
-                finish(record, SessionOutcome.CANCELLED)
+                finish(withNotes(record), SessionOutcome.CANCELLED)
                 throw e
+            } catch (e: ReaderStoppedException) {
+                // A stop is final: no retry, no reconnect. A new session starts from scratch.
+                val outcome = if (e.reason == StopReason.DISCONNECTED) SessionOutcome.DISCONNECTED else SessionOutcome.FAILED
+                finish(withNotes(record), outcome, e.message.orEmpty())
             } catch (e: Exception) {
                 // Keep partial data and report the stop; no retry.
-                finish(record, SessionOutcome.FAILED, e::class.simpleName.orEmpty())
+                finish(withNotes(record), SessionOutcome.FAILED, e::class.simpleName.orEmpty())
             }
         }
         return true
