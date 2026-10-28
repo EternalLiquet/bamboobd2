@@ -28,6 +28,7 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
             val status = when (record.outcome) {
                 SessionOutcome.COMPLETE -> stringResource(R.string.status_complete)
                 SessionOutcome.CANCELLED -> stringResource(R.string.status_cancelled)
+                SessionOutcome.FAILED -> stringResource(R.string.status_failed)
                 null -> stringResource(R.string.reading_progress)
             }
             Text(status, style = MaterialTheme.typography.titleMedium)
@@ -35,14 +36,12 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
 
         Text(stringResource(R.string.codes_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(stringResource(R.string.codes_scope), style = MaterialTheme.typography.bodySmall)
-        // Only a completed code read can say "none reported".
-        val codesRead = record.outcome == SessionOutcome.COMPLETE
         when {
             record.dtcs.isNotEmpty() -> record.dtcs.forEach { dtc ->
                 val kind = if (dtc.kind == DtcKind.STORED) R.string.code_stored else R.string.code_pending
                 Text("${dtc.code} (${stringResource(kind)})", style = MaterialTheme.typography.bodyLarge)
             }
-            codesRead -> Text(stringResource(R.string.no_codes), style = MaterialTheme.typography.bodyLarge)
+            record.allCodesRead -> Text(stringResource(R.string.no_codes), style = MaterialTheme.typography.bodyLarge)
             else -> Text(stringResource(R.string.not_read), style = MaterialTheme.typography.bodyLarge)
         }
 

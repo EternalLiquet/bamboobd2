@@ -34,6 +34,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastSave = MutableStateFlow<SaveResult?>(null)
     val lastSave: StateFlow<SaveResult?> = _lastSave.asStateFlow()
 
+    private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
     fun start(scenario: FakeScenario) {
         _lastSave.value = null
         controller.start(FakeReader(scenario))
@@ -43,8 +46,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun save() {
         val finished = session.value as? SessionState.Finished ?: return
+        if (_saving.value || _lastSave.value is SaveResult.Saved) return
+        _saving.value = true
         viewModelScope.launch {
-            _lastSave.value = withContext(Dispatchers.IO) { store.save(finished.record) }
+            try {
+                _lastSave.value = withContext(Dispatchers.IO) { store.save(finished.record) }
+            } finally {
+                _saving.value = false
+            }
             refreshSaved()
         }
     }

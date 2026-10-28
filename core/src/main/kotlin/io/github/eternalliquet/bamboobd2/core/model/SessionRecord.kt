@@ -50,7 +50,13 @@ sealed interface ReadingResult {
 data class Reading(val pid: String, val result: ReadingResult, val atMillis: Long)
 
 @Serializable
-enum class SessionOutcome { COMPLETE, CANCELLED }
+enum class SessionOutcome {
+    COMPLETE,
+    CANCELLED,
+
+    /** The reader stopped with an unexpected error; data read so far is kept. */
+    FAILED,
+}
 
 @Serializable
 data class SessionEvent(val atMillis: Long, val kind: String, val detail: String = "")
@@ -68,9 +74,15 @@ data class SessionRecord(
     val outcome: SessionOutcome? = null,
     val supportedPids: SupportedPids = SupportedPids.Unknown,
     val dtcs: List<Dtc> = emptyList(),
+    /** Which code lists were actually read. Empty [dtcs] means "none reported" only for these. */
+    val dtcKindsRead: List<DtcKind> = emptyList(),
     val readings: List<Reading> = emptyList(),
     val events: List<SessionEvent> = emptyList(),
 ) {
+    /** True when both stored and pending codes were read, so an empty list means none were reported. */
+    val allCodesRead: Boolean
+        get() = DtcKind.STORED in dtcKindsRead && DtcKind.PENDING in dtcKindsRead
+
     companion object {
         const val SCHEMA_VERSION = 1
     }

@@ -42,10 +42,10 @@ fun SavedSessionsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onBack: () -
                     when (entry) {
                         is StoredSession.Readable -> {
                             val r = entry.record
-                            val status = if (r.outcome == SessionOutcome.COMPLETE) {
-                                stringResource(R.string.status_complete)
-                            } else {
-                                stringResource(R.string.status_cancelled)
+                            val status = when (r.outcome) {
+                                SessionOutcome.COMPLETE -> stringResource(R.string.status_complete)
+                                SessionOutcome.FAILED -> stringResource(R.string.status_failed)
+                                else -> stringResource(R.string.status_cancelled)
                             }
                             ListItem(
                                 headlineContent = { Text(DateFormat.getDateTimeInstance().format(Date(r.startedAt))) },

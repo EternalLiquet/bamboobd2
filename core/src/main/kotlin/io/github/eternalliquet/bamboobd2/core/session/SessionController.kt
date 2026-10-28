@@ -10,6 +10,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.reader.DiagnosticReader
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,16 +56,24 @@ class SessionController(
             complete = false,
         )
         _state.value = SessionState.Running(initial, Step.SUPPORTED_PIDS)
-        job = scope.launch {
+        // ATOMIC: even if cancel() runs before the coroutine starts, it still
+        // runs far enough to record the cancellation instead of staying Running.
+        job = scope.launch(start = CoroutineStart.ATOMIC) {
             var record = initial
             try {
                 record = record.copy(supportedPids = reader.readSupportedPids())
                 emitRunning(record, Step.STORED_CODES)
 
-                record = record.copy(dtcs = record.dtcs + reader.readDtcs(DtcKind.STORED))
+                record = record.copy(
+                    dtcs = record.dtcs + reader.readDtcs(DtcKind.STORED),
+                    dtcKindsRead = record.dtcKindsRead + DtcKind.STORED,
+                )
                 emitRunning(record, Step.PENDING_CODES)
 
-                record = record.copy(dtcs = record.dtcs + reader.readDtcs(DtcKind.PENDING))
+                record = record.copy(
+                    dtcs = record.dtcs + reader.readDtcs(DtcKind.PENDING),
+                    dtcKindsRead = record.dtcKindsRead + DtcKind.PENDING,
+                )
                 emitRunning(record, Step.READINGS)
 
                 for (pid in ObdPid.entries) {
@@ -82,6 +91,9 @@ class SessionController(
             } catch (e: CancellationException) {
                 finish(record, SessionOutcome.CANCELLED)
                 throw e
+            } catch (e: Exception) {
+                // Keep partial data and report the stop; no retry.
+                finish(record, SessionOutcome.FAILED, e::class.simpleName.orEmpty())
             }
         }
         return true
@@ -101,13 +113,13 @@ class SessionController(
         _state.value = SessionState.Running(record, step)
     }
 
-    private fun finish(record: SessionRecord, outcome: SessionOutcome) {
+    private fun finish(record: SessionRecord, outcome: SessionOutcome, detail: String = "") {
         val now = clock.nowMillis()
         val finished = record.copy(
             endedAt = now,
             complete = outcome == SessionOutcome.COMPLETE,
             outcome = outcome,
-            events = record.events + SessionEvent(now, outcome.name.lowercase()),
+            events = record.events + SessionEvent(now, outcome.name.lowercase(), detail),
         )
         _state.value = SessionState.Finished(finished)
     }

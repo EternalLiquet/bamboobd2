@@ -42,6 +42,7 @@ class SessionControllerTest {
         assertEquals(SessionOutcome.COMPLETE, r.outcome)
         assertEquals(Provenance.SIMULATED, r.provenance)
         assertTrue(r.dtcs.isEmpty())
+        assertTrue(r.allCodesRead)
         assertEquals(4, r.readings.size)
         assertTrue(r.readings.all { it.result is ReadingResult.Value })
     }
@@ -109,11 +110,33 @@ class SessionControllerTest {
     }
 
     @Test
-    fun secondStartWhileRunningIsRefused() = runTest {
+    fun cancelBeforeTheSessionCoroutineStartsStillFinishesAsCancelled() = runTest {
         val c = controller()
         assertTrue(c.start(FakeReader(FakeScenario.NO_CODES, 100)))
         assertFalse(c.start(FakeReader(FakeScenario.TWO_CODES, 100)))
-        c.cancel()
+        c.cancel() // before the launched coroutine has been dispatched
         advanceUntilIdle()
+        val r = (c.state.value as SessionState.Finished).record
+        assertEquals(SessionOutcome.CANCELLED, r.outcome)
+        assertFalse(r.complete)
+        c.reset()
+        assertTrue(c.start(FakeReader(FakeScenario.NO_CODES, 100)))
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun readerErrorFinishesAsFailedWithPartialData() = runTest {
+        val reader = object : DiagnosticReader by FakeReader(FakeScenario.TWO_CODES, 100) {
+            override suspend fun readDtcs(kind: DtcKind): List<Dtc> =
+                if (kind == DtcKind.PENDING) throw IllegalStateException("boom") else listOf(Dtc("P0133", DtcKind.STORED))
+        }
+        val c = controller()
+        c.start(reader)
+        advanceUntilIdle()
+        val r = (c.state.value as SessionState.Finished).record
+        assertEquals(SessionOutcome.FAILED, r.outcome)
+        assertFalse(r.complete)
+        assertEquals(listOf(DtcKind.STORED), r.dtcKindsRead)
+        assertFalse(r.allCodesRead)
     }
 }

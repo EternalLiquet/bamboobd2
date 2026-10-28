@@ -1,6 +1,7 @@
 package io.github.eternalliquet.bamboobd2.core.storage
 
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -28,8 +29,8 @@ object SessionCodec {
         classDiscriminator = "type"
     }
 
-    // A delimited 17-character token in the VIN alphabet (no I, O or Q).
-    private val vinShaped = Regex("(?<![A-Za-z0-9])[A-HJ-NPR-Z0-9]{17}(?![A-Za-z0-9])")
+    // A delimited 17-character token in the VIN alphabet (no I, O or Q), any case.
+    private val vinShaped = Regex("(?<![A-Za-z0-9])[A-HJ-NPR-Za-hj-npr-z0-9]{17}(?![A-Za-z0-9])")
 
     /** Field names whose values are exempt from the VIN-shape scan (hashes, later). */
     private val vinScanExempt = setOf("sourceSha256")
@@ -61,13 +62,19 @@ object SessionCodec {
         if (Provenance.entries.none { it.name == provenance }) {
             return DecodeResult.Invalid("unknown provenance '$provenance'")
         }
-        return try {
-            DecodeResult.Ok(json.decodeFromJsonElement(SessionRecord.serializer(), tree))
+        val record = try {
+            json.decodeFromJsonElement(SessionRecord.serializer(), tree)
         } catch (e: SerializationException) {
-            DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
+            return DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
         } catch (e: IllegalArgumentException) {
-            DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
+            return DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
         }
+        // A saved session has always finished, and "complete" must agree with its outcome.
+        val outcome = record.outcome ?: return DecodeResult.Invalid("missing outcome")
+        if (record.complete != (outcome == SessionOutcome.COMPLETE)) {
+            return DecodeResult.Invalid("complete flag contradicts outcome $outcome")
+        }
+        return DecodeResult.Ok(record)
     }
 
     private fun findVinShaped(element: JsonElement, field: String = ""): String? = when (element) {

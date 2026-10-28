@@ -32,6 +32,7 @@ import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
     val state by vm.session.collectAsStateWithLifecycle()
     val lastSave by vm.lastSave.collectAsStateWithLifecycle()
+    val saving by vm.saving.collectAsStateWithLifecycle()
 
     // Back cancels a running session; after it finishes, back leaves the screen.
     BackHandler {
@@ -72,7 +73,7 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
                         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = vm::save, enabled = lastSave !is SaveResult.Saved, modifier = Modifier.weight(1f)) {
+                        Button(onClick = vm::save, enabled = !saving && lastSave !is SaveResult.Saved, modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.save))
                         }
                         OutlinedButton(onClick = onDone, modifier = Modifier.weight(1f)) {

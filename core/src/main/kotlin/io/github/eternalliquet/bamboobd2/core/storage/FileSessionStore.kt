@@ -31,11 +31,14 @@ interface SessionStore {
 }
 
 /**
- * Write-once session storage. Each save goes to a temporary file in the same
- * directory, is flushed to disk, then moved atomically to `<id>.<seq>.json`, a
- * name that has never existed. Nothing is overwritten in place. One writer per
- * session is assumed, so sequence numbers cannot collide. If the platform cannot
- * move atomically the save fails visibly; there is no non-atomic fallback.
+ * Write-once session storage. Each save goes to a uniquely named temporary file
+ * in the same directory, its contents are forced to storage, then it is moved
+ * atomically to `<id>.<seq>.json`, a name that has never existed. Nothing is
+ * overwritten in place. Saves are serialized within the process, which is the
+ * single writer; a file is never readable half-written. The directory entry
+ * itself is not separately synced, so a power loss right after a save may lose
+ * that save, but not corrupt an earlier one. If the platform cannot move
+ * atomically the save fails visibly; there is no non-atomic fallback.
  * Requires java.nio.file, available on Android from API 26.
  */
 class FileSessionStore(
@@ -47,9 +50,10 @@ class FileSessionStore(
     init {
         directory.mkdirs()
         // Leftovers from an interrupted save are never valid sessions.
-        directory.listFiles { f -> f.name.contains(TEMP_MARKER) }?.forEach { it.delete() }
+        directory.listFiles { f -> TEMP_PATTERN.matches(f.name) }?.forEach { it.delete() }
     }
 
+    @Synchronized
     override fun save(record: SessionRecord): SaveResult {
         if (!ID_PATTERN.matches(record.id)) return SaveResult.Failed("invalid session id")
         val text = try {
@@ -60,9 +64,13 @@ class FileSessionStore(
         val sequence = (savedFiles()[record.id]?.maxOf { it.first } ?: 0) + 1
         val target = File(directory, "${record.id}.$sequence.json")
         if (target.exists()) return SaveResult.Failed("save target already exists")
-        val temp = File(directory, "${record.id}.$sequence.json$TEMP_MARKER")
+        if (!directory.isDirectory && !directory.mkdirs()) return SaveResult.Failed("storage directory unavailable")
+        val temp = try {
+            Files.createTempFile(directory.toPath(), "${record.id}.$sequence.json.", ".tmp").toFile()
+        } catch (e: IOException) {
+            return SaveResult.Failed("could not create temporary file: ${e.message}")
+        }
         return try {
-            if (!directory.isDirectory && !directory.mkdirs()) return SaveResult.Failed("storage directory unavailable")
             FileOutputStream(temp).use { out ->
                 out.write(text.toByteArray(Charsets.UTF_8))
                 out.flush()
@@ -124,8 +132,8 @@ class FileSessionStore(
             .groupBy({ it.first }, { it.second to it.third })
 
     private companion object {
-        const val TEMP_MARKER = ".tmp"
         val ID_PATTERN = Regex("[A-Za-z0-9-]{1,64}")
         val FILE_PATTERN = Regex("([A-Za-z0-9-]{1,64})\\.([1-9][0-9]{0,8})\\.json")
+        val TEMP_PATTERN = Regex("[A-Za-z0-9-]{1,64}\\.[1-9][0-9]{0,8}\\.json\\.[0-9]+\\.tmp")
     }
 }

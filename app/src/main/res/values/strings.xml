@@ -15,6 +15,7 @@
     <string name="done">Done</string>
     <string name="status_complete">Complete</string>
     <string name="status_cancelled">Cancelled: partial results</string>
+    <string name="status_failed">Stopped by an error: partial results</string>
     <string name="codes_heading">Generic emissions codes</string>
     <string name="no_codes">No generic emissions codes reported. This doesn\'t mean the car has no faults.</string>
     <string name="codes_scope">Generic OBD-II engine codes only, not body, ABS, airbag or other modules.</string>

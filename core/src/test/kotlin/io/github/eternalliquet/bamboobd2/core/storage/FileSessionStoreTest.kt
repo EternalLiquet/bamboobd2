@@ -57,10 +57,14 @@ class FileSessionStoreTest {
         assertNull(FileSessionStore(dir).load("s1"))
 
         // A temp file left by a killed process is ignored and removed on start.
-        File(dir, "s2.1.json.tmp").writeText("{\"partial\"")
+        File(dir, "s2.1.json.123456.tmp").writeText("{\"partial\"")
+        File(dir, "notes.tmp").writeText("not ours")
         val store = FileSessionStore(dir)
-        assertFalse(File(dir, "s2.1.json.tmp").exists())
-        assertTrue(store.list().isEmpty())
+        assertFalse(File(dir, "s2.1.json.123456.tmp").exists())
+        assertTrue(File(dir, "notes.tmp").exists())
+        assertTrue(store.list().filterIsInstance<StoredSession.Readable>().isEmpty())
+        // The failed save also removed its own temp file.
+        assertTrue(dir.listFiles()!!.none { it.name.startsWith("s1.") })
     }
 
     @Test
@@ -103,6 +107,31 @@ class FileSessionStoreTest {
         assertTrue(dir.listFiles()!!.isEmpty())
         // Shorter or embedded tokens are not VIN-shaped.
         assertTrue(FileSessionStore(dir).save(record(label = "fake:two_codes")) is SaveResult.Saved)
+    }
+
+    @Test
+    fun concurrentSavesOfOneSessionNeverOverwrite() {
+        val dir = tmp.newFolder()
+        val store = FileSessionStore(dir)
+        val threads = (1..8).map { n -> Thread { store.save(record(label = "save-$n")) } }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        val saved = dir.list()!!.filter { it.endsWith(".json") }.sorted()
+        assertEquals((1..8).map { "s1.$it.json" }.sorted(), saved)
+        val labels = saved.map { (SessionCodec.decode(File(dir, it).readText()) as DecodeResult.Ok).record.sourceLabel }.toSet()
+        assertEquals((1..8).map { "save-$it" }.toSet(), labels)
+    }
+
+    @Test
+    fun inconsistentOutcomeAndLowercaseVinAreRejected() {
+        val dir = tmp.newFolder()
+        val valid = SessionCodec.encode(record(id = "x"))
+        File(dir, "x.1.json").writeText(valid.replace("\"complete\": true", "\"complete\": false"))
+        assertEquals(
+            "complete flag contradicts outcome COMPLETE",
+            (FileSessionStore(dir).list().single() as StoredSession.Unreadable).reason,
+        )
+        assertTrue(FileSessionStore(tmp.newFolder()).save(record(label = "wp1zzz92zela12345")) is SaveResult.Failed)
     }
 
     @Test
