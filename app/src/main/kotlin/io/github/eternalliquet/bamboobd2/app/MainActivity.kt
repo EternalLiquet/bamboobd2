@@ -1,0 +1,48 @@
+package io.github.eternalliquet.bamboobd2.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.MaterialTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
+import io.github.eternalliquet.bamboobd2.app.ui.SavedSessionsScreen
+import io.github.eternalliquet.bamboobd2.app.ui.SessionDetailScreen
+import io.github.eternalliquet.bamboobd2.app.ui.SessionScreen
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            MaterialTheme {
+                val vm: AppViewModel = viewModel()
+                val nav = rememberNavController()
+                NavHost(navController = nav, startDestination = "home") {
+                    composable("home") {
+                        HomeScreen(
+                            onStart = { scenario -> vm.start(scenario); nav.navigate("session") },
+                            onOpenSaved = { nav.navigate("saved") },
+                        )
+                    }
+                    composable("session") {
+                        SessionScreen(
+                            vm = vm,
+                            onDone = { vm.finishSession(); nav.popBackStack("home", inclusive = false) },
+                        )
+                    }
+                    composable("saved") {
+                        SavedSessionsScreen(vm = vm, onOpen = { id -> nav.navigate("saved/$id") }, onBack = { nav.popBackStack() })
+                    }
+                    composable("saved/{id}") { entry ->
+                        SessionDetailScreen(vm = vm, id = entry.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() })
+                    }
+                }
+            }
+        }
+    }
+}
