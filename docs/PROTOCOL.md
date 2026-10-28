@@ -37,7 +37,7 @@ Page numbers below refer to ELM327DSJ.
 ## Decoding (F2, F6, F8, F13)
 
 - A reply decodes to a value only when its service byte is the request's service + 0x40 and, for mode 01, its PID byte matches. Otherwise it is malformed. Mode 01 replies must also have the exact data length.
-- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8).
+- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8). If some responders report a map but another's reply stays pending (#10), the confirmed PIDs are still requested. Discovery is marked incomplete, so a PID missing from the maps is recorded as unknown rather than unsupported, and the saved session and the app keep showing that discovery was incomplete.
 - **Readings**:
 
   | PID | Formula | Source |

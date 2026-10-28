@@ -99,8 +99,12 @@ class SessionController(
                     val results = when (val supported = record.supportedPids) {
                         // Never request a PID the vehicle says it lacks, or one we
                         // could not confirm.
-                        is SupportedPids.Known ->
-                            if (pid.code in supported.pids) reader.readPid(pid.code) else listOf(ReadingResult.Unsupported)
+                        is SupportedPids.Known -> when {
+                            pid.code in supported.pids -> reader.readPid(pid.code)
+                            // Only a complete discovery can say a PID is not supported.
+                            supported.complete -> listOf(ReadingResult.Unsupported)
+                            else -> listOf(ReadingResult.UnknownCapability)
+                        }
                         SupportedPids.Unknown -> listOf(ReadingResult.UnknownCapability)
                     }
                     val at = clock.nowMillis()

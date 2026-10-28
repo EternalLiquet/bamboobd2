@@ -18,7 +18,10 @@ import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
 import io.github.eternalliquet.bamboobd2.core.model.SessionEvent
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
+import io.github.eternalliquet.bamboobd2.core.model.Reading
+import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
+import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
 import java.util.concurrent.TimeUnit
 import org.junit.Before
@@ -91,6 +94,12 @@ class ReplayFlowTest {
         }
     }
 
+    // Where the app's ViewModel stores sessions, emptied first. Under Robolectric it can differ
+    // from this test's filesDir: the ViewModel factory keeps the first test's Application.
+    private fun viewModelSessionsDir() =
+        ViewModelProvider(rule.activity)[AppViewModel::class.java].getApplication<Application>().filesDir.resolve("sessions")
+            .also { it.deleteRecursively() }
+
     // The saved list and the record load on the IO dispatcher and are posted to the
     // paused main looper, so idle it while waiting.
     private fun waitForText(text: String) = rule.waitUntil(5_000) {
@@ -107,10 +116,7 @@ class ReplayFlowTest {
             dtcs = dtcs, dtcKindsRead = listOf(DtcKind.PENDING),
             events = listOf(SessionEvent(2, "codes_incomplete", "stored: response pending, no final reply from 7E8")),
         )
-        // Save where the app's ViewModel reads. Under Robolectric that can differ from this
-        // test's filesDir: the ViewModel factory keeps the first test's Application.
-        val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
-        val store = FileSessionStore(vm.getApplication<Application>().filesDir.resolve("sessions"))
+        val store = FileSessionStore(viewModelSessionsDir())
         store.save(record("mixed", emptyList()))
         store.save(record("earlier", listOf(Dtc("P0133", DtcKind.STORED, "7E8"))))
 
@@ -125,6 +131,34 @@ class ReplayFlowTest {
             code?.let { rule.onNodeWithText(it).performScrollTo().assertIsDisplayed() }
             rule.onNodeWithContentDescription("Back").performClick()
         }
+    }
+
+    @Test
+    fun reopenedSessionWithIncompleteDiscoveryShowsUnconfirmedReadingsAsUnknown() {
+        // As ElmObdReader records 0100 answered by 7E9 (PIDs 05, 0C) while 7E8 stayed pending.
+        val record = SessionRecord(
+            schemaVersion = SessionRecord.SCHEMA_VERSION, id = "discovery", startedAt = 1, endedAt = 2,
+            provenance = Provenance.REPLAY, sourceLabel = "replay:discovery", complete = true, outcome = SessionOutcome.COMPLETE,
+            supportedPids = SupportedPids.Known(listOf("05", "0C"), complete = false),
+            dtcKindsRead = listOf(DtcKind.STORED, DtcKind.PENDING),
+            readings = listOf(
+                Reading("04", ReadingResult.UnknownCapability, 2),
+                Reading("05", ReadingResult.Value(83.0, "°C", "7E9"), 2),
+                Reading("0C", ReadingResult.Value(1726.0, "rpm", "7E9"), 2),
+                Reading("0D", ReadingResult.UnknownCapability, 2),
+            ),
+        )
+        FileSessionStore(viewModelSessionsDir()).save(record)
+
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        waitForText("REPLAY · replay:discovery · Complete")
+        rule.onNodeWithText("REPLAY · replay:discovery · Complete").performClick()
+        waitForText("REPLAY · replay:discovery")
+        rule.onNodeWithText("Not every responder reported which readings it supports. Only confirmed readings were requested.")
+            .performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("83 °C (7E9)").performScrollTo().assertIsDisplayed()
+        rule.onAllNodes(hasText("Unknown: support could not be confirmed")).assertCountEquals(2)
+        rule.onAllNodes(hasText("Not reported by this vehicle")).assertCountEquals(0)
     }
 
     @Test

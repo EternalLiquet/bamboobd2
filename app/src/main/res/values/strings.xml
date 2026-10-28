@@ -31,6 +31,7 @@
     <string name="codes_incomplete">Not every code list was read completely, so codes may be missing.</string>
     <string name="unsupported">Not reported by this vehicle</string>
     <string name="unknown_capability">Unknown: support could not be confirmed</string>
+    <string name="discovery_incomplete">Not every responder reported which readings it supports. Only confirmed readings were requested.</string>
     <string name="no_data">No data: no reply to the request</string>
     <string name="reading_failed">No value: %1$s</string>
     <string name="code_stored">stored</string>

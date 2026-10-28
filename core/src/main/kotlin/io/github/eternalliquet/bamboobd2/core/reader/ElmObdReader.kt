@@ -123,7 +123,8 @@ class ElmObdReader(
         val supported = ReadPlan.supportedFrom(result)
         if (supported == SupportedPids.Unknown) notes += ReaderNote("supported_pids_unknown", describe(result))
         if (unresolved.isNotEmpty()) notes += ReaderNote("supported_pids_incomplete", pendingReason(unresolved))
-        return supported
+        // A responder that never reported its map leaves discovery incomplete.
+        return if (supported is SupportedPids.Known && unresolved.isNotEmpty()) supported.copy(complete = false) else supported
     }
 
     override suspend fun readDtcs(kind: DtcKind): DtcRead {

@@ -22,9 +22,14 @@ data class Dtc(val code: String, val kind: DtcKind, val ecu: String? = null)
 
 @Serializable
 sealed interface SupportedPids {
+    /**
+     * [pids] were confirmed by at least one responder. When [complete] is false,
+     * some responder never reported its map, so a PID missing from [pids] is
+     * unknown rather than unsupported.
+     */
     @Serializable
     @SerialName("known")
-    data class Known(val pids: List<String>) : SupportedPids
+    data class Known(val pids: List<String>, val complete: Boolean = true) : SupportedPids
 
     /** The supported-PID map could not be read. Nothing is requested on that basis. */
     @Serializable

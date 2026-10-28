@@ -13,6 +13,7 @@ import io.github.eternalliquet.bamboobd2.core.protocol.ReplayStep
 import io.github.eternalliquet.bamboobd2.core.protocol.ReplayTransport
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
+import io.github.eternalliquet.bamboobd2.core.storage.DecodeResult
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
 import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 import io.github.eternalliquet.bamboobd2.core.storage.SessionCodec
@@ -237,6 +238,72 @@ class ElmObdReaderTest {
             listOf(ReadingResult.Value(83.0, "°C", "7E9"), ReadingResult.Failed("7E8: response pending, no final reply")),
             r.reading("05"),
         )
+    }
+
+    // 0100 discovery with several responders. 7E9's map "08 10 00 00" confirms PIDs 05 and 0C only.
+    private fun discovery(reply0100: String, vararg readings: ReplayStep) = script(
+        init + listOf(step("0100", 20L to reply0100), step("ATDPN", 10L to "A6\r\r>")) +
+            listOf(step("03", 10L to "7E9 02 43 00\r\r>"), step("07", 10L to "7E9 02 47 00\r\r>")) + readings,
+    )
+    private val confirmedReadings = arrayOf(
+        step("0105", 10L to "7E9 03 41 05 7B\r\r>"),
+        step("010C", 10L to "7E9 04 41 0C 1A F8\r\r>"),
+    )
+
+    @Test
+    fun incompleteDiscoveryRequestsConfirmedReadingsAndLeavesTheRestUnknown() = runTest {
+        val run = session(discovery("7E8 03 7F 01 78\r7E9 06 41 00 08 10 00 00\r\r>", *confirmedReadings))
+        val r = run.record
+        assertEquals(SessionOutcome.COMPLETE, r.outcome)
+        assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E9")), r.reading("05"))
+        assertEquals(listOf(ReadingResult.Value(1726.0, "rpm", "7E9")), r.reading("0C"))
+        // 7E8 never reported its map, so absence from 7E9's map is not "unsupported".
+        assertEquals(listOf(ReadingResult.UnknownCapability), r.reading("04"))
+        assertEquals(listOf(ReadingResult.UnknownCapability), r.reading("0D"))
+        assertFalse("0104" in run.transport.writes)
+        assertFalse("010D" in run.transport.writes)
+        assertTrue(r.allCodesRead)
+        assertTrue(r.events.any { it.kind == "supported_pids_incomplete" && "7E8" in it.detail })
+        assertEquals(SupportedPids.Known(listOf("05", "0C"), complete = false), r.supportedPids)
+
+        val dir = Files.createTempDirectory("discovery-incomplete").toFile()
+        try {
+            val store = FileSessionStore(dir)
+            assertTrue(store.save(r) is SaveResult.Saved)
+            val reopened = store.load(r.id)!!
+            assertEquals(r, reopened)
+            assertEquals(listOf(ReadingResult.UnknownCapability), reopened.reading("04"))
+            assertEquals(false, (reopened.supportedPids as SupportedPids.Known).complete)
+            // A file saved before the flag existed reads as a complete discovery, as it was.
+            val older = SessionCodec.encode(r).replace(",\n        \"complete\": false", "")
+            assertFalse("\"complete\": false" in older)
+            val decoded = (SessionCodec.decode(older) as DecodeResult.Ok).record
+            assertEquals(true, (decoded.supportedPids as SupportedPids.Known).complete)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun completeDiscoveryStillMarksAbsentPidsUnsupported() = runTest {
+        val r = session(discovery("7E8 06 41 00 08 10 00 00\r7E9 06 41 00 00 00 00 00\r\r>",
+            step("0105", 10L to "7E8 03 41 05 7B\r\r>"), step("010C", 10L to "7E8 04 41 0C 1A F8\r\r>"))).record
+        assertEquals(SessionOutcome.COMPLETE, r.outcome)
+        assertEquals(listOf(ReadingResult.Unsupported), r.reading("04"))
+        assertEquals(listOf(ReadingResult.Unsupported), r.reading("0D"))
+        assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E8")), r.reading("05"))
+        assertEquals(SupportedPids.Known(listOf("05", "0C"), complete = true), r.supportedPids)
+    }
+
+    @Test
+    fun noUsableDiscoveryLeavesSupportUnknownAndStillReadsCodes() = runTest {
+        val run = session(discovery("7E8 03 7F 01 78\r7E9 03 7F 01 78\r\r>"))
+        val r = run.record
+        assertEquals(SessionOutcome.COMPLETE, r.outcome)
+        assertEquals(SupportedPids.Unknown, r.supportedPids)
+        assertTrue(r.readings.all { it.result == ReadingResult.UnknownCapability })
+        assertFalse(run.transport.writes.any { it.startsWith("01") && it != "0100" })
+        assertTrue(r.allCodesRead)
     }
 
     @Test
