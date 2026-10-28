@@ -37,6 +37,18 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            // Robolectric reaches JDK internals for file descriptors on JDK 17+.
+            test.jvmArgs(
+                "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+            )
+            // Optional override for where Robolectric downloads its Android
+            // runtime jars (default: Maven Central). Set per environment.
+            providers.gradleProperty("robolectricRepoUrl").orNull?.let {
+                test.systemProperty("robolectric.dependency.repo.url", it)
+            }
+        }
     }
 }
 

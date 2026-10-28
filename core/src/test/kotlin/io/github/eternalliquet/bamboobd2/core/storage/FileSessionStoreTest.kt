@@ -106,6 +106,15 @@ class FileSessionStoreTest {
     }
 
     @Test
+    fun saveRecreatesAMissingDirectory() {
+        val dir = File(tmp.newFolder(), "sessions")
+        val store = FileSessionStore(dir)
+        dir.deleteRecursively()
+        assertTrue(store.save(record()) is SaveResult.Saved)
+        assertEquals(record(), store.load("s1"))
+    }
+
+    @Test
     fun unsafeIdsAreRejected() {
         val dir = tmp.newFolder()
         assertTrue(FileSessionStore(dir).save(record(id = "../escape")) is SaveResult.Failed)

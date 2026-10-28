@@ -62,6 +62,7 @@ class FileSessionStore(
         if (target.exists()) return SaveResult.Failed("save target already exists")
         val temp = File(directory, "${record.id}.$sequence.json$TEMP_MARKER")
         return try {
+            if (!directory.isDirectory && !directory.mkdirs()) return SaveResult.Failed("storage directory unavailable")
             FileOutputStream(temp).use { out ->
                 out.write(text.toByteArray(Charsets.UTF_8))
                 out.flush()

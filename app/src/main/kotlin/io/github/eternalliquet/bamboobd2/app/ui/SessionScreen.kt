@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,12 +38,17 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
         if (state is SessionState.Running) vm.cancel() else onDone()
     }
 
+    // Show the outcome first when the session finishes.
+    val scroll = rememberScrollState()
+    val finished = state is SessionState.Finished
+    LaunchedEffect(finished) { if (finished) scroll.scrollTo(0) }
+
     DiagnosticScaffold(title = stringResource(R.string.session_title)) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             when (val s = state) {
