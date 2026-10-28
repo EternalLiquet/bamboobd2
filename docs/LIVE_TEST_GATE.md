@@ -17,6 +17,8 @@ A stage is approved for one **host platform, transport medium and adapter model*
 
 ## Evidence needed before L1
 
+Current status (2026-10-28): phone, adapter and operator are recorded, the phone's Android version and the adapter label are still to be recorded, and **the bench supply is not confirmed, so L1 is blocked**. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
+
 These are documentation items. None requires powering or connecting the adapter.
 
 - **Adapter:** exact model name and any printed version from the label, with a photo; the vendor documentation for that model, with link and retrieval date ([current evidence note](evidence/2026-10-13-veepeak-bluetooth-mode.md)); any already-existing observations (for example from earlier use with another app), recorded as-is. No new test is run to produce them.
