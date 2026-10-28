@@ -104,7 +104,7 @@ object ObdDecoder {
         VehicleRequest.VEHICLE_SPEED to ("km/h" to { d -> d[0].toDouble() }),
     )
 
-    /** PID n (1-32) is supported when bit (8 - ((n-1) mod 8)) of byte (n-1)/8 is set, MSB first (p31). */
+    /** PID n (1-32) is supported when bit (7 - ((n-1) mod 8)) of byte (n-1)/8 is set, MSB first (p31). */
     private fun supportedFromBitmap(bytes: List<Int>): Set<Int> =
         (1..0x20).filter { n -> (bytes[(n - 1) / 8] shr (7 - (n - 1) % 8)) and 1 == 1 }.toSet()
 

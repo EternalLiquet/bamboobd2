@@ -2,7 +2,8 @@ package io.github.eternalliquet.bamboobd2.core.protocol
 
 /**
  * A request that [RequestPolicy] has accepted. The constructor is internal to
- * :core, so a platform shell cannot build one from arbitrary text or bytes.
+ * :core, so Kotlin code in a platform shell cannot build one from arbitrary text
+ * or bytes. (Kotlin `internal` does not stop Java callers.)
  */
 class Request internal constructor(
     /** Canonical command text, e.g. "010C". */

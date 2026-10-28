@@ -78,10 +78,21 @@ class MalformedAndStatusTest {
                     else -> if (i < text.length) text.setCharAt(i, alphabet.random(random))
                 }
             }
-            try {
+            val result = try {
                 ProtocolFixtures.run(f.vehicleRequest, f.format, listOf(ProtocolFixtures.ascii(text.toString())))
             } catch (e: Exception) {
                 fail("${f.id} mutated to '${text.toString().replace("\r", "\\r")}' threw $e")
+                return
+            }
+            // A value or negative result still needs the matching service (and PID) in the reply.
+            val compact = text.toString().uppercase().filter { it in "0123456789ABCDEF" }
+            val service = f.request.substring(0, 2).toInt(16)
+            val header = "%02X".format(service + 0x40) + if (f.request.length == 4) f.request.substring(2) else ""
+            when (result) {
+                is ObdResult.Reading, is ObdResult.SupportedPids, is ObdResult.Dtcs ->
+                    assertTrue("${f.id}: value without '$header' in mutated reply", header in compact)
+                is ObdResult.Negative -> assertEquals(service, result.service)
+                else -> Unit
             }
         }
         val seconds = (System.nanoTime() - start) / 1e9

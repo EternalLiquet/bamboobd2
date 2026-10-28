@@ -14,10 +14,10 @@ Page numbers below refer to ELM327DSJ.
 
 ## Request policy (F9)
 
-- Only `RequestPolicy` creates a `Request`; its constructor is internal to `:core`, and `AdapterTransport.write` takes only a `Request`.
+- Only `RequestPolicy` creates a `Request`. Its constructor is internal to `:core`, so Kotlin code in other modules (the Android shell) cannot call it; `internal` is not enforced against Java callers or deliberate compiler-suppression tricks. `AdapterTransport.write` takes only a `Request`.
 - Deny by default. Accepted vehicle requests are exactly `0100`, `0104`, `0105`, `010C`, `010D`, `03`, `07`. The allowlist's SHA-256 is pinned in `RequestPolicyTest`.
 - Only the exact canonical text is accepted. The ELM327 ignores spaces and control characters and is case-insensitive (p9), so `0 4` would reach a vehicle as mode 04. Variants are rejected, not normalized.
-- Empty and whitespace-only lines are rejected: a single carriage return repeats the last command (p9, p11).
+- Empty and whitespace-only lines are rejected: a single carriage return repeats the last command (p9, p12).
 - **All AT commands are rejected.** The list below is a proposal awaiting owner approval.
 
 ## Framing (F1, F5)
@@ -28,7 +28,7 @@ Page numbers below refer to ELM327DSJ.
 - Status texts map to typed results (pp87–89): `?`, `UNABLE TO CONNECT`, `CAN ERROR`, `BUFFER FULL`, `STOPPED`, `BUS ERROR`, `BUS BUSY`, `DATA ERROR`, `<DATA ERROR`, `FB ERROR`, `<RX ERROR`, `LV RESET`, `ACT ALERT`, `LP ALERT`, `ERRxx`, and a `BUS INIT: ...ERROR` line. `SEARCHING...` is skipped. `NO DATA` is its own result and never means "unsupported". An error line anywhere in a reply wins over data lines.
 - The caller states the format; it is not guessed from the bytes:
   - **Headers off** (default, p18): each line is one message with no responder identity. A CAN multi-frame reply starts with a three-digit byte count and numbered lines `0:`, `1:`, … (pp42–45). Bytes beyond the count are ignored.
-  - **Headers on, 11-bit CAN**: `<ID> <PCI> <data> [padding]` (p41, p43). Single frames `0n`, first frames `1n nn`, consecutive frames `2n` in sequence, grouped per responder ID. Out-of-order, orphaned or truncated frames are malformed.
+  - **Headers on, 11-bit CAN**: `<ID> <PCI> <data> [padding]` (p41, p43). Bytes after the length in the PCI are ISO-TP padding and are ignored whatever their value, since padding is not required to be zero. Single frames `0n`, first frames `1n nn`, consecutive frames `2n` in sequence, grouped per responder ID. Out-of-order, orphaned or truncated frames are malformed.
   - **Headers on, non-CAN**: three header bytes, data, one check byte (p42). The third header byte identifies the responder. The check byte is dropped, not verified.
   - 29-bit CAN and other shapes are not handled and come back malformed.
 
@@ -85,4 +85,4 @@ Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file eac
 
 ## Transport registry (G2)
 
-`transport-registry.txt` lists every `AdapterTransport` implementation in `core/` and `app/` with its declared kind. Today that is `FakeTransport` and a test spy, both `FAKE`. `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`, and fails on any unlisted, removed, undeclared or `LIVE` transport.
+`transport-registry.txt` lists every `AdapterTransport` implementation in any module's `src/` tree (Kotlin and Java) with its declared kind. Today that is `FakeTransport` and a test spy, both `FAKE`. `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`. It fails on an unlisted, removed, undeclared, anonymous or `LIVE` transport that directly names `AdapterTransport`. It is a source-text scan, so an implementation that reaches the interface only through another base type would not be detected; adding such a base type must come with an update to the check.
