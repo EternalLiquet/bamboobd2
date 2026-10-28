@@ -8,3 +8,4 @@ core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/RequestPoli
 core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/ReplayTransport.kt ReplayTransport REPLAY
 app/src/main/kotlin/io/github/eternalliquet/bamboobd2/app/bluetooth/BluetoothClassic.kt BluetoothClassicTransport LIVE reviewed:issue-12
 core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/bench/AdapterBenchCheckTest.kt StallingTransport FAKE
+core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/capture/CaptureRecorderTest.kt RecordingTransport REPLAY

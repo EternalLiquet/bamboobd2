@@ -37,6 +37,7 @@ fun HomeScreen(
     onStartReplay: (String) -> Unit,
     onOpenSaved: () -> Unit,
     onOpenBench: () -> Unit,
+    onOpenLive: () -> Unit,
 ) {
     // "fake:<scenario>" or "replay:<script id>", so the choice survives recreation.
     var selected by rememberSaveable { mutableStateOf("fake:${FakeScenario.NO_CODES.name}") }
@@ -68,6 +69,9 @@ fun HomeScreen(
             }
             OutlinedButton(onClick = onOpenBench, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.bench_open))
+            }
+            OutlinedButton(onClick = onOpenLive, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.live_open))
             }
         }
     }

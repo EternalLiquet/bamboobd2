@@ -21,6 +21,7 @@ import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.session.SessionController
 
 /** Read-only rendering of a session record, used live and when reopening. */
 @Composable
@@ -54,7 +55,9 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         if ((record.supportedPids as? SupportedPids.Known)?.complete == false) {
             Text(stringResource(R.string.discovery_incomplete), style = MaterialTheme.typography.bodySmall)
         }
-        ObdPid.entries.forEach { pid ->
+        if (record.events.any { it.kind == SessionController.READINGS_NOT_REQUESTED }) {
+            Text(stringResource(R.string.readings_not_requested), style = MaterialTheme.typography.bodyLarge)
+        } else ObdPid.entries.forEach { pid ->
             // One row per responder; a PID never read shows once as "Not read".
             val results = record.readings.filter { it.pid == pid.code }.map { it.result }.ifEmpty { listOf(null) }
             results.forEach { result ->

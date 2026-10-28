@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import io.github.eternalliquet.bamboobd2.core.bench.AdapterBenchCheck
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
+import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
 import io.github.eternalliquet.bamboobd2.core.protocol.Request
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
@@ -111,6 +112,8 @@ class AndroidBluetoothPlatform(private val context: Context) : BluetoothPlatform
 class BluetoothClassicTransport internal constructor(
     private val socket: RfcommSocket,
     private val io: CoroutineDispatcher,
+    /** Records the raw conversation when set (L2 sessions); never changes what is sent. */
+    private val recorder: CaptureRecorder? = null,
 ) : AdapterTransport {
     override val kind: TransportKind = TransportKind.LIVE
 
@@ -126,7 +129,11 @@ class BluetoothClassicTransport internal constructor(
                 while (true) {
                     val n = socket.input.read(buffer)
                     if (n < 0) break
-                    if (n > 0) chunks.send(buffer.copyOf(n))
+                    if (n > 0) {
+                        val chunk = buffer.copyOf(n)
+                        recorder?.onRead(chunk)
+                        chunks.send(chunk)
+                    }
                 }
             } catch (e: IOException) {
                 // The connection ended; readers see the end of the stream.
@@ -138,6 +145,7 @@ class BluetoothClassicTransport internal constructor(
 
     override suspend fun write(request: Request) {
         if (closed) throw TransportClosedException("Bluetooth connection closed")
+        recorder?.onWrite(request.text)
         try {
             coroutineScope {
                 val writing = async(io) {
@@ -173,15 +181,64 @@ class BluetoothClassicTransport internal constructor(
     }
 }
 
+/** Result of opening and connecting the RFCOMM socket. */
+internal sealed interface ClassicConnection {
+    class Connected(val transport: BluetoothClassicTransport) : ClassicConnection
+    data class Failed(val reason: String) : ClassicConnection
+}
+
+/**
+ * Opens and connects an RFCOMM socket to one paired device. Cancelling the caller
+ * closes the socket, including during the blocking connect. Never retries.
+ */
+internal suspend fun connectClassic(
+    platform: BluetoothPlatform,
+    device: BondedDevice,
+    io: CoroutineDispatcher,
+    recorder: CaptureRecorder? = null,
+): ClassicConnection {
+    val socket = try {
+        platform.openSocket(device.address)
+    } catch (e: IOException) {
+        return ClassicConnection.Failed(e.message ?: "could not open a socket")
+    } catch (e: SecurityException) {
+        return ClassicConnection.Failed("Bluetooth permission not granted")
+    }
+    try {
+        coroutineScope {
+            val connecting = async(io) { socket.connect() }
+            try {
+                connecting.await()
+            } catch (e: CancellationException) {
+                // connect() blocks; closing the socket from here is how it is aborted.
+                runCatching { socket.close() }
+                throw e
+            }
+        }
+    } catch (e: IOException) {
+        runCatching { socket.close() }
+        return ClassicConnection.Failed("could not connect: ${e.message ?: "no detail"}")
+    } catch (e: SecurityException) {
+        runCatching { socket.close() }
+        return ClassicConnection.Failed("Bluetooth permission not granted")
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        runCatching { socket.close() }
+        return ClassicConnection.Failed("could not connect: ${e::class.simpleName}")
+    }
+    return ClassicConnection.Connected(BluetoothClassicTransport(socket, io, recorder))
+}
+
 sealed interface BenchRun {
     data class ConnectFailed(val reason: String) : BenchRun
     data class Finished(val result: BenchResult) : BenchRun
 }
 
 /**
- * Connects to one paired device, runs the adapter-only [AdapterBenchCheck] and
- * closes. The transport never leaves this class, so nothing else (in particular
- * the vehicle-read session) can use the Bluetooth connection in this stage.
+ * L1 path: connects to one paired device, runs the adapter-only [AdapterBenchCheck]
+ * and closes. Its transport never leaves this class. The only other user of a
+ * Bluetooth connection is the codes-only (L2) live read in AppViewModel.
  */
 class BluetoothBench(
     private val platform: BluetoothPlatform,
@@ -193,37 +250,10 @@ class BluetoothBench(
      * after cancelling.
      */
     suspend fun run(device: BondedDevice, onCheck: (AdapterBenchCheck) -> Unit = {}): BenchRun {
-        val socket = try {
-            platform.openSocket(device.address)
-        } catch (e: IOException) {
-            return BenchRun.ConnectFailed(e.message ?: "could not open a socket")
-        } catch (e: SecurityException) {
-            return BenchRun.ConnectFailed("Bluetooth permission not granted")
+        val transport = when (val connection = connectClassic(platform, device, io)) {
+            is ClassicConnection.Failed -> return BenchRun.ConnectFailed(connection.reason)
+            is ClassicConnection.Connected -> connection.transport
         }
-        try {
-            coroutineScope {
-                val connecting = async(io) { socket.connect() }
-                try {
-                    connecting.await()
-                } catch (e: CancellationException) {
-                    // connect() blocks; closing the socket from here is how it is aborted.
-                    runCatching { socket.close() }
-                    throw e
-                }
-            }
-        } catch (e: IOException) {
-            runCatching { socket.close() }
-            return BenchRun.ConnectFailed("could not connect: ${e.message ?: "no detail"}")
-        } catch (e: SecurityException) {
-            runCatching { socket.close() }
-            return BenchRun.ConnectFailed("Bluetooth permission not granted")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            runCatching { socket.close() }
-            return BenchRun.ConnectFailed("could not connect: ${e::class.simpleName}")
-        }
-        val transport = BluetoothClassicTransport(socket, io)
         try {
             val check = AdapterBenchCheck(transport)
             onCheck(check)

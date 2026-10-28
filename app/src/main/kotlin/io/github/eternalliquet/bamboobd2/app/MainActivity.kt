@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
+import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SavedSessionsScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionDetailScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionScreen
@@ -31,12 +32,20 @@ class MainActivity : ComponentActivity() {
                             onStartReplay = { id -> vm.startReplay(id); nav.navigate("session") },
                             onOpenSaved = { nav.navigate("saved") },
                             onOpenBench = { nav.navigate("bench") },
+                            onOpenLive = { nav.navigate("live") },
                         )
                     }
                     composable("session") {
                         SessionScreen(
                             vm = vm,
                             onDone = { vm.finishSession(); nav.popBackStack("home", inclusive = false) },
+                        )
+                    }
+                    composable("live") {
+                        LiveReadScreen(
+                            vm = vm,
+                            onStarted = { nav.navigate("session") { popUpTo("home") } },
+                            onBack = { nav.popBackStack() },
                         )
                     }
                     composable("bench") {

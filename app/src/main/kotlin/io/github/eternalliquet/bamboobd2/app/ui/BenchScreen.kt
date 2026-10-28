@@ -34,6 +34,7 @@ import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.BenchState
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothAvailability
+import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.core.bench.BenchOutcome
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
 import io.github.eternalliquet.bamboobd2.core.bench.BenchStop
@@ -67,7 +68,13 @@ fun BenchScreen(vm: AppViewModel, onBack: () -> Unit) {
             CopyButton(text = vm.platform)
 
             when (val s = state) {
-                is BenchState.Available -> Availability(s, onRequest = { vm.bluetoothPermission?.let(permission::launch) }, vm = vm)
+                is BenchState.Available -> Availability(
+                    availability = s.availability,
+                    permissionDenied = s.permissionDenied,
+                    onRequest = { vm.bluetoothPermission?.let(permission::launch) },
+                    onRefresh = { vm.refreshBluetooth() },
+                    onPick = vm::startBench,
+                )
                 is BenchState.Connecting -> Progress(stringResource(R.string.bench_connecting, s.device), vm::cancelBench)
                 is BenchState.Running -> Progress(stringResource(R.string.bench_running, s.device), vm::cancelBench)
                 is BenchState.Failed -> {
@@ -84,12 +91,19 @@ fun BenchScreen(vm: AppViewModel, onBack: () -> Unit) {
     }
 }
 
+/** Bluetooth state and the paired-device list, shared by the bench check and the live read. */
 @Composable
-private fun Availability(s: BenchState.Available, onRequest: () -> Unit, vm: AppViewModel) {
-    when (val a = s.availability) {
+internal fun Availability(
+    availability: BluetoothAvailability,
+    permissionDenied: Boolean,
+    onRequest: () -> Unit,
+    onRefresh: () -> Unit,
+    onPick: (BondedDevice) -> Unit,
+) {
+    when (val a = availability) {
         BluetoothAvailability.NoAdapter -> Text(stringResource(R.string.bench_no_adapter))
         BluetoothAvailability.PermissionNeeded -> {
-            Text(stringResource(if (s.permissionDenied) R.string.bench_permission_denied else R.string.bench_permission_needed))
+            Text(stringResource(if (permissionDenied) R.string.bench_permission_denied else R.string.bench_permission_needed))
             Button(onClick = onRequest, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.bench_permission_request)) }
         }
         BluetoothAvailability.Off -> Text(stringResource(R.string.bench_off))
@@ -99,16 +113,16 @@ private fun Availability(s: BenchState.Available, onRequest: () -> Unit, vm: App
             } else {
                 Text(stringResource(R.string.bench_pick))
                 a.bonded.forEach { device ->
-                    OutlinedButton(onClick = { vm.startBench(device) }, modifier = Modifier.fillMaxWidth()) { Text(device.name) }
+                    OutlinedButton(onClick = { onPick(device) }, modifier = Modifier.fillMaxWidth()) { Text(device.name) }
                 }
             }
         }
     }
-    OutlinedButton(onClick = { vm.refreshBluetooth() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.bench_refresh)) }
+    OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.bench_refresh)) }
 }
 
 @Composable
-private fun Progress(text: String, onCancel: () -> Unit) {
+internal fun Progress(text: String, onCancel: () -> Unit) {
     Text(text, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.cancel)) }
@@ -138,7 +152,7 @@ private fun Result(device: String, result: BenchResult) {
 }
 
 @Composable
-private fun CopyButton(text: String) {
+internal fun CopyButton(text: String, label: Int = R.string.bench_copy) {
     val context = LocalContext.current
     var copied by remember(text) { mutableStateOf(false) }
     OutlinedButton(
@@ -147,5 +161,5 @@ private fun CopyButton(text: String) {
             copied = true
         },
         modifier = Modifier.fillMaxWidth(),
-    ) { Text(stringResource(if (copied) R.string.bench_copied else R.string.bench_copy)) }
+    ) { Text(stringResource(if (copied) R.string.bench_copied else label)) }
 }

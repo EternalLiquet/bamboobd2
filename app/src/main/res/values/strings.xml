@@ -7,6 +7,16 @@
     <string name="live_banner">LIVE — data read from a connected adapter</string>
     <string name="bench_banner">ADAPTER BENCH — adapter-only commands, never vehicle requests</string>
     <string name="bench_open">Adapter bench check (Bluetooth)</string>
+    <string name="live_open">Read codes from the car (Bluetooth)</string>
+    <string name="live_title">Read codes</string>
+    <string name="live_read_banner">LIVE READ — car codes only, no sensor readings or clearing</string>
+    <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07), after the adapter setup commands ATE0, ATL0, ATH1 and ATDPN. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>
+    <string name="live_pick">Paired devices. Pick the adapter to read codes:</string>
+    <string name="live_connecting">Connecting to %1$s…</string>
+    <string name="live_failed">Not connected to %1$s: %2$s</string>
+    <string name="live_again">Try again</string>
+    <string name="readings_not_requested">Live readings were not requested: this was a codes-only session.</string>
+    <string name="copy_capture">Copy raw capture for review</string>
     <string name="bench_title">Adapter bench check</string>
     <string name="bench_explainer">Connects over Bluetooth Classic to an adapter already paired in system settings and sends only ATI, AT@1 and ATRV. It never sends a vehicle request. Use it only within an authorized bench test.</string>
     <string name="bench_platform">This phone: %1$s</string>

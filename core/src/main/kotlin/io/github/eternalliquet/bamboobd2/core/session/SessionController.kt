@@ -33,6 +33,15 @@ sealed interface SessionState {
 
 enum class Step { CONNECTING, SUPPORTED_PIDS, STORED_CODES, PENDING_CODES, READINGS }
 
+/** What a session reads. Live stages widen this one step at a time (docs/LIVE_TEST_GATE.md). */
+enum class ReadScope {
+    /** Supported-PID map and stored and pending codes only (L2): no sensor readings are requested. */
+    CODES_ONLY,
+
+    /** Also the supported live readings (L3, and every offline mode). */
+    FULL,
+}
+
 /**
  * Runs one read-only diagnostic session at a time and builds its record. The
  * record's provenance always comes from the reader; callers cannot set it.
@@ -48,7 +57,7 @@ class SessionController(
     private var job: Job? = null
 
     /** Starts a session. Returns false if one is already running. */
-    fun start(reader: DiagnosticReader): Boolean {
+    fun start(reader: DiagnosticReader, readScope: ReadScope = ReadScope.FULL): Boolean {
         if (_state.value is SessionState.Running) return false
         val initial = SessionRecord(
             schemaVersion = SessionRecord.SCHEMA_VERSION,
@@ -95,7 +104,12 @@ class SessionController(
                     emitRunning(record, if (kind == DtcKind.STORED) Step.PENDING_CODES else Step.READINGS)
                 }
 
-                for (pid in ObdPid.entries) {
+                if (readScope == ReadScope.CODES_ONLY) {
+                    record = record.copy(
+                        events = record.events + SessionEvent(clock.nowMillis(), READINGS_NOT_REQUESTED, "codes-only session"),
+                    )
+                }
+                for (pid in ObdPid.entries.takeIf { readScope == ReadScope.FULL }.orEmpty()) {
                     val results = when (val supported = record.supportedPids) {
                         // Never request a PID the vehicle says it lacks, or one we
                         // could not confirm.
@@ -150,5 +164,10 @@ class SessionController(
             events = record.events + SessionEvent(now, outcome.name.lowercase(), detail),
         )
         _state.value = SessionState.Finished(finished)
+    }
+
+    companion object {
+        /** Event kind recorded when a codes-only session skips the live readings. */
+        const val READINGS_NOT_REQUESTED = "readings_not_requested"
     }
 }
