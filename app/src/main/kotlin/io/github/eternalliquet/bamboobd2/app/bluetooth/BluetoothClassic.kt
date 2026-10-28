@@ -27,7 +27,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /*
  * Bluetooth Classic (RFCOMM, Serial Port Profile) connection to an already-paired
@@ -138,9 +137,18 @@ class BluetoothClassicTransport internal constructor(
     override suspend fun write(request: Request) {
         if (closed) throw TransportClosedException("Bluetooth connection closed")
         try {
-            withContext(io) {
-                socket.output.write(request.encoded())
-                socket.output.flush()
+            coroutineScope {
+                val writing = async(io) {
+                    socket.output.write(request.encoded())
+                    socket.output.flush()
+                }
+                try {
+                    writing.await()
+                } catch (e: CancellationException) {
+                    // A stalled blocking write ends only when the socket closes.
+                    close()
+                    throw e
+                }
             }
         } catch (e: IOException) {
             throw TransportClosedException("Bluetooth write failed: ${e.message}")
@@ -202,6 +210,14 @@ class BluetoothBench(
         } catch (e: IOException) {
             runCatching { socket.close() }
             return BenchRun.ConnectFailed("could not connect: ${e.message ?: "no detail"}")
+        } catch (e: SecurityException) {
+            runCatching { socket.close() }
+            return BenchRun.ConnectFailed("Bluetooth permission not granted")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            runCatching { socket.close() }
+            return BenchRun.ConnectFailed("could not connect: ${e::class.simpleName}")
         }
         val transport = BluetoothClassicTransport(socket, io)
         try {

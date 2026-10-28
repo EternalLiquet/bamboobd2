@@ -140,6 +140,11 @@ class AppViewModel @JvmOverloads constructor(
         _bench.value = BenchState.Available(bluetooth.availability(), permissionDenied)
     }
 
+    /** On opening the bench screen: rereads state only when idle, so a result or failure stays until the user moves on. */
+    fun refreshBluetoothIfIdle() {
+        if (_bench.value is BenchState.Available) refreshBluetooth()
+    }
+
     fun onPermissionResult(granted: Boolean) = refreshBluetooth(permissionDenied = !granted)
 
     fun startBench(device: BondedDevice) {

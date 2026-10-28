@@ -69,7 +69,8 @@ class AdapterBenchCheck(
         } catch (e: TransportClosedException) {
             return partial(BenchStop.DISCONNECTED, "before the first command")
         }
-        // A fresh buffer, so start-up text can never prefix the first reply.
+        // A fresh buffer, so text read during the quiet window doesn't prefix the first reply.
+        // Text arriving after that window would still land in it; the report shows it as-is.
         val assembler = ResponseAssembler()
         for (command in COMMANDS) {
             val started = timeSource.markNow()

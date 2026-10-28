@@ -67,19 +67,39 @@ class BenchFlowTest {
         waitForText("Complete")
     }
 
-    @Test
-    fun pairedAdapterThatNeverAnswersEndsAsNoReply() {
+    private fun pairShadowAdapter() {
         shadowOf(vmApp).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT)
         val adapter = vmApp.getSystemService(BluetoothManager::class.java).adapter
         shadowOf(adapter).setEnabled(true)
         val paired = ShadowBluetoothDevice.newInstance("00:11:22:33:44:55").also { shadowOf(it).setName("VEEPEAK") }
         shadowOf(adapter).setBondedDevices(setOf(paired))
+    }
 
+    @Test
+    fun pairedAdapterThatNeverAnswersEndsAsNoReplyAndTheResultSurvivesRecreation() {
+        pairShadowAdapter()
         openBench()
         waitForText("Paired devices.")
         rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
         waitForText("Result for VEEPEAK: stopped, no reply", seconds = 15)
         rule.onNodeWithText("ATI: no reply").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("AT@1: not run").performScrollTo().assertIsDisplayed()
+
+        // Rotation or a theme change must not erase the result before it is copied.
+        rule.activityRule.scenario.recreate()
+        waitForText("Result for VEEPEAK: stopped, no reply")
+        rule.onNodeWithText("ATI: no reply").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun cancellingARunningCheckKeepsAPartialResult() {
+        pairShadowAdapter()
+        openBench()
+        waitForText("Paired devices.")
+        rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
+        waitForText("Running the bench check on VEEPEAK")
+        rule.onNodeWithText("Cancel").performScrollTo().performClick()
+        waitForText("Result for VEEPEAK: cancelled")
+        rule.onNodeWithText("ATRV: not run").performScrollTo().assertIsDisplayed()
     }
 }

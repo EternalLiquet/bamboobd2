@@ -82,8 +82,9 @@ dependencies {
 }
 
 // F11, revised for the Bluetooth Classic transport stage (#12): the merged manifest
-// requests exactly the reviewed Bluetooth set below and nothing else that reaches
-// outside the phone. No Internet, location, scanning, discovery or advertising.
+// requests exactly the reviewed Bluetooth set below. Any other Bluetooth, location,
+// Internet or nearby-Wi-Fi permission fails. Other permission families are not
+// checked here; they are reviewed in the diff.
 androidComponents {
     onVariants { variant ->
         val name = variant.name.replaceFirstChar { it.uppercase() }
@@ -94,7 +95,7 @@ androidComponents {
             inputs.file(manifest)
             doLast {
                 val text = manifest.get().asFile.readText()
-                val tags = Regex("""<uses-permission(?:-sdk-23)?\b[^>]*>""").findAll(text).map { it.value }.toList()
+                val tags = Regex("""<uses-permission[\w-]*\b[^>]*>""").findAll(text).map { it.value }.toList()
                 val requested = tags.map { Regex("""android:name="([^"]+)"""").find(it)!!.groupValues[1] }
                 // Each allowed Bluetooth permission with the maxSdkVersion it must carry (null: none).
                 val allowedBluetooth = mapOf(

@@ -45,7 +45,8 @@ fun BenchScreen(vm: AppViewModel, onBack: () -> Unit) {
     val busy = state is BenchState.Connecting || state is BenchState.Running
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vm::onPermissionResult)
 
-    LaunchedEffect(Unit) { vm.refreshBluetooth() }
+    // A finished result survives rotation and re-entry; Refresh or Run again clears it.
+    LaunchedEffect(Unit) { vm.refreshBluetoothIfIdle() }
     // Leaving the screen stops a running check rather than leaving it in the background.
     BackHandler {
         if (busy) vm.cancelBench()
