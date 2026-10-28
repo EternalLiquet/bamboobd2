@@ -17,7 +17,7 @@ A stage is approved for one **host platform, transport medium and adapter model*
 
 ## Evidence needed before L1
 
-Current status (2026-10-28): phone, adapter and operator are recorded, the phone's Android version and the adapter label are still to be recorded, and **the bench supply is not confirmed, so L1 is blocked**. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
+Current status (2026-10-28): phone (Android 17, API 37), adapter and operator are recorded, the adapter label is still to be recorded, and **the bench supply is not confirmed, so L1 is blocked**. An owner-run adapter-only check in the parked car (outside this gate) is recorded in the readiness note, not as an L1 result. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
 
 These are documentation items. None requires powering or connecting the adapter.
 
