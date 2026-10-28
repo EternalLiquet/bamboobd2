@@ -26,6 +26,30 @@ val verifyTransportRegistry by tasks.registering {
         // parsed supertype (Kotlin ": ..." after the constructor, Java "extends/
         // implements") or only a constructor parameter inside cleanly balanced
         // parentheses. Anything else fails closed as unparseable.
+        // Comments and string/char literals become spaces (newlines kept), so words
+        // or brackets inside them cannot shape the scan.
+        fun blankNonCode(src: String): String {
+            val out = StringBuilder(src)
+            fun blank(from: Int, to: Int) { for (k in from until minOf(to, src.length)) if (src[k] != '\n') out.setCharAt(k, ' ') }
+            var i = 0
+            while (i < src.length) {
+                val start = i
+                when {
+                    src.startsWith("//", i) -> { i = src.indexOf('\n', i).let { if (it < 0) src.length else it }; blank(start, i) }
+                    src.startsWith("/*", i) -> { i = src.indexOf("*/", i + 2).let { if (it < 0) src.length else it + 2 }; blank(start, i) }
+                    src.startsWith("\"\"\"", i) -> { i = src.indexOf("\"\"\"", i + 3).let { if (it < 0) src.length else it + 3 }; blank(start, i) }
+                    src[i] == '"' || src[i] == '\'' -> {
+                        val quote = src[i]
+                        i++
+                        while (i < src.length && src[i] != quote && src[i] != '\n') i += if (src[i] == '\\') 2 else 1
+                        i = minOf(i + 1, src.length)
+                        blank(start, i)
+                    }
+                    else -> i++
+                }
+            }
+            return out.toString()
+        }
         val anyDeclaration = Regex("""\b(?:class|object|interface)\s+\w+""")
         val header = Regex("""\b(?:class|object)\s+(\w+)""")
         val transportName = Regex("""\bAdapterTransport\b""")
@@ -66,7 +90,7 @@ val verifyTransportRegistry by tasks.registering {
         val problems = mutableListOf<String>()
         sources.forEach { dir ->
             dir.walkTopDown().filter { it.isFile && (it.extension == "kt" || it.extension == "java") }.forEach { file ->
-                val text = file.readText()
+                val text = blankNonCode(file.readText())
                 val path = file.relativeTo(repoRoot).invariantSeparatorsPath
                 anonymous.findAll(text).forEach { problems += "anonymous AdapterTransport in $path; give it a name and pin it" }
                 header.findAll(text).forEach { m ->
