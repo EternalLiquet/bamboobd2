@@ -78,6 +78,7 @@ class ElmObdReader(
     override val provenance: Provenance = when (transport.kind) {
         TransportKind.FAKE -> Provenance.SIMULATED
         TransportKind.REPLAY -> Provenance.REPLAY
+        TransportKind.LIVE -> Provenance.LIVE
     }
 
     private var assembler = ResponseAssembler()

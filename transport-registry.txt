@@ -1,7 +1,10 @@
 # G2 transport registry (docs/ANDROID_MILESTONE_1.md). One line per AdapterTransport
-# implementation in any module's src/ tree: <source file> <class> <TransportKind>. Checked by the
-# verifyTransportRegistry task in both the core-only and root builds. Change this file
-# only in review; a LIVE entry also needs its own live-gate review.
+# implementation in any module's src/ tree: <source file> <class> <TransportKind>, and for
+# LIVE also reviewed:<reference>. Checked by the verifyTransportRegistry task in both the
+# core-only and root builds. Change this file only in review. A reviewed LIVE entry means
+# the code was reviewed; running it on hardware needs the separate live-stage go.
 core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/FakeTransport.kt FakeTransport FAKE
 core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/RequestPolicyTest.kt SpyTransport FAKE
 core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/ReplayTransport.kt ReplayTransport REPLAY
+app/src/main/kotlin/io/github/eternalliquet/bamboobd2/app/bluetooth/BluetoothClassic.kt BluetoothClassicTransport LIVE reviewed:issue-12
+core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/bench/AdapterBenchCheckTest.kt StallingTransport FAKE

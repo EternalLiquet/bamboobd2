@@ -34,6 +34,8 @@ const val PROVENANCE_BANNER_TAG = "provenance_banner"
 fun DiagnosticScaffold(
     title: String,
     provenance: Provenance? = null,
+    /** Replaces the provenance banner text on screens that show no session (the bench check). */
+    banner: Int? = null,
     navigationIcon: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
@@ -48,9 +50,10 @@ fun DiagnosticScaffold(
                 Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = stringResource(
-                            when (provenance) {
+                            banner ?: when (provenance) {
                                 Provenance.SIMULATED -> R.string.simulated_banner
                                 Provenance.REPLAY -> R.string.replay_banner
+                                Provenance.LIVE -> R.string.live_banner
                                 null -> R.string.offline_banner
                             },
                         ),
