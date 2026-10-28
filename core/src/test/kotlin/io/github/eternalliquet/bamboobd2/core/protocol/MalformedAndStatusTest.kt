@@ -61,6 +61,8 @@ class MalformedAndStatusTest {
             "7E8 10 06 43 02 01 33 01 71\r\r>", // first frame announcing a length that fits a single frame
             "7E8 10 0A 43 04 01 33\r7E8 21 01 71 04 20 C1 23 00\r\r>", // first frame shorter than eight bytes
             "7E8 10 0A 43 04 01 33 01 71\r7E8 21 04 20 C1 23 00 00 00 00\r\r>", // nine-byte consecutive frame
+            "7E8 10 0E 43 05 01 33 01 71\r7E8 21 04 20\r7E8 22 C1 23 00 00 00 00\r\r>", // short consecutive frame before the last
+            "7E8 10 0A 43 04 01 33 01 71\r7E8 21\r7E8 22 04 20 C1 23\r\r>", // consecutive frame with no data
         )
         for (reply in others) {
             assertEquals(reply, "malformed", ProtocolFixtures.render(run(VehicleRequest.STORED_DTCS, reply, ProtocolForm.CAN_11BIT, headers = true)))

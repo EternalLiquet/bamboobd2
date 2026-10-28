@@ -169,8 +169,9 @@ object ElmResponseParser {
      * Bounds for the declared form: an 11-bit identifier is at most 7FF, and a
      * classic CAN frame carries at most eight data bytes (p43), so a single frame
      * holds 1-7 payload bytes and a first frame is a full eight-byte frame
-     * announcing more than seven. Bytes after a single frame's payload, up to the
-     * eighth, are padding and are ignored whatever their value.
+     * announcing more than seven. Every consecutive frame but the last is full.
+     * Bytes after the announced payload, up to the eighth, are padding and are
+     * ignored whatever their value.
      */
     private fun parseCanWithHeaders(lines: List<String>): ParsedResponse {
         class Partial(val length: Int, val bytes: MutableList<Int>, var nextSeq: Int)
@@ -206,7 +207,12 @@ object ElmResponseParser {
                 0x2 -> {
                     val p = partial[id] ?: return ParsedResponse.Malformed("consecutive frame without first frame")
                     if ((pci and 0x0F) != p.nextSeq) return ParsedResponse.Malformed("consecutive frames out of order")
+                    if (frame.size < 2) return ParsedResponse.Malformed("consecutive frame without data")
                     p.bytes += frame.drop(1)
+                    // Only the last consecutive frame may be shorter than a full frame.
+                    if (p.bytes.size < p.length && frame.size != CAN_FRAME_BYTES) {
+                        return ParsedResponse.Malformed("short consecutive frame before the end")
+                    }
                     p.nextSeq = (p.nextSeq + 1) % 16
                     if (p.bytes.size >= p.length) {
                         messages += EcuMessage(id, p.bytes.take(p.length))
