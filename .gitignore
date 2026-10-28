@@ -1,2 +1,10 @@
 # Taste Skill local output (direction sheets, inspection reports)
 .taste-skill/
+
+# Gradle and IDE output
+build/
+.gradle/
+.kotlin/
+local.properties
+.idea/
+*.iml
