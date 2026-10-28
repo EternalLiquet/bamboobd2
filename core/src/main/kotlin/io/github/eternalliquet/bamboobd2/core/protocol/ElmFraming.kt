@@ -87,6 +87,8 @@ object ElmResponseParser {
     private val hexBytes = Regex("(?:[0-9A-F]{2})+")
     private val lengthLine = Regex("[0-9A-F]{3}")
     private val numberedLine = Regex("([0-9A-F]):(.*)")
+    private const val MAX_CAN_11BIT_ID = 0x7FF
+    private const val CAN_FRAME_BYTES = 8
 
     fun parse(text: String, request: Request, format: ResponseFormat): ParsedResponse {
         val lines = text.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
@@ -164,6 +166,11 @@ object ElmResponseParser {
      * Headers on, 11-bit CAN: each line is "<3-digit ID> <PCI> <data> [padding]"
      * with ISO 15765-2 framing visible (p41, p43): single frame PCI 0n, first frame
      * 1n nn, consecutive frames 2n. Frames are grouped per responder ID.
+     * Bounds for the declared form: an 11-bit identifier is at most 7FF, and a
+     * classic CAN frame carries at most eight data bytes (p43), so a single frame
+     * holds 1-7 payload bytes and a first frame is a full eight-byte frame
+     * announcing more than seven. Bytes after a single frame's payload, up to the
+     * eighth, are padding and are ignored whatever their value.
      */
     private fun parseCanWithHeaders(lines: List<String>): ParsedResponse {
         class Partial(val length: Int, val bytes: MutableList<Int>, var nextSeq: Int)
@@ -174,20 +181,25 @@ object ElmResponseParser {
             if (line.length < 5) return ParsedResponse.Malformed("CAN line too short")
             val id = line.substring(0, 3)
             if (!lengthLine.matches(id)) return ParsedResponse.Malformed("bad CAN identifier")
+            if (id.toInt(16) > MAX_CAN_11BIT_ID) return ParsedResponse.Malformed("identifier exceeds 11 bits")
             val frame = bytesOf(line.substring(3)) ?: return ParsedResponse.Malformed("non-hex CAN frame")
+            if (frame.size > CAN_FRAME_BYTES) return ParsedResponse.Malformed("CAN frame longer than eight bytes")
             val pci = frame[0]
             when (pci shr 4) {
                 0x0 -> {
                     val len = pci and 0x0F
-                    if (len == 0 || frame.size < 1 + len) return ParsedResponse.Malformed("single frame length mismatch")
+                    if (len == 0 || len > CAN_FRAME_BYTES - 1 || frame.size < 1 + len) {
+                        return ParsedResponse.Malformed("single frame length mismatch")
+                    }
                     if (id in partial) return ParsedResponse.Malformed("single frame inside a multi-frame reply")
                     messages += EcuMessage(id, frame.subList(1, 1 + len))
                     if (id !in order) order += id
                 }
                 0x1 -> {
-                    if (frame.size < 2) return ParsedResponse.Malformed("first frame too short")
+                    if (frame.size != CAN_FRAME_BYTES) return ParsedResponse.Malformed("first frame is not a full frame")
                     if (id in partial) return ParsedResponse.Malformed("second first frame before completion")
                     val len = ((pci and 0x0F) shl 8) or frame[1]
+                    if (len < CAN_FRAME_BYTES) return ParsedResponse.Malformed("first frame announces a single-frame length")
                     partial[id] = Partial(len, frame.drop(2).toMutableList(), 1)
                     if (id !in order) order += id
                 }

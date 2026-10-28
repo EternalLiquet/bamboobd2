@@ -51,6 +51,26 @@ class MalformedAndStatusTest {
     }
 
     @Test
+    fun canIdentifierAndFrameBoundsAreEnforced() {
+        // Regressions from the review of 48f67a4: both used to decode as values.
+        val coolant = run(VehicleRequest.COOLANT_TEMP, "FFF 03 41 05 7B\r\r>", ProtocolForm.CAN_11BIT, headers = true)
+        assertEquals("FFF exceeds the 11-bit maximum 7FF", "malformed", ProtocolFixtures.render(coolant))
+        val nineBytes = run(VehicleRequest.STORED_DTCS, "7E8 08 43 03 01 33 01 71 04 20\r\r>", ProtocolForm.CAN_11BIT, headers = true)
+        assertEquals("nine-byte frame with single-frame length 8", "malformed", ProtocolFixtures.render(nineBytes))
+        val others = listOf(
+            "7E8 10 06 43 02 01 33 01 71\r\r>", // first frame announcing a length that fits a single frame
+            "7E8 10 0A 43 04 01 33\r7E8 21 01 71 04 20 C1 23 00\r\r>", // first frame shorter than eight bytes
+            "7E8 10 0A 43 04 01 33 01 71\r7E8 21 04 20 C1 23 00 00 00 00\r\r>", // nine-byte consecutive frame
+        )
+        for (reply in others) {
+            assertEquals(reply, "malformed", ProtocolFixtures.render(run(VehicleRequest.STORED_DTCS, reply, ProtocolForm.CAN_11BIT, headers = true)))
+        }
+        // Valid bounds still decode: highest 11-bit ID, and non-zero padding after the payload.
+        assertEquals("reading:°C:7FF=83.0", ProtocolFixtures.render(run(VehicleRequest.COOLANT_TEMP, "7FF 03 41 05 7B\r\r>", ProtocolForm.CAN_11BIT, headers = true)))
+        assertEquals("reading:°C:7E8=83.0", ProtocolFixtures.render(run(VehicleRequest.COOLANT_TEMP, "7E8 03 41 05 7B AA AA AA AA\r\r>", ProtocolForm.CAN_11BIT, headers = true)))
+    }
+
+    @Test
     fun wrongServiceOrPidByteNeverYieldsAValue() {
         // Replace the service and PID bytes with every other value; only the right pair decodes.
         for (service in 0..0xFF) for (pid in listOf(0x05, 0x0C, 0x0D, 0x04, 0x00, 0x06, 0xFF)) {
