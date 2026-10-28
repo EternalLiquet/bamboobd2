@@ -95,7 +95,8 @@ object ObdDecoder {
     /**
      * Formulas. Coolant (A - 40, °C) and RPM ((256A + B) / 4) follow the worked
      * examples in ELM327DSJ p31-32. Engine load (100A / 255, %) and vehicle speed
-     * (A, km/h) come from a secondary source only; see docs/PROTOCOL.md.
+     * (A, km/h) follow manufacturer implementation documentation (Emtron), accepted
+     * by the owner for this milestone; SAE J1979 was not inspected. See docs/PROTOCOL.md.
      */
     private val formulas: Map<VehicleRequest, Pair<String, (List<Int>) -> Double>> = mapOf(
         VehicleRequest.ENGINE_LOAD to ("%" to { d -> d[0] * 100.0 / 255.0 }),

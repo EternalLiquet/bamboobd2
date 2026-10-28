@@ -1,8 +1,8 @@
 {
   "id": "ds-p45-0104-load-raw",
   "provenance": "SYNTHETIC",
-  "sourceTier": "secondary",
-  "source": "ELM327 data sheet ELM327DSJ p45 shows load byte 3F in a reply; scaling 100A/255 is from a secondary source (docs/PROTOCOL.md)",
+  "sourceTier": "manufacturer",
+  "source": "ELM327 data sheet ELM327DSJ p45 shows load byte 3F in a reply; scaling 100A/255 % from Emtron OBD-II documentation (manufacturer, owner-accepted 2026-10-28); SAE J1979 not inspected",
   "request": "0104",
   "headers": false,
   "form": "NON_CAN",

@@ -46,7 +46,7 @@ class ReadPlanAndHygieneTest {
 
     @Test
     fun everyFixtureHasCompleteProvenanceMetadataAndNoIdentifiers() {
-        val tiers = setOf("primary", "secondary", "constructed")
+        val tiers = setOf("primary", "constructed", "manufacturer")
         for (file in ProtocolFixtures.files()) {
             val f = ProtocolFixtures.all().single { "${it.id}.json" == file.name }
             assertTrue("${f.id}: provenance", f.provenance in setOf("SYNTHETIC", "SANITIZED_CAPTURE"))

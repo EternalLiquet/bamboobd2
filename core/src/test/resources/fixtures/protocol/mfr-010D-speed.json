@@ -1,0 +1,11 @@
+{
+  "id": "mfr-010D-speed",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "manufacturer",
+  "source": "Emtron OBD-II documentation: speed = A km/h (manufacturer implementation docs, owner-accepted 2026-10-28; cross-checked with python-OBD); SAE J1979 not inspected",
+  "request": "010D",
+  "headers": false,
+  "form": "NON_CAN",
+  "reply": "41 0D 32\r\r>",
+  "expected": "reading:km/h:-=50.0"
+}

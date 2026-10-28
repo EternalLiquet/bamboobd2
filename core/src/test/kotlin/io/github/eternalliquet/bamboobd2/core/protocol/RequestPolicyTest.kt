@@ -10,7 +10,11 @@ import org.junit.Test
 /** F9: deny by default, exact allowlist, nothing rejected reaches a transport. */
 class RequestPolicyTest {
 
-    private val allowlist = setOf("0100", "0104", "0105", "010C", "010D", "03", "07")
+    private val vehicleAllowlist = setOf("0100", "0104", "0105", "010C", "010D", "03", "07")
+
+    // Owner-approved adapter configuration/information commands (2026-10-28).
+    private val adapterAllowlist = setOf("ATE0", "ATL0", "ATH1", "ATDPN", "ATI", "AT@1", "ATRV")
+    private val allowlist = vehicleAllowlist + adapterAllowlist
 
     /** Records every write; used to show rejected requests never reach a transport. */
     private class SpyTransport : AdapterTransport {
@@ -28,9 +32,10 @@ class RequestPolicyTest {
     }
 
     @Test
-    fun allowlistIsExactlyTheSevenReadOnlyRequestsAndPinned() {
+    fun allowlistIsExactlyTheApprovedRequestsAndPinned() {
         assertEquals(allowlist, RequestPolicy.allowlist.toSet())
-        assertTrue(RequestPolicy.approvedAdapterCommands.isEmpty())
+        assertEquals(vehicleAllowlist, VehicleRequest.entries.map { it.text }.toSet())
+        assertEquals(adapterAllowlist, RequestPolicy.approvedAdapterCommands.toSet())
         // Any change to the allowlist must update this pinned hash in review.
         val digest = MessageDigest.getInstance("SHA-256").digest(RequestPolicy.allowlist.joinToString("\n").toByteArray())
         assertEquals(PINNED_ALLOWLIST_SHA256, digest.joinToString("") { "%02x".format(it) })
@@ -43,7 +48,8 @@ class RequestPolicyTest {
             "2F", "31", "3101", "34", "35", "36", "3E", "02", "0200", "05", "06", "0101", "0120", "0140", "010E",
             "", " ", "\r", "\t", "0 4", "01 05", "010c", "0105 ", " 0105", "0105\r", "01050", "0105\r04",
             "ATZ", "ATWS", "ATD", "ATSP0", "AT SP 0", "ATTP0", "ATSH7E0", "ATCRA7E8", "ATPP2CSV81", "ATSD00",
-            "ATSI", "ATFI", "ATMA", "ATE0", "ATH1", "ATI", "atz",
+            "ATSI", "ATFI", "ATMA", "ATST32", "ATDP", "ATE1", "ATH0", "ATL1", "ATS0", "ATI0", "AT@2", "ATRV0",
+            "atz", "ate0", "AT E0", "ATE0 ", " ATI", "ATI\r", "ATE0\rATZ", "AT@1\r04",
         )
         val spy = SpyTransport()
         for (text in rejected) {
@@ -56,7 +62,7 @@ class RequestPolicyTest {
     @Test
     fun randomStringsAreAcceptedIffExactlyAllowlisted() {
         val random = Random(9)
-        val alphabet = "0123456789ABCDEFabcdefATSPZHI \r\n\t\u0000"
+        val alphabet = "0123456789ABCDEFabcdefATSPZHILRVN@ \r\n\t\u0000"
         val spy = SpyTransport()
         val candidates = (1..20_000).map {
             if (random.nextInt(10) == 0) {
@@ -75,6 +81,16 @@ class RequestPolicyTest {
     }
 
     @Test
+    fun approvedAdapterCommandsAreAcceptedAsAdapterRequests() {
+        for (cmd in AdapterCommand.entries) {
+            val d = RequestPolicy.evaluate(cmd.text) as PolicyDecision.Accepted
+            assertEquals(Request.Kind.ADAPTER, d.request.kind)
+            assertEquals(d.request, RequestPolicy.adapter(cmd))
+        }
+        assertEquals("ATE0\r", String(RequestPolicy.adapter(AdapterCommand.ECHO_OFF).encoded(), Charsets.US_ASCII))
+    }
+
+    @Test
     fun encodedRequestIsCanonicalTextAndCarriageReturn() {
         val r = RequestPolicy.vehicle(VehicleRequest.ENGINE_RPM)
         assertEquals("010C\r", String(r.encoded(), Charsets.US_ASCII))
@@ -87,6 +103,6 @@ class RequestPolicyTest {
     }
 
     private companion object {
-        const val PINNED_ALLOWLIST_SHA256 = "e36627b54e95471033cded46080ef7fdf49bc739e12e2b1de6bb8a2821730530"
+        const val PINNED_ALLOWLIST_SHA256 = "d5c01c2f55c9fba8cea515bb6b2a5c52c8639ba39efb988b69c673d9b5870335"
     }
 }
