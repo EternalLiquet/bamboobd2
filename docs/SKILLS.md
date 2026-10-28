@@ -20,7 +20,7 @@ Everything else is byte-identical to upstream at the listed revision.
 ## Dependencies and side effects
 
 - `ui-ux-pro-max` scripts need Python 3 and use only the standard library. A query reads the bundled CSV data. `--persist` writes `design-system/` into the project; use it only when asked. Running the scripts creates `__pycache__/` next to them unless `PYTHONDONTWRITEBYTECODE=1` is set.
-- `design-taste-frontend` scripts need Node 22+ and Chrome, Edge or Chromium. `assets.mjs` downloads images from Openverse, Wikimedia Commons, museum and NASA APIs. `draw.mjs` writes a history file to `~/.taste-skill/` (override with `TASTE_SKILL_HISTORY`) and its output to `.taste-skill/` in the project, which is git-ignored. Its browser checks are not validation of native Android screens.
+- `design-taste-frontend`: per its bundled README, `draw.mjs`, `lint.mjs` and `assets.mjs` run on Node 18+, and `inspect.mjs` needs Node 22+ and an installed Chrome, Edge or Chromium. The `scenes.mjs` header states the same Node 22+ and browser requirement. `assets.mjs` downloads images from Openverse, Wikimedia Commons, museum and NASA APIs. `draw.mjs` writes a history file to `~/.taste-skill/` (override with `TASTE_SKILL_HISTORY`) and its output to `.taste-skill/` in the project, which is git-ignored. Its browser checks are not validation of native Android screens.
 - `frontend-design` and `humanizer` are instructions only, with no scripts.
 
 ## Updating
