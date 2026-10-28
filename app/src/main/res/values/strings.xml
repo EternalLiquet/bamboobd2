@@ -28,6 +28,7 @@
     <string name="codes_scope">Generic OBD-II engine codes only, not body, ABS, airbag or other modules.</string>
     <string name="readings_heading">Readings</string>
     <string name="not_read">Not read</string>
+    <string name="codes_incomplete">Not every code list was read completely, so codes may be missing.</string>
     <string name="unsupported">Not reported by this vehicle</string>
     <string name="unknown_capability">Unknown: support could not be confirmed</string>
     <string name="no_data">No data: no reply to the request</string>

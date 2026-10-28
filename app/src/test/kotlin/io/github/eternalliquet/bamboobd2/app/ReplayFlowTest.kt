@@ -4,11 +4,22 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import android.app.Application
+import androidx.compose.ui.test.assertCountEquals
+import androidx.lifecycle.ViewModelProvider
 import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
+import io.github.eternalliquet.bamboobd2.core.model.Dtc
+import io.github.eternalliquet.bamboobd2.core.model.DtcKind
+import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.SessionEvent
+import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
+import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
+import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
 import java.util.concurrent.TimeUnit
 import org.junit.Before
 import org.junit.Rule
@@ -77,6 +88,42 @@ class ReplayFlowTest {
         rule.onNodeWithText(entry).performClick()
         rule.waitUntil(5_000) {
             rule.onAllNodes(hasText("Reason: no_response: no prompt after '0105' (PID 05)")).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    // The saved list and the record load on the IO dispatcher and are posted to the
+    // paused main looper, so idle it while waiting.
+    private fun waitForText(text: String) = rule.waitUntil(5_000) {
+        ShadowLooper.idleMainLooper()
+        rule.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    @Test
+    fun reopenedSessionWithAnUnresolvedPendingReplyNeverClaimsNoCodes() {
+        // As ElmObdReader records 03 answered "7E8 7F 03 78" then "7E9 43 00", and 07 read completely.
+        fun record(id: String, dtcs: List<Dtc>) = SessionRecord(
+            schemaVersion = SessionRecord.SCHEMA_VERSION, id = id, startedAt = 1, endedAt = 2,
+            provenance = Provenance.REPLAY, sourceLabel = "replay:$id", complete = true, outcome = SessionOutcome.COMPLETE,
+            dtcs = dtcs, dtcKindsRead = listOf(DtcKind.PENDING),
+            events = listOf(SessionEvent(2, "codes_incomplete", "stored: response pending, no final reply from 7E8")),
+        )
+        // Save where the app's ViewModel reads. Under Robolectric that can differ from this
+        // test's filesDir: the ViewModel factory keeps the first test's Application.
+        val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
+        val store = FileSessionStore(vm.getApplication<Application>().filesDir.resolve("sessions"))
+        store.save(record("mixed", emptyList()))
+        store.save(record("earlier", listOf(Dtc("P0133", DtcKind.STORED, "7E8"))))
+
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        for ((id, code) in listOf("mixed" to null, "earlier" to "P0133 (stored)")) {
+            val entry = "REPLAY · replay:$id · Complete"
+            waitForText(entry)
+            rule.onNodeWithText(entry).performClick()
+            waitForText("REPLAY · replay:$id")
+            rule.onNodeWithText("Not every code list was read completely, so codes may be missing.").performScrollTo().assertIsDisplayed()
+            rule.onAllNodes(hasText("No generic emissions codes reported", substring = true)).assertCountEquals(0)
+            code?.let { rule.onNodeWithText(it).performScrollTo().assertIsDisplayed() }
+            rule.onNodeWithContentDescription("Back").performClick()
         }
     }
 

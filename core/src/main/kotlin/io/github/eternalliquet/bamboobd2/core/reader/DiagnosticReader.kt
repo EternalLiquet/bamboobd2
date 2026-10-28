@@ -24,9 +24,13 @@ interface DiagnosticReader {
     fun takeNotes(): List<ReaderNote> = emptyList()
 }
 
-/** Result of reading one trouble-code list. Only [Read] means the list is known. */
+/** Result of reading one trouble-code list. Only [Read] means the list is complete. */
 sealed interface DtcRead {
     data class Read(val codes: List<Dtc>) : DtcRead
+
+    /** Some responders answered with [codes]; at least one did not finish, so the list may be incomplete. */
+    data class Incomplete(val codes: List<Dtc>, val reason: String) : DtcRead
+
     data class NotRead(val reason: String) : DtcRead
 }
 

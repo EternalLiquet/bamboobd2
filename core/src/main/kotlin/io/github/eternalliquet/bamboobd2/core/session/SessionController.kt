@@ -81,6 +81,11 @@ class SessionController(
                 for (kind in listOf(DtcKind.STORED, DtcKind.PENDING)) {
                     record = when (val read = reader.readDtcs(kind)) {
                         is DtcRead.Read -> record.copy(dtcs = record.dtcs + read.codes, dtcKindsRead = record.dtcKindsRead + kind)
+                        // Codes kept, list not marked read: an incomplete list never counts as complete.
+                        is DtcRead.Incomplete -> record.copy(
+                            dtcs = record.dtcs + read.codes,
+                            events = record.events + SessionEvent(clock.nowMillis(), "codes_incomplete", "${kind.name.lowercase()}: ${read.reason}"),
+                        )
                         // Not marked as read, so an empty list is never shown as "no codes".
                         is DtcRead.NotRead -> record.copy(
                             events = record.events + SessionEvent(clock.nowMillis(), "codes_not_read", "${kind.name.lowercase()}: ${read.reason}"),

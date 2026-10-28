@@ -7,6 +7,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterCommand
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterErrorKind
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
+import io.github.eternalliquet.bamboobd2.core.protocol.EcuMessage
 import io.github.eternalliquet.bamboobd2.core.protocol.ElmResponseParser
 import io.github.eternalliquet.bamboobd2.core.protocol.ObdDecoder
 import io.github.eternalliquet.bamboobd2.core.protocol.ObdResult
@@ -118,17 +119,21 @@ class ElmObdReader(
             throw ReaderStoppedException(StopReason.NO_PROTOCOL, "ATDPN '${dpn.joinToString(" ")}' after 0100 '$status'")
         }
         format = ResponseFormat(headers = true, form = form)
-        val result = decode(VehicleRequest.SUPPORTED_PIDS_01_20, raw)
+        val (result, unresolved) = decode(VehicleRequest.SUPPORTED_PIDS_01_20, raw)
         val supported = ReadPlan.supportedFrom(result)
         if (supported == SupportedPids.Unknown) notes += ReaderNote("supported_pids_unknown", describe(result))
+        if (unresolved.isNotEmpty()) notes += ReaderNote("supported_pids_incomplete", pendingReason(unresolved))
         return supported
     }
 
     override suspend fun readDtcs(kind: DtcKind): DtcRead {
         val request = if (kind == DtcKind.STORED) VehicleRequest.STORED_DTCS else VehicleRequest.PENDING_DTCS
         phase = "${kind.name.lowercase()} codes"
-        return when (val result = query(request)) {
-            is ObdResult.Dtcs -> DtcRead.Read(result.codes)
+        val (result, unresolved) = query(request)
+        return when {
+            result is ObdResult.Dtcs && unresolved.isEmpty() -> DtcRead.Read(result.codes)
+            // Codes from responders that answered are kept; the list is not complete.
+            result is ObdResult.Dtcs -> DtcRead.Incomplete(result.codes, pendingReason(unresolved))
             else -> DtcRead.NotRead(describe(result))
         }
     }
@@ -137,37 +142,55 @@ class ElmObdReader(
         val request = VehicleRequest.entries.firstOrNull { it.text == "01$pid" }
             ?: return listOf(ReadingResult.Failed("PID $pid is not allowlisted"))
         phase = "PID $pid"
-        return when (val result = query(request)) {
-            is ObdResult.Reading -> result.perEcu.map { ReadingResult.Value(it.value, result.unit, it.ecu) }
+        val (result, unresolved) = query(request)
+        return when (result) {
+            is ObdResult.Reading -> result.perEcu.map { ReadingResult.Value(it.value, result.unit, it.ecu) } +
+                unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply") }
             ObdResult.NoData -> listOf(ReadingResult.NoData)
             else -> listOf(ReadingResult.Failed(describe(result)))
         }
     }
 
-    private suspend fun query(request: VehicleRequest): ObdResult =
+    private suspend fun query(request: VehicleRequest): Pair<ObdResult, List<String?>> =
         decode(request, exchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis))
 
-    private fun decode(request: VehicleRequest, raw: String): ObdResult {
+    /** The decoded final replies, and the responders whose pending reply was never resolved. */
+    private fun decode(request: VehicleRequest, raw: String): Pair<ObdResult, List<String?>> {
         val format = checkNotNull(format) { "protocol not determined" }
         val parsed = ElmResponseParser.parse(raw, RequestPolicy.vehicle(request), format)
         if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET) {
             // The adapter restarted and lost its settings; later replies would be misread.
             throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
         }
-        return ObdDecoder.decode(request, withoutPending(parsed, request), format.form)
+        val (finals, unresolved) = splitPending(parsed, request)
+        return ObdDecoder.decode(request, finals, format.form) to unresolved
     }
 
     /**
-     * Drops "7F <service> 78" (response pending, p45) messages when a final reply
-     * follows in the same response. A response with only pending messages stays
-     * a negative result: the final reply never came.
+     * Separates "7F <service> 78" (response pending, p45) messages from final
+     * replies. A pending message is resolved only by a later final reply from
+     * the same responder; another responder's reply, or one that came before it,
+     * does not resolve it. A response with only pending messages is returned
+     * unchanged, so it decodes as a negative result: no final reply came.
      */
-    private fun withoutPending(parsed: ParsedResponse, request: VehicleRequest): ParsedResponse {
-        if (parsed !is ParsedResponse.Messages) return parsed
+    private fun splitPending(parsed: ParsedResponse, request: VehicleRequest): Pair<ParsedResponse, List<String?>> {
+        if (parsed !is ParsedResponse.Messages) return parsed to emptyList()
         val service = request.text.substring(0, 2).toInt(16)
-        val rest = parsed.messages.filterNot { it.bytes == listOf(0x7F, service, 0x78) }
-        return if (rest.isEmpty() || rest.size == parsed.messages.size) parsed else ParsedResponse.Messages(rest)
+        val pending = LinkedHashSet<String?>()
+        val finals = mutableListOf<EcuMessage>()
+        for (m in parsed.messages) {
+            if (m.bytes == listOf(0x7F, service, 0x78)) {
+                pending += m.ecu
+            } else {
+                pending -= m.ecu
+                finals += m
+            }
+        }
+        return if (finals.isEmpty()) parsed to emptyList() else ParsedResponse.Messages(finals) to pending.toList()
     }
+
+    private fun pendingReason(unresolved: List<String?>): String =
+        "response pending, no final reply from ${unresolved.joinToString { it ?: "responder" }}"
 
     /** One request and its prompt-terminated reply, retried at most once after a passive resync. */
     private suspend fun exchange(request: Request, deadlineMillis: Long): String {

@@ -37,13 +37,15 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
 
         Text(stringResource(R.string.codes_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(stringResource(R.string.codes_scope), style = MaterialTheme.typography.bodySmall)
+        record.dtcs.forEach { dtc ->
+            val kind = if (dtc.kind == DtcKind.STORED) R.string.code_stored else R.string.code_pending
+            Text("${dtc.code} (${stringResource(kind)})", style = MaterialTheme.typography.bodyLarge)
+        }
+        // "No codes" only when every list was read completely; otherwise say what is missing.
         when {
-            record.dtcs.isNotEmpty() -> record.dtcs.forEach { dtc ->
-                val kind = if (dtc.kind == DtcKind.STORED) R.string.code_stored else R.string.code_pending
-                Text("${dtc.code} (${stringResource(kind)})", style = MaterialTheme.typography.bodyLarge)
-            }
-            record.allCodesRead -> Text(stringResource(R.string.no_codes), style = MaterialTheme.typography.bodyLarge)
-            else -> Text(stringResource(R.string.not_read), style = MaterialTheme.typography.bodyLarge)
+            record.allCodesRead -> if (record.dtcs.isEmpty()) Text(stringResource(R.string.no_codes), style = MaterialTheme.typography.bodyLarge)
+            record.dtcs.isEmpty() && record.dtcKindsRead.isEmpty() -> Text(stringResource(R.string.not_read), style = MaterialTheme.typography.bodyLarge)
+            else -> Text(stringResource(R.string.codes_incomplete), style = MaterialTheme.typography.bodyLarge)
         }
 
         HorizontalDivider()

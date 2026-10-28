@@ -178,6 +178,67 @@ class ElmObdReaderTest {
         assertEquals(listOf(ReadingResult.Failed("response pending, no final reply")), gaveUp.record.reading("05"))
     }
 
+    // Pending responses (7F xx 78, p45) are resolved only by a later final reply from the same responder.
+    private val twoResponders = listOf(step("0100", 20L to "7E8 06 41 00 00 00 00 00\r\r>"), step("ATDPN", 10L to "A6\r\r>"))
+
+    @Test
+    fun pendingFromOneResponderIsNotResolvedByAnotherResponder() = runTest {
+        val steps = init + twoResponders + listOf(
+            step("03", 10L to "7E8 03 7F 03 78\r7E9 02 43 00\r\r>"),
+            step("07", 10L to "7E8 02 47 00\r7E9 02 47 00\r\r>"),
+        )
+        val r = session(script(steps)).record
+        // 7E8 never answered 03, so stored codes are not known to be empty.
+        assertFalse(DtcKind.STORED in r.dtcKindsRead)
+        assertFalse(r.allCodesRead)
+        assertTrue(r.dtcs.isEmpty())
+        assertTrue(r.events.any { it.kind == "codes_incomplete" && "7E8" in it.detail })
+
+        // The saved record keeps the same status.
+        val dir = Files.createTempDirectory("pending-mixed").toFile()
+        try {
+            val store = FileSessionStore(dir)
+            assertTrue(store.save(r) is SaveResult.Saved)
+            assertFalse(store.load(r.id)!!.allCodesRead)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun pendingFollowedByTheSameRespondersFinalReplyResolves() = runTest {
+        val steps = init + twoResponders + listOf(
+            step("03", 10L to "7E8 03 7F 03 78\r7E8 04 43 01 01 33\r\r>"),
+            step("07", 10L to "7E8 02 47 00\r\r>"),
+        )
+        val r = session(script(steps)).record
+        assertEquals(listOf(Dtc("P0133", DtcKind.STORED, "7E8")), r.dtcs)
+        assertTrue(r.allCodesRead)
+    }
+
+    @Test
+    fun finalReplyBeforeThePendingOneDoesNotResolveIt() = runTest {
+        val steps = init + twoResponders + listOf(
+            step("03", 10L to "7E8 04 43 01 01 33\r7E8 03 7F 03 78\r\r>"),
+            step("07", 10L to "7E8 02 47 00\r\r>"),
+        )
+        val r = session(script(steps)).record
+        // The earlier codes are kept, but the list is not complete.
+        assertEquals(listOf(Dtc("P0133", DtcKind.STORED, "7E8")), r.dtcs)
+        assertFalse(DtcKind.STORED in r.dtcKindsRead)
+        assertFalse(r.allCodesRead)
+    }
+
+    @Test
+    fun readingKeepsOtherRespondersValuesAndMarksTheUnresolvedOne() = runTest {
+        val steps = upToCoolant + step("0105", 10L to "7E8 03 7F 01 78\r7E9 03 41 05 7B\r\r>")
+        val r = session(script(steps)).record
+        assertEquals(
+            listOf(ReadingResult.Value(83.0, "°C", "7E9"), ReadingResult.Failed("7E8: response pending, no final reply")),
+            r.reading("05"),
+        )
+    }
+
     @Test
     fun staleBytesBeforeAWriteAreDiscarded() = runTest {
         val steps = init + protocol + noCodes + listOf(
