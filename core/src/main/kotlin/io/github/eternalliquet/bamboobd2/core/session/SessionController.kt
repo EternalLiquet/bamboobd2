@@ -112,7 +112,7 @@ class SessionController(
                 finish(withNotes(record), outcome, e.message.orEmpty())
             } catch (e: Exception) {
                 // Keep partial data and report the stop; no retry.
-                finish(record, SessionOutcome.FAILED, e::class.simpleName.orEmpty())
+                finish(withNotes(record), SessionOutcome.FAILED, e::class.simpleName.orEmpty())
             }
         }
         return true

@@ -63,6 +63,10 @@ data class AdapterProfile(
  *   for the prompt; only if the prompt comes is the same request retried, once.
  *   No reset or other command is ever sent to recover.
  * - A disconnect stops the session; the reader never reconnects.
+ *
+ * Run it on a single-threaded dispatcher (the main thread, or a test scheduler).
+ * On a multi-threaded one, a deadline firing just as [AdapterTransport.read]
+ * returns could drop that chunk.
  */
 class ElmObdReader(
     private val transport: AdapterTransport,
