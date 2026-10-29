@@ -159,7 +159,14 @@ class AppViewModel @JvmOverloads constructor(
                     return@launch
                 }
                 _live.value = LiveState.Available(bluetooth.availability())
-                liveController.state.first { it is LiveReadState.Finished }
+                // Ready and Paused do not read; an EOF must still end this connection.
+                val disconnectWatch = launch {
+                    transport.awaitDisconnect()
+                    liveController.stop(LiveStopReason.DISCONNECTED)
+                }
+                try {
+                    liveController.state.first { it is LiveReadState.Finished }
+                } finally { disconnectWatch.cancel() }
             } finally { transport.close() }
         }
         return true

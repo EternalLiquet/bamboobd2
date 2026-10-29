@@ -55,6 +55,7 @@ class LiveRecordingFlowTest {
             }
         }
         override fun close() { releaseConnect.countDown(); runCatching { toApp.close() }; closed.countDown() }
+        fun disconnect() { toApp.close() }
         fun writes(): String = synchronized(written) { written.toString(Charsets.US_ASCII.name()) }
     }
     private var socket = Socket()
@@ -167,5 +168,43 @@ class LiveRecordingFlowTest {
         assertTrue(vm.recordingPending.value)
         rule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         rule.onNodeWithText("Recording ended").assertExists()
+    }
+
+    @Test fun disconnectWhileReadyEndsThePreparedSessionWithoutStartingPolls() {
+        enter()
+        val before = socket.writes()
+        socket.disconnect()
+        until(5) { vm.recording.value is LiveReadState.Finished && socket.closed.count == 0L }
+        val record = (vm.recording.value as LiveReadState.Finished).record
+        assertEquals(LiveStopReason.DISCONNECTED, record.recording!!.stopReason)
+        assertTrue(record.recording!!.samples.isEmpty())
+        assertTrue(vm.recordingPending.value)
+        rule.onNodeWithText("Recording ended").assertExists()
+        rule.onNodeWithText("Start recording").assertDoesNotExist()
+        assertWritesStayUnchanged(before)
+    }
+
+    @Test fun disconnectWhilePausedRetainsSamplesAndCannotResumeTheEndedConnection() {
+        enter()
+        selectFour()
+        rule.onNodeWithText("Start recording").performScrollTo().performClick()
+        until(10) { (vm.recording.value as? LiveReadState.Recording)?.record?.recording?.samples.orEmpty().isNotEmpty() }
+        rule.onNodeWithText("Pause").performScrollTo().performClick()
+        until(5) { vm.recording.value is LiveReadState.Paused }
+        val paused = (vm.recording.value as LiveReadState.Paused).record
+        val before = socket.writes()
+        socket.disconnect()
+        until(5) { vm.recording.value is LiveReadState.Finished && socket.closed.count == 0L }
+        val ended = (vm.recording.value as LiveReadState.Finished).record
+        assertEquals(paused.id, ended.id)
+        assertEquals(paused.recording!!.samples, ended.recording!!.samples)
+        assertEquals(LiveStopReason.DISCONNECTED, ended.recording!!.stopReason)
+        rule.runOnUiThread { assertFalse(vm.resumeRecording()) }
+        assertTrue(vm.recordingPending.value)
+        rule.onNodeWithText("Resume").assertDoesNotExist()
+        assertWritesStayUnchanged(before)
+        rule.onNodeWithText("Save").performScrollTo().performClick()
+        until(5) { vm.saveStatus.value[ended.id] is SaveStatus.Done }
+        assertTrue((vm.saveStatus.value[ended.id] as SaveStatus.Done).result is io.github.eternalliquet.bamboobd2.core.storage.SaveResult.Saved)
     }
 }

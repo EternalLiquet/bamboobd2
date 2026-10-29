@@ -19,6 +19,7 @@ import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedDeque
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -120,6 +121,7 @@ class BluetoothClassicTransport internal constructor(
     private val returned = ConcurrentLinkedDeque<ByteArray>()
     private val chunks = Channel<ByteArray>(Channel.UNLIMITED) { returned.addFirst(it) }
     private val pump = CoroutineScope(SupervisorJob() + io)
+    private val disconnected = CompletableDeferred<Unit>()
     @Volatile private var closed = false
 
     init {
@@ -139,6 +141,7 @@ class BluetoothClassicTransport internal constructor(
                 // The connection ended; readers see the end of the stream.
             } finally {
                 chunks.close()
+                disconnected.complete(Unit)
             }
         }
     }
@@ -168,6 +171,9 @@ class BluetoothClassicTransport internal constructor(
     }
 
     override suspend fun read(): ByteArray? = returned.pollFirst() ?: chunks.receiveCatching().getOrNull()
+
+    /** Observes the existing read pump ending, including while the owner has no read pending. */
+    internal suspend fun awaitDisconnect() = disconnected.await()
 
     /** Closes the socket; a blocked read ends. Never reopened: a new connection is a new transport. */
     fun close() {
