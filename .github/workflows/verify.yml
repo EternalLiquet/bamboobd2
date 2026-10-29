@@ -38,10 +38,16 @@ jobs:
         run: ./gradlew -p core check --console=plain
       - name: Verify debug app and both merged manifests
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:verifyNoForbiddenPermissions :app:assembleDebug --console=plain
-      - name: Record APK source and checksum
+      - name: Verify APK identity and record checksum
         run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
           printf 'Source SHA: %s\n' "$(git rev-parse HEAD)"
-          sha256sum app/build/outputs/apk/debug/app-debug.apk
+          badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")
+          printf '%s\n' "$badging" | grep -F "package: name='io.github.eternalliquet.bamboobd2' versionCode='1' versionName='0.1.0-poc'"
+          printf '%s\n' "$badging" | grep -Fx "sdkVersion:'26'"
+          printf '%s\n' "$badging" | grep -Fx "targetSdkVersion:'36'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk"
+          sha256sum "$apk"
       - name: Upload APK from the checked source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
