@@ -32,7 +32,8 @@ class ReadPlanAndHygieneTest {
         val format = ResponseFormat(headers = false, form = ProtocolForm.NON_CAN)
         val supported = ReadPlan.supportedFrom(ObdQuery.run(transport, VehicleRequest.SUPPORTED_PIDS_01_20, format))
         ReadPlan.readingRequests(supported).forEach { ObdQuery.run(transport, it, format) }
-        assertEquals(listOf("0100", "0104", "0105", "010C"), transport.writes.map { it.text })
+        assertEquals(listOf("0100", "0104", "0105", "0106", "0107", "010C", "010E", "010F", "0110", "0111"),
+            transport.writes.map { it.text })
     }
 
     @Test

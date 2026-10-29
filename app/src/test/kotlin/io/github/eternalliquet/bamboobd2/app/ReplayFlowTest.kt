@@ -18,6 +18,8 @@ import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import io.github.eternalliquet.bamboobd2.core.model.Dtc
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.PageEvidence
+import io.github.eternalliquet.bamboobd2.core.model.PageStatus
 import io.github.eternalliquet.bamboobd2.core.model.SessionEvent
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.Reading
@@ -55,6 +57,42 @@ class ReplayFlowTest {
         // Replay timing runs on uptime, which Robolectric advances with the main looper.
         ShadowLooper.idleMainLooper(60, TimeUnit.SECONDS)
         rule.waitForIdle()
+    }
+
+    @Test
+    fun reopenedBroadSyntheticSnapshotExplainsResponderCapabilityAndMissingMeasurement() {
+        val record = SessionRecord(
+            schemaVersion = SessionRecord.SCHEMA_VERSION, id = "broad", startedAt = 1, endedAt = 20,
+            provenance = Provenance.REPLAY, sourceLabel = "replay:synthetic-broad", complete = false,
+            outcome = SessionOutcome.FAILED,
+            supportedPids = SupportedPids.Known(listOf("04", "11", "12", "42"), complete = false, pages = listOf(
+                PageEvidence("7E8", "00", PageStatus.VALID, listOf("04", "11", "12"), true),
+                PageEvidence("7E9", "00", PageStatus.VALID, listOf("04"), false),
+                PageEvidence("7E8", "20", PageStatus.VALID, emptyList(), true),
+                PageEvidence("7E8", "40", PageStatus.VALID, listOf("42")),
+            )),
+            dtcKindsRead = DtcKind.entries,
+            readings = listOf(
+                Reading("04", ReadingResult.Value(50.0, "%", "7E8"), 10),
+                Reading("11", ReadingResult.Value(40.0, "%", "7E8"), 11),
+                Reading("42", ReadingResult.Failed("malformed"), 12),
+            ),
+            events = listOf(SessionEvent(1, "read_scope", "FULL"), SessionEvent(20, "failed", "synthetic stop")),
+        )
+        FileSessionStore(viewModelSessionsDir()).save(record)
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        val entry = "REPLAY · replay:synthetic-broad · Stopped by an error: partial results"
+        waitForSavedRow(entry)
+        rule.onNodeWithText(entry).performClick()
+        waitForText("REPLAY · replay:synthetic-broad")
+        rule.onNodeWithText("Absolute throttle position A: Supported by at least one responder").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("PID 12: Supported; decoder unavailable").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E9: Unsupported").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Absolute throttle position A · 7E9: Unsupported").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E8: Supported by this responder").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E8: Requested, but no value arrived").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("40 % (7E8)").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Reason: synthetic stop").performScrollTo().assertIsDisplayed()
     }
 
     @Test

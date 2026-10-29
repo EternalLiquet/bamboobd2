@@ -1,7 +1,6 @@
 package io.github.eternalliquet.bamboobd2.core.report
 
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
-import io.github.eternalliquet.bamboobd2.core.model.ObdPid
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
@@ -55,8 +54,9 @@ object SessionSummary {
             appendCodes(record, DtcKind.PENDING, "Pending codes")
             appendLine()
             appendLine("Sensor readings (generic Mode 01):")
-            ObdPid.entries.mapNotNull { Mode01Catalog.lookup(it.code) }.forEach { pid ->
-                val label = pid.labelKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+            Mode01Catalog.readings.forEach { pid ->
+                val label = pid.labelKey.replace('_', ' ').replace(Regex(" ([a-f])$")) { " ${it.groupValues[1].uppercase()}" }
+                    .replaceFirstChar { it.uppercase() }
                 val code = pid.pid
                 val rows = record.readings.filter { it.pid == code }
                 if (rows.isEmpty()) {
@@ -71,7 +71,9 @@ object SessionSummary {
                         ReadingResult.Unsupported -> "Not reported by vehicle"
                         ReadingResult.UnknownCapability -> "Support unknown; not requested"
                     }
-                    appendLine("$label (PID ${code}): $result; captured ${formatTime(reading.atMillis)}")
+                    val captured = if (reading.result == ReadingResult.Unsupported || reading.result == ReadingResult.UnknownCapability) ""
+                        else "; captured ${formatTime(reading.atMillis)}"
+                    appendLine("$label (PID ${code}): $result$captured")
                 }
             }
             appendLine()

@@ -24,6 +24,22 @@ class SessionComparisonTest {
         SessionComparison.compare(first, second) as ComparisonResult.Ready
 
     @Test
+    fun catalogVoltageAndThrottleCompareByMatchingResponderAndCanonicalUnit() {
+        val a = record("a").copy(readings = listOf(
+            Reading("42", ReadingResult.Value(12.5, "V", "7E8"), 8),
+            Reading("11", ReadingResult.Value(40.0, "%", "7E9"), 8),
+        ))
+        val b = record("b").copy(readings = listOf(
+            Reading("42", ReadingResult.Value(13.0, "V", "7E8"), 9),
+            Reading("11", ReadingResult.Value(42.0, "%", "7E8"), 9),
+        ))
+        val rows = ready(a, b).readings
+        assertEquals(0.5, rows.single { it.key == ReadingKey("42", "7E8") }.delta!!, 0.0)
+        assertEquals(listOf("7E8", "7E9"), rows.filter { it.key.pid == "11" }.map { it.key.ecu })
+        assertTrue(rows.filter { it.key.pid == "11" }.all { it.reason == NotComparable.MISSING_SIDE })
+    }
+
+    @Test
     fun blocksSameIdAndMixedProvenanceWithoutReorderingEqualTimestamps() {
         assertEquals(ComparisonResult.Blocked(ComparisonBlock.SAME_SESSION), SessionComparison.compare(record("a"), record("a")))
         assertEquals(ComparisonResult.Blocked(ComparisonBlock.DIFFERENT_PROVENANCE),
@@ -151,7 +167,7 @@ class SessionComparisonTest {
         }
         val a = record("a").copy(readings = listOf(Reading("05", ReadingResult.Value(80.0, "°C", "7E8"), 8)))
         val b = record("b").copy(readings = listOf(Reading("05", ReadingResult.Value(81.0, "°C", "7E9"), 9)))
-        val rows = ready(a, b).readings.filter { it.key.pid == ObdPid.COOLANT_TEMP }
+        val rows = ready(a, b).readings.filter { it.key.pid == ObdPid.COOLANT_TEMP.code }
         assertEquals(listOf("7E8", "7E9"), rows.map { it.key.ecu })
         assertTrue(rows.all { it.reason == NotComparable.MISSING_SIDE && it.delta == null })
     }

@@ -1,7 +1,8 @@
 package io.github.eternalliquet.bamboobd2.core.protocol
 
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
-import io.github.eternalliquet.bamboobd2.core.model.ObdPid
+import io.github.eternalliquet.bamboobd2.core.model.Capability
+import io.github.eternalliquet.bamboobd2.core.model.capability
 
 /**
  * One request and its reply over a transport: write, collect bytes until the
@@ -25,11 +26,11 @@ object ObdQuery {
     }
 }
 
-/** Which of the four readings may be requested. Unknown support means none (F8). */
+/** Advertised implemented readings only; unresolved support sends no data request. */
 object ReadPlan {
     fun readingRequests(supported: SupportedPids): List<VehicleRequest> =
-        ObdPid.entries.mapNotNull { old -> Mode01Catalog.lookup(old.code) }
-            .filter { supported is SupportedPids.Known && it.pid in supported.pids }
+        Mode01Catalog.readings
+            .filter { supported.capability(it.pid).capability == Capability.SUPPORTED_AND_DECODABLE }
             .map { reading -> VehicleRequest.entries.single { it.text == "01${reading.pid}" } }
 
     /** Converts a decoded 0100 reply into the session model; anything else leaves support unknown. */
