@@ -34,4 +34,19 @@ class RecordingSeriesTest {
         assertTrue(missing.segments.isEmpty())
         assertNull(missing.minimum)
     }
+
+    @Test fun returningToAnEarlierUnitStartsANewSegmentEvenAtTheSameElapsedTime() {
+        val samples = listOf(sample(1, 1000, value = 1.0), sample(2, 1000, value = 34.0, unit = "F"),
+            sample(3, 1000, value = 2.0))
+        val celsius = recordingSeries(samples, emptyList(), 2000, null).first { it.key.unit == "°C" }
+        assertEquals(listOf(listOf(1L), listOf(3L)), celsius.segments.map { segment -> segment.map { it.sequence } })
+    }
+
+    @Test fun pauseAndDisconnectBreakShortObservationIntervals() {
+        val samples = listOf(sample(1, 0), sample(2, 1000), sample(3, 2000))
+        val events = listOf(LiveEvent(500, LiveEventKind.PAUSE), LiveEvent(750, LiveEventKind.RESUME),
+            LiveEvent(1500, LiveEventKind.END, LiveStopReason.DISCONNECTED))
+        val projected = recordingSeries(samples, events, 2000, null).single()
+        assertEquals(listOf(listOf(1L), listOf(2L), listOf(3L)), projected.segments.map { segment -> segment.map { it.sequence } })
+    }
 }

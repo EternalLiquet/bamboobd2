@@ -130,10 +130,18 @@ class AppViewModel @JvmOverloads constructor(
         if (recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
             session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
         _recordingPending.value = true
-        _live.value = LiveState.Connecting(device.name)
+        val connecting = LiveState.Connecting(device.name)
+        _live.value = connecting
         recordingJob = viewModelScope.launch {
             val connection = try { connectClassic(bluetooth, device, io) }
-                catch (e: CancellationException) { _live.value = LiveState.Available(bluetooth.availability()); throw e }
+                catch (e: CancellationException) {
+                    // An older cancelled connect must not overwrite a newer attempt.
+                    if (_live.value === connecting) {
+                        _recordingPending.value = false
+                        _live.value = LiveState.Available(bluetooth.availability())
+                    }
+                    throw e
+                }
             if (connection is ClassicConnection.Failed) {
                 _recordingPending.value = false
                 _live.value = LiveState.Failed(device.name, connection.reason)
@@ -375,7 +383,9 @@ class AppViewModel @JvmOverloads constructor(
         when (_live.value) {
             is LiveState.Connecting -> {
                 recordingJob?.cancel()
-                if (recording.value is LiveReadState.Idle) _recordingPending.value = false
+                // A new connect has no new record yet; the controller may still hold
+                // a previously finished record rather than Idle.
+                _recordingPending.value = false
                 liveJob?.cancel()
                 _live.value = LiveState.Available(bluetooth.availability())
             }
