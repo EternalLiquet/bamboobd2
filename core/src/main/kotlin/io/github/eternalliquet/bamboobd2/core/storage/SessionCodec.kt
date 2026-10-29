@@ -36,7 +36,7 @@ object SessionCodec {
     private val vinScanExempt = setOf("sourceSha256")
 
     fun encode(record: SessionRecord): String {
-        require(record.schemaVersion == SessionRecord.SCHEMA_VERSION) {
+        require(record.schemaVersion in 1..SessionRecord.SCHEMA_VERSION) {
             "Unsupported schema version ${record.schemaVersion}"
         }
         val tree = json.encodeToJsonElement(SessionRecord.serializer(), record)
@@ -56,7 +56,7 @@ object SessionCodec {
         }
         val version = (tree["schemaVersion"] as? JsonPrimitive)?.intOrNull
             ?: return DecodeResult.Invalid("missing schemaVersion")
-        if (version != SessionRecord.SCHEMA_VERSION) return DecodeResult.Invalid("unknown schemaVersion $version")
+        if (version !in 1..SessionRecord.SCHEMA_VERSION) return DecodeResult.Invalid("unknown schemaVersion $version")
         val provenance = (tree["provenance"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?: return DecodeResult.Invalid("missing provenance")
         if (Provenance.entries.none { it.name == provenance }) {
@@ -65,10 +65,12 @@ object SessionCodec {
         val record = try {
             json.decodeFromJsonElement(SessionRecord.serializer(), tree)
         } catch (e: SerializationException) {
-            return DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
+            return DecodeResult.Invalid("does not match schema v$version: ${e.message?.lineSequence()?.firstOrNull()}")
         } catch (e: IllegalArgumentException) {
-            return DecodeResult.Invalid("does not match schema v1: ${e.message?.lineSequence()?.firstOrNull()}")
+            return DecodeResult.Invalid("does not match schema v$version: ${e.message?.lineSequence()?.firstOrNull()}")
         }
+        if (version == 1 && (record.supportedPids as? io.github.eternalliquet.bamboobd2.core.model.SupportedPids.Known)?.pages?.isNotEmpty() == true)
+            return DecodeResult.Invalid("schema v1 cannot contain responder page evidence")
         // A saved session has always finished, and "complete" must agree with its outcome.
         val outcome = record.outcome ?: return DecodeResult.Invalid("missing outcome")
         if (record.complete != (outcome == SessionOutcome.COMPLETE)) {

@@ -64,6 +64,10 @@
       ]
     },
     {
+      "request": "0120",
+      "chunks": [{"atMillis": 60, "text": "48 6B 10 41 20 00 00 00 00 00\r\r>"}]
+    },
+    {
       "request": "03",
       "chunks": [
         {

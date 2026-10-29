@@ -93,7 +93,7 @@ class ElmObdReaderTest {
         val r = session(ReplayTransport.bundled("can-complete")).record
         assertEquals(SessionOutcome.COMPLETE, r.outcome)
         assertEquals(Provenance.REPLAY, r.provenance)
-        assertEquals(SupportedPids.Known(listOf("01", "03", "04", "05", "06", "07", "0C", "0D", "0E", "0F", "10", "11", "13", "14", "15", "1C")), r.supportedPids)
+        assertEquals(listOf("01", "03", "04", "05", "06", "07", "0C", "0D", "0E", "0F", "10", "11", "13", "14", "15", "1C"), (r.supportedPids as SupportedPids.Known).pids)
         assertEquals(listOf(Dtc("P0133", DtcKind.STORED, "7E8")), r.dtcs)
         assertTrue(r.allCodesRead)
         // The adapter itself waited out "7F 01 78" (p45); only the final reply counts.
@@ -265,7 +265,8 @@ class ElmObdReaderTest {
         assertFalse("010D" in run.transport.writes)
         assertTrue(r.allCodesRead)
         assertTrue(r.events.any { it.kind == "supported_pids_incomplete" && "7E8" in it.detail })
-        assertEquals(SupportedPids.Known(listOf("05", "0C"), complete = false), r.supportedPids)
+        assertEquals(listOf("05", "0C"), (r.supportedPids as SupportedPids.Known).pids)
+        assertFalse((r.supportedPids as SupportedPids.Known).complete)
 
         val dir = Files.createTempDirectory("discovery-incomplete").toFile()
         try {
@@ -293,7 +294,8 @@ class ElmObdReaderTest {
         assertEquals(listOf(ReadingResult.Unsupported), r.reading("04"))
         assertEquals(listOf(ReadingResult.Unsupported), r.reading("0D"))
         assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E8")), r.reading("05"))
-        assertEquals(SupportedPids.Known(listOf("05", "0C"), complete = true), r.supportedPids)
+        assertEquals(listOf("05", "0C"), (r.supportedPids as SupportedPids.Known).pids)
+        assertTrue((r.supportedPids as SupportedPids.Known).complete)
     }
 
     @Test

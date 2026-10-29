@@ -74,7 +74,7 @@ class FileSessionStoreTest {
         File(dir, "ok.1.json").writeText(valid)
         File(dir, "trunc.1.json").writeText(valid.take(valid.length / 2))
         File(dir, "garbage.1.json").writeText("not json")
-        File(dir, "future.1.json").writeText(valid.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2").replace("\"ok\"", "\"future\""))
+        File(dir, "future.1.json").writeText(valid.replace("\"schemaVersion\": 1", "\"schemaVersion\": 3").replace("\"ok\"", "\"future\""))
         File(dir, "invented.1.json").writeText(valid.replace("\"SIMULATED\"", "\"INVENTED\"").replace("\"ok\"", "\"invented\""))
         File(dir, "noprov.1.json").writeText(valid.replace("\"provenance\": \"SIMULATED\",", "").replace("\"ok\"", "\"noprov\""))
 
@@ -82,7 +82,7 @@ class FileSessionStoreTest {
         assertEquals(listOf("ok.1.json"), listed.filterIsInstance<StoredSession.Readable>().map { it.fileName })
         val reasons = listed.filterIsInstance<StoredSession.Unreadable>().associate { it.fileName to it.reason }
         assertEquals(setOf("trunc.1.json", "garbage.1.json", "future.1.json", "invented.1.json", "noprov.1.json"), reasons.keys)
-        assertEquals("unknown schemaVersion 2", reasons["future.1.json"])
+        assertEquals("unknown schemaVersion 3", reasons["future.1.json"])
         assertEquals("unknown provenance 'INVENTED'", reasons["invented.1.json"])
         assertEquals("missing provenance", reasons["noprov.1.json"])
     }

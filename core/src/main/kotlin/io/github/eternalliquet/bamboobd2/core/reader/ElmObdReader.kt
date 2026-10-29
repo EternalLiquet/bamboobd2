@@ -2,6 +2,8 @@ package io.github.eternalliquet.bamboobd2.core.reader
 
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.PageEvidence
+import io.github.eternalliquet.bamboobd2.core.model.PageStatus
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterCommand
@@ -10,6 +12,7 @@ import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
 import io.github.eternalliquet.bamboobd2.core.protocol.EcuMessage
 import io.github.eternalliquet.bamboobd2.core.protocol.ElmResponseParser
 import io.github.eternalliquet.bamboobd2.core.protocol.ObdDecoder
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import io.github.eternalliquet.bamboobd2.core.protocol.ObdResult
 import io.github.eternalliquet.bamboobd2.core.protocol.ParsedResponse
 import io.github.eternalliquet.bamboobd2.core.protocol.ProtocolForm
@@ -22,6 +25,7 @@ import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportKind
 import io.github.eternalliquet.bamboobd2.core.protocol.VehicleRequest
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.TimeSource
 
 /**
  * Host-side deadlines. **Provisional and unverified**: these numbers were chosen
@@ -92,6 +96,8 @@ class ElmObdReader(
     private val notes = mutableListOf<ReaderNote>()
     private var format: ResponseFormat? = null
     private var phase = "init"
+    private var lastMalformedEcus: List<String?> = emptyList()
+    private var discoveryStart: TimeSource.Monotonic.ValueTimeMark? = null
 
     override fun takeNotes(): List<ReaderNote> = notes.toList().also { notes.clear() }
 
@@ -101,12 +107,15 @@ class ElmObdReader(
      * a car on another protocol fail with "BUS INIT: ...ERROR" (ELM327DSJ p26).
      */
     override suspend fun open() {
+        discoveryStart = TimeSource.Monotonic.markNow()
+        try {
         for (command in listOf(AdapterCommand.ECHO_OFF, AdapterCommand.LINEFEEDS_OFF, AdapterCommand.HEADERS_ON, AdapterCommand.AUTO_PROTOCOL)) {
-            val lines = adapterLines(exchange(RequestPolicy.adapter(command), profile.adapterCommandMillis), command)
+            val lines = adapterLines(discoveryExchange(RequestPolicy.adapter(command), profile.adapterCommandMillis), command)
             if (lines != listOf("OK")) {
                 throw ReaderStoppedException(StopReason.ADAPTER_REJECTED, "${command.text} answered '${lines.joinToString(" ")}'")
             }
         }
+        } catch (e: DiscoveryDeadlineException) { throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline during adapter setup") }
     }
 
     /**
@@ -116,28 +125,83 @@ class ElmObdReader(
      */
     override suspend fun readSupportedPids(): SupportedPids {
         phase = "supported PIDs"
-        val request = RequestPolicy.vehicle(VehicleRequest.SUPPORTED_PIDS_01_20)
-        // The protocol search happens here, so this request gets the longer, still bounded, budget.
-        val raw = exchange(request, profile.protocolSearchMillis)
-        val dpn = adapterLines(exchange(RequestPolicy.adapter(AdapterCommand.DESCRIBE_PROTOCOL_NUMBER), profile.adapterCommandMillis), AdapterCommand.DESCRIBE_PROTOCOL_NUMBER)
+        val first = VehicleRequest.SUPPORTED_PIDS_01_20
+        val raw = try { discoveryExchange(RequestPolicy.vehicle(first), profile.protocolSearchMillis) }
+            catch (e: DiscoveryDeadlineException) { throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline at 0100") }
+        val dpn = try { adapterLines(discoveryExchange(RequestPolicy.adapter(AdapterCommand.DESCRIBE_PROTOCOL_NUMBER), profile.adapterCommandMillis), AdapterCommand.DESCRIBE_PROTOCOL_NUMBER) }
+            catch (e: DiscoveryDeadlineException) { throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline at ATDPN") }
         dpn.singleOrNull()?.let { notes += ReaderNote(PROTOCOL_NOTE, describeProtocol(it)) }
-        val number = dpn.singleOrNull()?.removePrefix("A")
-        val form = when (number) {
+        val form = when (dpn.singleOrNull()?.removePrefix("A")) {
             "1", "2", "3", "4", "5" -> ProtocolForm.NON_CAN
             "6", "8" -> ProtocolForm.CAN_11BIT
             else -> null
-        }
-        if (form == null) {
-            val status = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
-            throw ReaderStoppedException(StopReason.NO_PROTOCOL, "ATDPN '${dpn.joinToString(" ")}' after 0100 '$status'")
-        }
+        } ?: throw ReaderStoppedException(StopReason.NO_PROTOCOL, "ATDPN '${dpn.joinToString(" ")}' after 0100 '${raw.lines().joinToString(" ")}'")
         format = ResponseFormat(headers = true, form = form)
-        val (result, unresolved) = decode(VehicleRequest.SUPPORTED_PIDS_01_20, raw)
-        val supported = ReadPlan.supportedFrom(result)
-        if (supported == SupportedPids.Unknown) notes += ReaderNote(SUPPORTED_PIDS_UNKNOWN, describe(result))
-        if (unresolved.isNotEmpty()) notes += ReaderNote("supported_pids_incomplete", pendingReason(unresolved))
-        // A responder that never reported its map leaves discovery incomplete.
-        return if (supported is SupportedPids.Known && unresolved.isNotEmpty()) supported.copy(complete = false) else supported
+        val pages = mutableListOf<PageEvidence>()
+        var expected: Set<String?>? = null
+        for ((index, pid) in Mode01Catalog.pageIds.withIndex()) {
+            val request = VehicleRequest.entries.single { it.text == "01$pid" }
+            phase = "support page $pid"
+            val reply = if (index == 0) raw else try {
+                discoveryExchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis)
+            } catch (e: DiscoveryDeadlineException) {
+                expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery deadline") }
+                notes += ReaderNote("supported_pids_incomplete", "discovery deadline at $pid")
+                break
+            }
+            val (result, unresolved) = decode(request, reply)
+            val valid = (result as? ObdResult.SupportedPids)?.perEcu.orEmpty()
+            val validIds = valid.map { it.ecu }.toSet()
+            // The first page establishes identities. Later pages are accepted only
+            // for responders whose own preceding valid page advertises this page.
+            valid.forEach { entry ->
+                pages += if (expected == null || entry.ecu in expected.orEmpty())
+                    PageEvidence(entry.ecu, pid, PageStatus.VALID, entry.value.sorted().map { "%02X".format(it) })
+                else PageEvidence(entry.ecu, pid, PageStatus.MALFORMED, reason = "unsolicited page without own continuation")
+            }
+            val failures = (result as? ObdResult.SupportedPids)?.failures.orEmpty()
+            val malformed = (failures.mapNotNull { it.substringBefore(":").takeIf { id -> id != "responder" } } + lastMalformedEcus).toSet()
+            malformed.filterNot { it in validIds || it in expected.orEmpty() }.forEach { id ->
+                pages += PageEvidence(id, pid, PageStatus.MALFORMED, reason = "malformed or conflicting reply")
+            }
+            unresolved.filterNot { it in validIds }.forEach { id ->
+                pages += PageEvidence(id, pid, PageStatus.PENDING, reason = "response pending, no final reply")
+            }
+            expected.orEmpty().filterNot { it in validIds || it in unresolved }.forEach { id ->
+                val status = when {
+                    id in malformed -> PageStatus.MALFORMED
+                    result == ObdResult.NoData -> PageStatus.NO_DATA
+                    result is ObdResult.Malformed -> PageStatus.MALFORMED
+                    else -> PageStatus.MISSING
+                }
+                pages += PageEvidence(id, pid, status, reason = describe(result))
+            }
+            if (index == 0 && valid.isEmpty()) {
+                notes += ReaderNote(SUPPORTED_PIDS_UNKNOWN, describe(result))
+                return SupportedPids.Unknown
+            }
+            val continuation = "%02X".format(pid.toInt(16) + 32)
+            if (index == Mode01Catalog.pageIds.lastIndex) break
+            expected = pages.filter { it.pageBase == pid && it.status == PageStatus.VALID && continuation in it.supportedIds }
+                .map { it.ecu }.toSet()
+            if (expected.isNullOrEmpty()) break
+        }
+        // A map marker is metadata, not an observed scalar PID.
+        val union = pages.filter { it.status == PageStatus.VALID }.flatMap { it.supportedIds }
+            .filter { it.length == 2 && it !in Mode01Catalog.pageIds }.distinct().sorted()
+        val complete = pages.none { it.status != PageStatus.VALID } &&
+            pages.none { it.pageBase == "E0" && "100" in it.supportedIds }
+        if (!complete) notes += ReaderNote("supported_pids_incomplete", pages.filter { it.status != PageStatus.VALID }.joinToString { "${it.ecu ?: "responder"} ${it.pageBase}: ${it.status}" })
+        return SupportedPids.Known(union, complete, pages)
+    }
+
+    private class DiscoveryDeadlineException : RuntimeException()
+
+    private suspend fun discoveryExchange(request: Request, normalMillis: Long): String {
+        val remaining = DISCOVERY_MILLIS - (discoveryStart?.elapsedNow()?.inWholeMilliseconds ?: 0)
+        if (remaining <= 0) throw DiscoveryDeadlineException()
+        return withTimeoutOrNull(remaining) { exchange(request, minOf(normalMillis, remaining)) }
+            ?: throw DiscoveryDeadlineException()
     }
 
     override suspend fun readDtcs(kind: DtcKind): DtcRead {
@@ -159,6 +223,7 @@ class ElmObdReader(
         val (result, unresolved) = query(request)
         return when (result) {
             is ObdResult.Reading -> result.perEcu.map { ReadingResult.Value(it.value, result.unit, it.ecu) } +
+                (result.failures + lastMalformedEcus.map { "${it ?: "responder"}: malformed frame" }).map { ReadingResult.Failed(it) } +
                 unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply") }
             ObdResult.NoData -> listOf(ReadingResult.NoData)
             else -> listOf(ReadingResult.Failed(describe(result)))
@@ -171,13 +236,35 @@ class ElmObdReader(
     /** The decoded final replies, and the responders whose pending reply was never resolved. */
     private fun decode(request: VehicleRequest, raw: String): Pair<ObdResult, List<String?>> {
         val format = checkNotNull(format) { "protocol not determined" }
-        val parsed = ElmResponseParser.parse(raw, RequestPolicy.vehicle(request), format)
+        lastMalformedEcus = emptyList()
+        val initial = ElmResponseParser.parse(raw, RequestPolicy.vehicle(request), format)
+        val parsed = if (initial is ParsedResponse.Malformed) salvageMessages(raw, request, format) ?: initial else initial
         if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET) {
             // The adapter restarted and lost its settings; later replies would be misread.
             throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
         }
         val (finals, unresolved) = splitPending(parsed, request)
         return ObdDecoder.decode(request, finals, format.form) to unresolved
+    }
+
+    /** A broken line with an identifiable ECU must not discard another ECU's single-frame reply. */
+    private fun salvageMessages(raw: String, request: VehicleRequest, format: ResponseFormat): ParsedResponse.Messages? {
+        val messages = mutableListOf<EcuMessage>()
+        val bad = mutableListOf<String?>()
+        for (line in raw.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }) {
+            if (line == request.text || line == "SEARCHING...") continue
+            when (val parsed = ElmResponseParser.parse(line, RequestPolicy.vehicle(request), format)) {
+                is ParsedResponse.Messages -> messages += parsed.messages
+                is ParsedResponse.Malformed -> {
+                    val bytes = line.split(' ').filter { it.isNotEmpty() }
+                    bad += if (format.form == ProtocolForm.CAN_11BIT) bytes.firstOrNull()?.takeIf { it.matches(Regex("[0-9A-Fa-f]{3}")) }
+                        else bytes.getOrNull(2)?.takeIf { it.matches(Regex("[0-9A-Fa-f]{2}")) }
+                }
+                else -> Unit
+            }
+        }
+        lastMalformedEcus = bad
+        return messages.takeIf { it.isNotEmpty() }?.let { ParsedResponse.Messages(it) }
     }
 
     /**
@@ -323,5 +410,6 @@ class ElmObdReader(
 
         private val pendingLine = Regex("7F[0-9A-F]{2}78")
         private const val MAX_STALE_CHUNKS = 64
+        private const val DISCOVERY_MILLIS = 180_000L
     }
 }
