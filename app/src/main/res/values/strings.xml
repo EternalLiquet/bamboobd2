@@ -100,6 +100,22 @@
     <string name="code_stored">stored</string>
     <string name="code_pending">pending</string>
     <string name="no_saved_sessions">No saved sessions yet.</string>
+    <string name="finder_code_label">Recorded code prefix</string>
+    <string name="finder_code_hint">P0133 or P01</string>
+    <string name="finder_source_label">Source: %1$s</string>
+    <string name="finder_source_all">All</string>
+    <string name="finder_source_simulated">SIMULATED</string>
+    <string name="finder_source_replay">REPLAY</string>
+    <string name="finder_source_live">LIVE</string>
+    <string name="finder_clear">Clear filters</string>
+    <string name="finder_scope">Search checks recorded stored and pending codes only. No match does not prove a code is absent.</string>
+    <string name="finder_unreadable_notice">Unreadable files are shown but not searched.</string>
+    <string name="finder_no_matches">No readable saved sessions match these filters.</string>
+    <string name="finder_compare_clear">Clear filters to compare more saved sessions.</string>
+    <plurals name="finder_match_count">
+        <item quantity="one">%d readable match</item>
+        <item quantity="other">%d readable matches</item>
+    </plurals>
     <string name="unreadable_file">Unreadable file %1$s: %2$s</string>
     <string name="session_missing">This session could not be opened.</string>
     <string name="summary_preview">Preview summary</string>
