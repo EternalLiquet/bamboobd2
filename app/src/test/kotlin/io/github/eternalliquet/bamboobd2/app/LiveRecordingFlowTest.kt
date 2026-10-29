@@ -2,18 +2,26 @@ package io.github.eternalliquet.bamboobd2.app
 
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import io.github.eternalliquet.bamboobd2.app.bluetooth.*
 import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
 import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
+import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
+import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
 import java.io.*
+import java.text.DateFormat
+import java.util.Date
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.*
@@ -129,7 +137,19 @@ class LiveRecordingFlowTest {
         assertEquals(listOf("04", "05", "0C", "0D"), record.recording!!.selectedPids)
         rule.onNodeWithText("Save").performScrollTo().performClick()
         until(5) { vm.saveStatus.value[record.id] is SaveStatus.Done }
+        assertTrue((vm.saveStatus.value[record.id] as SaveStatus.Done).result is SaveResult.Saved)
         assertTrue(vm.recordingPending.value)
+        rule.onNodeWithText("Done").performScrollTo().performClick()
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        until(5) { vm.saved.value.filterIsInstance<StoredSession.Readable>().any { it.record.id == record.id } }
+        val savedDate = DateFormat.getDateTimeInstance().format(Date(record.startedAt))
+        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(savedDate))
+        rule.onNodeWithText(savedDate).performClick()
+        until(5) { rule.onAllNodes(hasText("Saved recording · elapsed", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("All recorded").performScrollTo().performClick()
+        rule.onAllNodes(hasText("Inspect history", substring = true))[0].performScrollTo().performClick()
+        rule.onNodeWithText("Value:", substring = true).performScrollTo().assertIsDisplayed()
+        assertWritesStayUnchanged(finalWrites)
     }
 
     @Test fun cancellingANewConnectionAfterACompletedRecordingClearsOnlyTheNewAttempt() {
