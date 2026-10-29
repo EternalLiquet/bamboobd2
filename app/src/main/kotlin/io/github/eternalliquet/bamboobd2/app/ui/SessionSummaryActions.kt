@@ -31,6 +31,7 @@ import java.util.Date
 @Composable
 fun SessionSummaryActions(record: SessionRecord) {
     val context = LocalContext.current
+    val shareChooserTitle = stringResource(R.string.summary_share_chooser)
     var preview by remember(record.id) { mutableStateOf<String?>(null) }
     var shareUnavailable by remember(record.id) { mutableStateOf(false) }
     OutlinedButton(
@@ -63,7 +64,7 @@ fun SessionSummaryActions(record: SessionRecord) {
                             putExtra(Intent.EXTRA_TEXT, text)
                         }
                         try {
-                            context.startActivity(Intent.createChooser(send, context.getString(R.string.summary_share_chooser)))
+                            context.startActivity(Intent.createChooser(send, shareChooserTitle))
                         } catch (_: ActivityNotFoundException) {
                             shareUnavailable = true
                         }
