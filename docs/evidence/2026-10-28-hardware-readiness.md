@@ -22,13 +22,13 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 
 - Veepeak's product page and Android guidance describe the OBDCheck BLE as supporting Bluetooth LE and Classic Bluetooth. They recommend BLE in apps (no system pairing). For Classic, they say a system pairing request may appear, with PIN 1234. Read 2026-10-28 through a web search restricted to `veepeak.com`, because this environment cannot reach the site. Same limitation as the [earlier note](2026-10-13-veepeak-bluetooth-mode.md); someone with access should re-read [the user instructions](https://veepeak.com/pages/obdcheck-ble-user-instructions) and record the date.
 - Veepeak's guidance is not fully consistent. The quick setup tells Android users to pair with PIN 1234, while troubleshooting calls the PIN check mainly an Android head-unit concern. It also says a paired adapter may not show as "connected" in system settings, and that this is normal.
-- Classic first was chosen despite the vendor's BLE recommendation (owner decision). Whether this unit works reliably over Classic with this phone is unknown until L1.
+- Classic first was chosen despite the vendor's BLE recommendation (owner decision). This unit connected over Classic from this phone in the owner's runs; long-term reliability is not established.
 
 ## Unknowns (each has a named later stage)
 
 | Unknown | Resolved by |
 | --- | --- |
-| Printed hardware revision or label text on the adapter; label photo | Owner, before L1 (redact any serial number) |
+| Printed hardware revision or label text on the adapter; label photo | Owner, when convenient (redact any serial number) |
 | Adapter firmware and chip. `ATI` reports "ELM327 v1.5" (see below), but many adapters, including clones, report that string, so it does not identify the chip or firmware | Not resolvable from `ATI` alone; record as reported |
 | How reliably the unit connects over Classic (one session observed; it was already paired) | Observed during L2 and later use |
 | Timing and chunking of vehicle replies (adapter commands: about 30–37 ms, one chunk each) | L2 |
@@ -48,7 +48,7 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 
 ## Owner-run observation outside the L1 gate (2026-10-28)
 
-The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) with the real adapter. This happened before the L1 go and not on a bench supply, so it is recorded as an owner-run observation, **not** as an authorized L1 result.
+The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) with the real adapter, before any L1 go and not on a bench supply. The owner afterwards redefined L1 and decided that this run satisfies it (see the end of this section).
 
 - **Setup:** adapter plugged into the car's OBD-II port, engine off, ignition in accessory mode with accessories drawing power. Already paired with the phone in system settings; the app did no pairing or scanning.
 - **Commands sent:** only `ATI`, `AT@1` and `ATRV`, which are adapter-local. The app sent no vehicle request. Whether the adapter itself put anything on the bus while plugged in is unmeasured.
