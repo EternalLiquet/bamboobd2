@@ -173,7 +173,7 @@ class ReplayFlowTest {
             store.save(SessionRecord(
                 schemaVersion = SessionRecord.SCHEMA_VERSION, id = id, startedAt = 1, endedAt = 2,
                 provenance = Provenance.REPLAY, sourceLabel = "replay:$id", complete = true, outcome = SessionOutcome.COMPLETE,
-                supportedPids = map, events = listOf(SessionEvent(1, "read_scope", "CODES_ONLY"),
+                supportedPids = map, dtcKindsRead = DtcKind.entries, events = listOf(SessionEvent(1, "read_scope", "CODES_ONLY"),
                     SessionEvent(2, "readings_not_requested", "synthetic")),
             ))
         }
