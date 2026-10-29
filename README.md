@@ -1,8 +1,8 @@
 # BambooOBD2
 
-An evidence-led, AI-assisted diagnostic research project. The first target is the owner's 2014 Porsche Cayenne S, but the research scope includes European and VAG diagnostic stacks. Work starts with **offline, read-only capture analysis**. No protocol, ECU address, service-reset procedure, or vehicle compatibility has been verified for this car.
+An evidence-led, AI-assisted diagnostic research project. The first target is the owner's 2014 Porsche Cayenne S, but the research scope includes European and VAG diagnostic stacks. No protocol, ECU address, service-reset procedure, or vehicle compatibility has been verified for this car.
 
-There is no diagnostic implementation yet. In particular, this repository contains no vehicle transmit path, reset recipe, ECU flashing support, proprietary dataset, credentials, or raw VIN.
+This repository contains a Kotlin/JVM diagnostic core and Android app. Fake and sanitized replay paths, a read-only generic OBD-II decoder, saved sessions, and a Bluetooth Classic path with bounded LIVE codes reads have been implemented. The repository has no verified target-car integration, reset recipe, ECU flashing support, proprietary dataset, credentials, or raw VIN. Software checks are documented in [BUILD.md](docs/BUILD.md); no phone or vehicle test is established by those checks.
 
 ## Read first
 
@@ -14,6 +14,6 @@ There is no diagnostic implementation yet. In particular, this repository contai
 
 For current scope and evidence, start with [project status](PROJECT_STATUS.md). [Issues](https://github.com/EternalLiquet/bamboobd2/issues) hold the live planning backlog; [pull requests](https://github.com/EternalLiquet/bamboobd2/pulls) show proposed changes. This public repository is sufficient to understand the project.
 
-## First engineering milestone
+## Current engineering work
 
-The first Android diagnostic milestone is proposed in [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2) and [its design](docs/ANDROID_MILESTONE_1.md), including fake transport and sanitized replay acceptance. Establish actual vehicle, adapter, ECU, and transport facts before selecting a protocol library or attempting any live test. See [workflow](docs/WORKFLOW.md) for the issue and verification standard.
+The Android foundation and codes-only software path are merged; [overnight epic #27](https://github.com/EternalLiquet/bamboobd2/issues/27) tracks the next offline-tested features and APK. The [live-test gate](docs/LIVE_TEST_GATE.md) keeps any owner-operated hardware checks separate. See [workflow](docs/WORKFLOW.md) for review and evidence requirements.
