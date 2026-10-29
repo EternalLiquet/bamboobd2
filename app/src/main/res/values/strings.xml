@@ -10,7 +10,7 @@
     <string name="live_open">Read codes from the car (Bluetooth)</string>
     <string name="live_title">Read codes</string>
     <string name="live_read_banner">LIVE READ — car codes only, no sensor readings or clearing</string>
-    <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07), after the adapter setup commands ATE0, ATL0, ATH1 and ATDPN. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>
+    <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07). It also sends the adapter setup commands ATE0, ATL0 and ATH1 first, and ATDPN after 0100 to learn the protocol. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>
     <string name="live_pick">Paired devices. Pick the adapter to read codes:</string>
     <string name="live_connecting">Connecting to %1$s…</string>
     <string name="live_failed">Not connected to %1$s: %2$s</string>

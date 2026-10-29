@@ -163,7 +163,8 @@ class AppViewModel @JvmOverloads constructor(
     fun onPermissionResult(granted: Boolean) = refreshBluetooth(permissionDenied = !granted)
 
     fun startBench(device: BondedDevice) {
-        if (benchJob?.isActive == true) return
+        // One Bluetooth use at a time: never alongside a live read.
+        if (benchJob?.isActive == true || liveJob?.isActive == true) return
         _bench.value = BenchState.Connecting(device.name)
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
@@ -212,7 +213,7 @@ class AppViewModel @JvmOverloads constructor(
     fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
 
     fun startLive(device: BondedDevice) {
-        if (liveJob?.isActive == true || session.value is SessionState.Running) return
+        if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running) return
         _live.value = LiveState.Connecting(device.name)
         liveJob = viewModelScope.launch {
             val recorder = CaptureRecorder()
@@ -244,11 +245,19 @@ class AppViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Stops a connection attempt. A running session is cancelled from the session screen. */
+    /**
+     * On leaving the live-read screen: stops a connection attempt, or a session that
+     * started in the same instant (it would otherwise run with no screen showing it).
+     */
     fun cancelLiveConnect() {
-        if (_live.value !is LiveState.Connecting) return
-        liveJob?.cancel()
-        _live.value = LiveState.Available(bluetooth.availability())
+        when (_live.value) {
+            is LiveState.Connecting -> {
+                liveJob?.cancel()
+                _live.value = LiveState.Available(bluetooth.availability())
+            }
+            LiveState.Started -> controller.cancel()
+            else -> Unit
+        }
     }
 
     private fun appVersion(): String {

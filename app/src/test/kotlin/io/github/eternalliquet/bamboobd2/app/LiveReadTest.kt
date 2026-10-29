@@ -132,6 +132,12 @@ class LiveReadTest {
         assertTrue(capture, "\"provenance\": \"${CaptureRecorder.RAW_CAPTURE}\"" in capture)
         val requests = Regex(""""request": "([^"]+)"""").findAll(capture).map { it.groupValues[1] }.toList()
         assertEquals(listOf("ATE0", "ATL0", "ATH1", "0100", "ATDPN", "03", "07"), requests)
+        // No device identifiers in what is kept or shared.
+        val saved = io.github.eternalliquet.bamboobd2.core.storage.SessionCodec.encode(record)
+        for (identifier in listOf(device.address, device.name)) {
+            assertTrue("$identifier in capture", identifier !in capture)
+            assertTrue("$identifier in record", identifier !in saved)
+        }
         assertTrue("connection closed after the session", socket.closed.await(5, TimeUnit.SECONDS))
         idleUntil(5) { vm.live.value is LiveState.Available }
     }

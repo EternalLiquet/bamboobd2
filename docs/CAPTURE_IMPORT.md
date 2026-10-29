@@ -6,7 +6,7 @@ Replay scripts live in `core/src/main/resources/replay/` (bundled) or in tests. 
 
 ## Captures from the app
 
-A live codes-only session (L2) produces a raw capture: the "Copy raw capture for review" button on the finished session. It is a `ReplayScript` JSON with every request and reply chunk and its timing, marked `RAW_CAPTURE`. `ReplayScript.parse` rejects that provenance, so a raw capture can't be used as a fixture by accident. The steps below turn it into one. Expected content of an L2 capture: adapter setup replies, the supported-PID bitmap, the protocol number and trouble codes. It contains no VIN, because none is requested. Review it anyway before it leaves private storage.
+A live codes-only session (L2) produces a raw capture: the "Copy raw capture for review" button on the finished session. It is a `ReplayScript` JSON with every request and reply chunk and its timing, marked `RAW_CAPTURE`. `ReplayScript.parse` rejects that provenance, so a raw capture can't be used as a fixture by accident. The steps below turn it into one. Expected content of an L2 capture: adapter setup replies, the supported-PID bitmap, the protocol number and trouble codes. It contains no VIN, because none is requested. Review it anyway before it leaves private storage. The capture keeps every byte, but replay sends chunks as ASCII, so a byte above 0x7F in a capture would not replay faithfully. ELM327 replies are normally plain ASCII.
 
 ## Before anything enters Git
 
