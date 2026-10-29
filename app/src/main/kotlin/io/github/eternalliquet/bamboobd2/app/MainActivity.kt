@@ -1,6 +1,8 @@
 package io.github.eternalliquet.bamboobd2.app
 
 import android.os.Bundle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -10,10 +12,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
 import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
+import io.github.eternalliquet.bamboobd2.app.ui.LiveRecordingScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SavedSessionsScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionDetailScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionComparisonScreen
@@ -28,16 +32,25 @@ class MainActivity : ComponentActivity() {
                 val vm: AppViewModel = viewModel()
                 val nav = rememberNavController()
                 val live by vm.live.collectAsStateWithLifecycle()
+                val recordingPending by vm.recordingPending.collectAsStateWithLifecycle()
+                DisposableEffect(vm) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP && !isChangingConfigurations) vm.onAppBackgrounded()
+                    }
+                    lifecycle.addObserver(observer)
+                    onDispose { lifecycle.removeObserver(observer) }
+                }
                 NavHost(navController = nav, startDestination = "home") {
                     composable("home") {
                         HomeScreen(
                             replays = vm.replays,
-                            liveResultPending = live == LiveState.Started,
+                            liveResultPending = live == LiveState.Started || recordingPending,
+                            pendingRecording = recordingPending,
                             // Navigate only when a session actually started.
                             onStart = { scenario -> if (vm.start(scenario)) nav.navigate("session") },
                             onStartReplay = { id -> if (vm.startReplay(id)) nav.navigate("session") },
-                            onOpenPendingLive = { vm.acknowledgeLiveStarted(); nav.navigate("session") },
-                            onDiscardPendingLive = vm::discardPendingLive,
+                            onOpenPendingLive = { if (recordingPending) nav.navigate("recording") else { vm.acknowledgeLiveStarted(); nav.navigate("session") } },
+                            onDiscardPendingLive = { if (recordingPending) vm.discardPendingRecording() else vm.discardPendingLive() },
                             onOpenSaved = { nav.navigate("saved") },
                             onOpenBench = { nav.navigate("bench") },
                             onOpenLive = { nav.navigate("live") },
@@ -53,8 +66,12 @@ class MainActivity : ComponentActivity() {
                         LiveReadScreen(
                             vm = vm,
                             onStarted = { nav.navigate("session") { popUpTo("home") } },
+                            onRecording = { nav.navigate("recording") { popUpTo("home") } },
                             onBack = { nav.popBackStack() },
                         )
+                    }
+                    composable("recording") {
+                        LiveRecordingScreen(vm = vm, onDone = { nav.popBackStack("home", inclusive = false) })
                     }
                     composable("bench") {
                         BenchScreen(vm = vm, onBack = { nav.popBackStack() })

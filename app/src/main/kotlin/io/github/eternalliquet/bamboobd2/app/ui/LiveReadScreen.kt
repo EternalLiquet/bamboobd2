@@ -38,10 +38,11 @@ import io.github.eternalliquet.bamboobd2.core.session.ReadScope
 
 /** One selected read scope on a paired adapter; the session screen shows the result. */
 @Composable
-fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onBack: () -> Unit) {
+fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onRecording: () -> Unit, onBack: () -> Unit) {
     val state by vm.live.collectAsStateWithLifecycle()
     // A new entry starts narrow; save through recreation while a connection is in progress.
-    var selectedScope by rememberSaveable { mutableStateOf(ReadScope.CODES_ONLY) }
+    var selectedMode by rememberSaveable { mutableStateOf("codes") }
+    val selectedScope = if (selectedMode == "snapshot") ReadScope.FULL else ReadScope.CODES_ONLY
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vm::onLivePermissionResult)
 
     LaunchedEffect(Unit) { vm.refreshLiveIfIdle() }
@@ -60,28 +61,28 @@ fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onBack: () -> Unit) 
 
     DiagnosticScaffold(
         title = stringResource(R.string.live_title),
-        banner = if (selectedScope == ReadScope.FULL) R.string.live_snapshot_banner else R.string.live_read_banner,
+        banner = when (selectedMode) { "snapshot" -> R.string.live_snapshot_banner; "recording" -> R.string.recording_banner; else -> R.string.live_read_banner },
         navigationIcon = { BackButton { vm.cancelLiveConnect(); onBack() } },
     ) { padding ->
         Column(
             modifier = Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(if (selectedScope == ReadScope.FULL) R.string.live_snapshot_explainer else R.string.live_explainer), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(when (selectedMode) { "snapshot" -> R.string.live_snapshot_explainer; "recording" -> R.string.recording_explainer; else -> R.string.live_explainer }), style = MaterialTheme.typography.bodyMedium)
             val canEditScope = state is LiveState.Available || state is LiveState.Failed
             Column(Modifier.selectableGroup()) {
-                for (scope in ReadScope.entries) {
-                    val label = if (scope == ReadScope.CODES_ONLY) R.string.live_codes_only else R.string.live_sensor_snapshot
+                for (mode in listOf("codes", "snapshot", "recording")) {
+                    val label = when (mode) { "snapshot" -> R.string.live_sensor_snapshot; "recording" -> R.string.recording_option; else -> R.string.live_codes_only }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().selectable(
-                            selected = selectedScope == scope,
+                            selected = selectedMode == mode,
                             enabled = canEditScope,
                             role = Role.RadioButton,
-                            onClick = { selectedScope = scope },
+                            onClick = { selectedMode = mode },
                         ).padding(vertical = 4.dp),
                     ) {
-                        RadioButton(selected = selectedScope == scope, onClick = null, enabled = canEditScope)
+                        RadioButton(selected = selectedMode == mode, onClick = null, enabled = canEditScope)
                         Text(stringResource(label), modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -92,7 +93,7 @@ fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onBack: () -> Unit) 
                     permissionDenied = s.permissionDenied,
                     onRequest = { vm.bluetoothPermission?.let(permission::launch) },
                     onRefresh = { vm.refreshLive() },
-                    onPick = { device -> vm.startLive(device, selectedScope) },
+                    onPick = { device -> if (selectedMode == "recording") { if (vm.startRecording(device)) onRecording() } else vm.startLive(device, selectedScope) },
                     pickPrompt = R.string.live_pick,
                 )
                 is LiveState.Connecting -> Progress(stringResource(R.string.live_connecting, s.device), vm::cancelLiveConnect)

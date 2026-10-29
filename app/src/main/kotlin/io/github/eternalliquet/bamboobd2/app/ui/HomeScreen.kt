@@ -34,6 +34,7 @@ import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 fun HomeScreen(
     replays: List<ReplayScript>,
     liveResultPending: Boolean,
+    pendingRecording: Boolean = false,
     onStart: (FakeScenario) -> Unit,
     onStartReplay: (String) -> Unit,
     onOpenSaved: () -> Unit,
@@ -51,9 +52,9 @@ fun HomeScreen(
         ) {
             // A live read that was never opened: keep it reachable, and let only the user drop it.
             if (liveResultPending) {
-                Text(stringResource(R.string.pending_live), style = MaterialTheme.typography.bodyLarge)
-                Button(onClick = onOpenPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pending_live_open)) }
-                OutlinedButton(onClick = onDiscardPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pending_live_discard)) }
+                Text(stringResource(if (pendingRecording) R.string.pending_recording else R.string.pending_live), style = MaterialTheme.typography.bodyLarge)
+                Button(onClick = onOpenPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (pendingRecording) R.string.pending_recording_open else R.string.pending_live_open)) }
+                OutlinedButton(onClick = onDiscardPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (pendingRecording) R.string.pending_recording_discard else R.string.pending_live_discard)) }
             }
             Text(stringResource(R.string.home_title), style = MaterialTheme.typography.titleLarge)
             Text(stringResource(R.string.home_explainer), style = MaterialTheme.typography.bodyMedium)

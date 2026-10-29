@@ -14,6 +14,9 @@ import io.github.eternalliquet.bamboobd2.core.bench.BenchReport
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
 import io.github.eternalliquet.bamboobd2.core.session.ReadScope
+import io.github.eternalliquet.bamboobd2.core.live.LiveReadController
+import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
+import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
 import io.github.eternalliquet.bamboobd2.app.bluetooth.ClassicConnection
 import io.github.eternalliquet.bamboobd2.app.bluetooth.connectClassic
 import kotlinx.coroutines.flow.first
@@ -101,17 +104,113 @@ class AppViewModel @JvmOverloads constructor(
 
     /** Starts a simulated session. False (nothing started) while a live result waits to be opened. */
     fun start(scenario: FakeScenario): Boolean =
-        !liveResultPending() && controller.start(FakeReader(scenario))
+        !liveResultPending() && !recordingPending.value && controller.start(FakeReader(scenario))
 
     /** Runs a bundled script through the real protocol path; the session is REPLAY, never live. */
     fun startReplay(id: String): Boolean {
-        if (liveResultPending()) return false
+        if (liveResultPending() || recordingPending.value) return false
         val script = replays.first { it.id == id }
         return controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
     }
 
     // An unacknowledged live session may be unsaved: no other session may replace it.
     private fun liveResultPending() = _live.value == LiveState.Started
+
+    // The controller and its operations stay on the ViewModel main dispatcher; transport I/O
+    // is asynchronous and never grants another command stream for this connection.
+    private val liveController = LiveReadController(viewModelScope)
+    val recording: StateFlow<LiveReadState> = liveController.state
+    private val _recordingPending = MutableStateFlow(false)
+    val recordingPending: StateFlow<Boolean> = _recordingPending.asStateFlow()
+    private var recordingJob: Job? = null
+    private var recordingStartedAt = 0L
+    fun recordingElapsedMillis(): Long = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceIn(0L, 600_000L)
+
+    fun startRecording(device: BondedDevice): Boolean {
+        if (recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
+            session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
+        _recordingPending.value = true
+        val connecting = LiveState.Connecting(device.name)
+        _live.value = connecting
+        recordingJob = viewModelScope.launch {
+            val connection = try { connectClassic(bluetooth, device, io) }
+                catch (e: CancellationException) {
+                    // An older cancelled connect must not overwrite a newer attempt.
+                    if (_live.value === connecting) {
+                        _recordingPending.value = false
+                        _live.value = LiveState.Available(bluetooth.availability())
+                    }
+                    throw e
+                }
+            if (connection is ClassicConnection.Failed) {
+                _recordingPending.value = false
+                _live.value = LiveState.Failed(device.name, connection.reason)
+                return@launch
+            }
+            val transport = (connection as ClassicConnection.Connected).transport
+            try {
+                recordingStartedAt = SystemClock.elapsedRealtime()
+                val prepared = liveController.prepare { gate ->
+                    ElmObdReader(transport, "bluetooth:classic", requestGate = gate)
+                }
+                if (!prepared) {
+                    _recordingPending.value = false
+                    _live.value = LiveState.Failed(device.name, "another recording is running")
+                    return@launch
+                }
+                _live.value = LiveState.Available(bluetooth.availability())
+                // Ready and Paused do not read; an EOF must still end this connection.
+                val disconnectWatch = launch {
+                    transport.awaitDisconnect()
+                    liveController.stop(LiveStopReason.DISCONNECTED)
+                }
+                try {
+                    liveController.state.first { it is LiveReadState.Finished }
+                } finally { disconnectWatch.cancel() }
+            } finally { transport.close() }
+        }
+        return true
+    }
+
+    fun startSelectedRecording(pids: List<String>) = liveController.start(pids)
+    fun pauseRecording() = liveController.pause()
+    fun resumeRecording() = liveController.resume()
+    fun stopRecording(reason: LiveStopReason = LiveStopReason.USER) {
+        liveController.stop(reason)
+        // Cancellation also releases a blocked transport read promptly. The core already
+        // published its terminal partial record synchronously before this job is cancelled.
+        recordingJob?.cancel()
+    }
+    fun onAppBackgrounded() {
+        if (recording.value !is LiveReadState.Idle && recording.value !is LiveReadState.Finished)
+            stopRecording(LiveStopReason.CANCELLED)
+        // Codes/snapshot reads may finish while stopped; their Started hand-off remains
+        // pending for the screen on resume. Only recording setup is stopped here.
+        if (_recordingPending.value && _live.value is LiveState.Connecting) cancelLiveConnect()
+    }
+    fun finishRecording() {
+        if (recording.value !is LiveReadState.Finished) return
+        _recordingPending.value = false
+        _saveStatus.update { statuses -> statuses.filterValues { it == SaveStatus.Saving } }
+    }
+    fun discardPendingRecording() {
+        stopRecording(LiveStopReason.CANCELLED)
+        _recordingPending.value = false
+    }
+    fun saveRecording() {
+        val record = (recording.value as? LiveReadState.Finished)?.record ?: return
+        val id = record.id
+        val current = _saveStatus.value[id]
+        if (current == SaveStatus.Saving || (current as? SaveStatus.Done)?.result is SaveResult.Saved) return
+        _saveStatus.update { it + (id to SaveStatus.Saving) }
+        viewModelScope.launch {
+            val result = try { withContext(io) { store.save(record) } }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { SaveResult.Failed(e.message ?: e::class.simpleName.orEmpty()) }
+            _saveStatus.update { it + (id to SaveStatus.Done(result)) }
+            refreshSaved()
+        }
+    }
 
     fun cancel() = controller.cancel()
 
@@ -173,7 +272,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun startBench(device: BondedDevice) {
         // One Bluetooth use at a time: never alongside a live read.
-        if (benchJob?.isActive == true || liveJob?.isActive == true) return
+        if (benchJob?.isActive == true || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value) return
         _bench.value = BenchState.Connecting(device.name)
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
@@ -243,7 +342,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun startLive(device: BondedDevice, readScope: ReadScope = ReadScope.CODES_ONLY) {
         // Also never while a finished result still waits to be shown: it may be unsaved.
-        if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running ||
+        if (liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value || benchJob?.isActive == true || session.value is SessionState.Running ||
             _live.value == LiveState.Started
         ) return
         // This immutable value belongs to this connection attempt, even if UI state changes.
@@ -290,6 +389,10 @@ class AppViewModel @JvmOverloads constructor(
     fun cancelLiveConnect() {
         when (_live.value) {
             is LiveState.Connecting -> {
+                recordingJob?.cancel()
+                // A new connect has no new record yet; the controller may still hold
+                // a previously finished record rather than Idle.
+                _recordingPending.value = false
                 liveJob?.cancel()
                 _live.value = LiveState.Available(bluetooth.availability())
             }
