@@ -144,7 +144,7 @@
     <string name="compare_side_readings">%1$s: %2$s</string>
     <string name="compare_delta">Second minus first: %1$s %2$s</string>
     <string name="compare_not_comparable">Not comparable: %1$s</string>
-    <string name="compare_reason_missing_side">reading missing from one session</string>
+    <string name="compare_reason_missing_side">reading missing from one or both sessions</string>
     <string name="compare_reason_unknown_responder">responder unknown</string>
     <string name="compare_reason_duplicate">duplicate readings</string>
     <string name="compare_reason_non_value">not a numeric reading</string>
