@@ -1,7 +1,7 @@
 # Evidence: hardware readiness for L1 (issue #11)
 
-- Date and observer: 2026-10-28; facts from the owner, recorded by Claude. Documentation only: nothing was powered, paired, scanned or connected.
-- Status: owner-reported facts, plus explicit unknowns. No new hardware observation exists.
+- Date and observer: opened 2026-10-28, updated 2026-10-29; facts and observations from the owner, recorded by Claude. Claude ran no hardware.
+- Status: owner-reported facts, explicit unknowns, and summaries of owner-run observations: an adapter-only check on 2026-10-28 and two codes-only reads on 2026-10-29. Raw captures stay private and are not in Git; no SHA-256 or acquisition log has been recorded for them yet.
 
 ## Recorded facts (owner-reported)
 

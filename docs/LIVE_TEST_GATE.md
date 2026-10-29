@@ -1,6 +1,6 @@
 # Live-test gate
 
-Nothing below is authorized, including powering or connecting any adapter. This lists the evidence and permissions a later adapter or parked-car test needs. Each stage needs its own issue, a reviewed plan, and the owner's written **go** in that issue naming the stage. Approval of one stage does not carry to the next. See also [safety boundary](SAFETY_AND_EVIDENCE.md).
+This document authorizes nothing. Each adapter or car run is the owner's decision. It lists the evidence and permissions an adapter or parked-car test needs, and the status of each stage as the owner decided it. Each stage needs its own issue, a reviewed plan, and the owner's written **go** in that issue naming the stage. Approval of one stage does not carry to the next. See also [safety boundary](SAFETY_AND_EVIDENCE.md).
 
 ## Stages
 
@@ -45,7 +45,7 @@ Record these in the evidence note. They are measured during L1, never assumed be
 
 ## L2 run sheet (code in PR #26)
 
-L2 is lighter than L1 was planned to be, by owner decision (2026-10-28). It is one run of the app's **Read codes** screen in the parked car:
+The owner agreed on 2026-10-28 to go from the in-car adapter check straight to a codes-only read with the app's **Read codes** screen in the parked car, and ran two such reads on 2026-10-29 (see the [readiness note](evidence/2026-10-28-hardware-readiness.md)). The owner has not waived the "Additional evidence before L2 and L3" list above, and several items on it are not done: no evidence log or SHA-256 for the captures, battery health unchecked, stop criteria only as written here. Whether those are required before the next read is the owner's call. The run sheet:
 - **Car:** parked, ignition **on** (dash lights and warning lamps lit, engine not started). Accessory mode is not enough: it may not power the engine computer. No other diagnostic app connected to the adapter at the same time.
 - **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup including `ATSP0` (automatic protocol detection, owner-approved 2026-10-29), `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
 - **Stop and unplug if:** a new warning light comes on, the car does anything unexpected, or the adapter gets hot.
