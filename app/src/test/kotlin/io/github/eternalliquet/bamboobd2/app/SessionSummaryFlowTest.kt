@@ -2,6 +2,7 @@ package io.github.eternalliquet.bamboobd2.app
 
 import android.content.ClipboardManager
 import android.content.Intent
+import androidx.activity.ComponentDialog
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
@@ -9,10 +10,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.pressKey
-import androidx.compose.ui.input.key.Key
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowDialog
 import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
@@ -52,7 +51,9 @@ class SessionSummaryFlowTest {
         assertTrue(copied.contains("Pending codes: Read"))
         assertTrue(copied.contains("not a diagnosis"))
         rule.onNodeWithText(copied).assertExists()
-        rule.onNodeWithText("Session summary").performKeyInput { pressKey(Key.Back) }
+        rule.runOnUiThread {
+            (requireNotNull(ShadowDialog.getLatestDialog()) as ComponentDialog).onBackPressedDispatcher.onBackPressed()
+        }
         rule.onAllNodes(hasText("Session summary")).assertCountEquals(0)
         rule.onNodeWithText("Preview summary").performScrollTo().performClick()
         rule.onNodeWithText(copied).assertExists()
