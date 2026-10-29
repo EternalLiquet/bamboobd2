@@ -16,6 +16,7 @@ object SessionSummary {
     private val responderPattern = Regex("(?:[0-9A-F]{2}|[0-7][0-9A-F]{2})")
 
     fun render(record: SessionRecord, appVersion: String, formatTime: (Long) -> String): String {
+        if (record.recording != null) return renderRecording(record, appVersion, formatTime)
         val scope = record.events.firstOrNull { it.kind == SessionController.READ_SCOPE }?.detail
         val scopeLabel = when (scope) {
             "CODES_ONLY" -> "Codes only"
@@ -79,6 +80,35 @@ object SessionSummary {
             appendLine()
             append("Generic engine/emissions observations only. This is not a diagnosis or proof of vehicle health.")
         }
+    }
+
+    private fun renderRecording(record: SessionRecord, appVersion: String, formatTime: (Long) -> String): String = buildString {
+        val recording = requireNotNull(record.recording)
+        appendLine("BambooBD2 $appVersion")
+        appendLine("Live recording · ${record.provenance}")
+        appendLine("Started: ${formatTime(record.startedAt)}")
+        appendLine("Ended: ${record.endedAt?.let(formatTime) ?: "Unknown"}")
+        val duration = recording.events.lastOrNull()?.elapsedMillis ?: recording.samples.maxOfOrNull { it.elapsedMillis }
+        appendLine("Elapsed: ${duration?.let { "${it} ms" } ?: "Unknown"}")
+        appendLine("Outcome: ${record.outcome ?: "Unknown"} (${if (record.complete) "complete" else "partial"})")
+        appendLine("Stop reason: ${recording.stopReason ?: "Unknown"}")
+        appendLine("Selected readings: ${recording.selectedPids.mapNotNull { Mode01Catalog.lookup(it)?.pid }.joinToString().ifEmpty { "None recorded" }}")
+        appendLine("Codes were collected during preparation; sensor samples continued afterward.")
+        appendCodes(record, DtcKind.STORED, "Stored codes")
+        appendCodes(record, DtcKind.PENDING, "Pending codes")
+        appendLine("Recorded sensor series (observed outcomes only):")
+        val series = RecordingReport.series(record)
+        series.take(24).forEach { row ->
+            val pid = Mode01Catalog.lookup(row.key.pid)
+            val unit = row.key.unit.takeIf { it == pid?.unit } ?: "unrecognized unit"
+            appendLine("PID ${pid?.pid ?: "unrecognized"} · ${responder(row.key.ecu)} · $unit: " +
+                "${row.observedCount} values, ${row.missingCount} missing, ${row.failureCount} failed; " +
+                "first ${row.firstAtMillis?.let(formatTime) ?: "unknown"}, last ${row.lastAtMillis?.let(formatTime) ?: "unknown"}; " +
+                "min ${row.minimum ?: "none"}, max ${row.maximum ?: "none"}; " +
+                "last observed value ${row.lastValue?.toString() ?: "none"} at ${row.lastValueAtMillis?.let(formatTime) ?: "unknown"}")
+        }
+        if (series.size > 24) appendLine("Omitted ${series.size - 24} series from this summary; inspect the saved history for all outcomes.")
+        append("Generic emissions observations only. Counts do not estimate a sample rate or establish vehicle health.")
     }
 
     private fun StringBuilder.appendCodes(record: SessionRecord, kind: DtcKind, label: String) {
