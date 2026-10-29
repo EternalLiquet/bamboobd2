@@ -1,6 +1,6 @@
 # Protocol core: sources, rules and the approved adapter command list
 
-This covers issue #9: request policy, ELM327-style framing and the generic OBD-II decoders in `:core` (`core/src/main/kotlin/.../core/protocol/`). All of it runs offline against `FakeTransport`. Nothing here has been sent to an adapter or a vehicle.
+The request policy, ELM327-style framing and generic OBD-II decoders are in `:core` (`core/src/main/kotlin/.../core/protocol/`). Their new catalog and continuation behavior have offline tests. Earlier owner-operated sessions observed the original four readings; the expanded catalog has no separate vehicle validation.
 
 ## Sources
 
@@ -78,14 +78,14 @@ The owner approved the first seven on 2026-10-28 and `ATSP0` on 2026-10-29 (`Ada
 
 ## Sessions over a transport (#10)
 
-`ElmObdReader` (`core/.../reader/`) is the one protocol path. Replay uses it today, and hardware later changes only the transport. It runs over any `AdapterTransport`, and its provenance comes from the transport's declared kind: `FAKE` gives `SIMULATED` and `REPLAY` gives `REPLAY`. No live kind exists.
+`ElmObdReader` (`core/.../reader/`) is the shared protocol path for fake, replay and Android Bluetooth Classic transports. Provenance follows the transport's declared kind: `FAKE` gives `SIMULATED`, `REPLAY` gives `REPLAY`, and the Bluetooth transport gives `LIVE`. The latter is a software path, not evidence that the expanded catalog or recording ran on a vehicle.
 
 - **Order.**
-  1. `ATE0`, `ATL0` and `ATH1`, each of which must answer `OK`. Anything else stops the session.
+  1. `ATE0`, `ATL0`, `ATH1` and `ATSP0`, each of which must answer `OK`. Anything else stops the session.
   2. `0100`, then `ATDPN`, which picks the reply form: protocols 1–5 are non-CAN, and 6 and 8 are 11-bit CAN. Then follow only advertised support-page continuations through `01E0`. Any other protocol answer stops the session, because 29-bit CAN and J1939 are not handled.
   3. `03`, `07`, and only the readings the supported-PID map allows.
 
-  `ATI`, `AT@1` and `ATRV` are approved but not used.
+  `ATI`, `AT@1` and `ATRV` are approved but not used. A one-pass broad snapshot requests each positively advertised implemented scalar PID once after discovery and code reads. Live recording prepares discovery and codes once, then polls one to four selected advertised catalog PIDs sequentially; neither path queries every advertised but undecoded PID.
 - **Idle before writing.** Any character sent while the adapter is working interrupts it, so software must wait for the prompt (p9). Before each write the reader requires that no reply is still unfinished and that the adapter has been quiet for `quietMillis`. Before the first command it cannot know the adapter is at its prompt; quiet is all it checks. Text that arrives then belongs to no request and is discarded, with a `stale_reply_discarded` event. If a partial reply is still pending, the reader waits for its prompt first.
 - **Deadlines.** Each exchange has a deadline from write to prompt. Missing it covers no bytes, a partial reply and a missing prompt alike. If a `7F xx 78` line has arrived by then, the deadline is extended **once** by `pendingExtensionMillis`. The adapter applies its own 5 s pending timer for CAN and KWP (p45). The host extension is a second, bounded guard. A pending line counts as resolved only when a later final reply from the **same responder** follows it in the same response. Another responder's reply, or one that came before the pending line, doesn't resolve it. Values and codes from responders that did answer are kept, and each unresolved responder is recorded: a reading gets a "no final reply" failure for that responder, and a code list is kept but not marked as read, so the app never reports "no codes" from it. A response with only pending lines is recorded as "no final reply".
 - **Retry.** After a missed deadline the reader sends nothing. It waits up to `resyncMillis` for the prompt. If the prompt comes, the late reply is discarded and the same request is sent **once more**. If it doesn't, or the second try also misses its deadline, the session stops (`FAILED`). There is no reset, no other recovery command and no blind resend.
@@ -114,7 +114,7 @@ Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file eac
 
 ## Mode 01 catalog and bounded discovery (#45, 2026-10-29)
 
-The implemented scalar catalog is `Mode01Catalog.readings`; `lookup(pid)` accepts an exact two-digit uppercase ID. The eight `pageIds` are separate metadata requests. The old four-reading session choice remains in place until #46. This source check establishes generic decoder layout only, not support in either target car. The SAE J1979 / ISO 15031-5 text was not inspected. The vendor documents below are implementation evidence, and a conflicting implementation can still exist; unknown data remains unknown.
+The implemented 27-scalar catalog is `Mode01Catalog.readings`; `lookup(pid)` accepts an exact two-digit uppercase ID. The eight `pageIds` are separate metadata requests. A broad one-pass snapshot now reads positively advertised implemented IDs; live recording selects up to four distinct IDs. This source check establishes generic decoder layout only, not support in either target car. The SAE J1979 / ISO 15031-5 text was not inspected. The vendor documents below are implementation evidence, and a conflicting implementation can still exist; unknown data remains unknown.
 
 | IDs | Meaning and label distinction | Bytes | Formula (unsigned A/B) | Unit | Inspected primary implementation source |
 | --- | --- | ---: | --- | --- | --- |
@@ -144,4 +144,4 @@ A discovery run begins its 180-second wall-clock budget before `ATE0` and includ
 
 A malformed frame invalidates that responder's otherwise intact duplicate, while another responder's valid single-frame reply is retained. This recovery applies only to Mode 01; malformed DTC replies remain unread. `NO DATA` mixed with payload invalidates the whole exchange. A positive Mode 01 reply followed by unresolved pending does not supply a numeric value or authorize continuation. Negative-only and conflicting-only pages retain their per-responder status. If a later page stops on an adapter reset, earlier maps survive and no further request is sent.
 
-Schema 2 adds `SupportedPids.Known.pages` with a default empty list and keeps `pids` union and `complete`. Schema 1 is decoded with empty pages, so it can establish only aggregate support by an unidentified responder; it cannot establish per-ECU support. An absent later-range PID remains unknown in a legacy union: the old complete flag covered its first page, not a continuation walk. The codec accepts schema 1/2, rejects unknown versions and invalid provenance, and does not rewrite saved schema-1 files. The next recording-model issue should add defaulted fields within schema 2.
+Schema 2 adds `SupportedPids.Known.pages` with a default empty list and keeps `pids` union and `complete`. Schema 1 is decoded with empty pages, so it can establish only aggregate support by an unidentified responder; it cannot establish per-ECU support. An absent later-range PID remains unknown in a legacy union: the old complete flag covered its first page, not a continuation walk. The codec accepts schema 1/2, rejects unknown versions and invalid provenance, and does not rewrite saved schema-1 files. Schema 2 also carries defaulted live-recording samples, events, selected PIDs and stop reason. Stored outcomes retain elapsed observation time, wall time, responder, unit and missing/failure reasons; old snapshots remain readable. Saved reports count observations by PID/responder/unit and show min/max/last only for actual values. Comparisons mark missing sides, unit mismatches and unknown responders instead of inventing a numeric difference.
