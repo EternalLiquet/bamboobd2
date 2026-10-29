@@ -7,12 +7,14 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothAvailability
@@ -58,6 +60,17 @@ import org.robolectric.shadows.ShadowLooper
 class LiveReadTest {
     @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+
+    private fun waitForSavedRow(text: String) {
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
+            try {
+                rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+                true
+            } catch (_: AssertionError) { false }
+        }
+        rule.onNodeWithText(text).assertExists()
+    }
 
     /** Answers each CR-terminated command from [replies]; anything else gets no answer. */
     private class FakeElmSocket(private val replies: Map<String, String>, private val connectError: IOException? = null) : RfcommSocket {
@@ -195,10 +208,7 @@ class LiveReadTest {
         FileSessionStore(dir).save(record)
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         val entry = "LIVE · bluetooth:classic · Complete"
-        rule.waitUntil(5_000) {
-            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText(entry)).fetchSemanticsNodes().isNotEmpty()
-        }
+        waitForSavedRow(entry)
         rule.onNodeWithText(entry).performClick()
         rule.onNodeWithText("Sensor snapshot (one pass)").performScrollTo()
         rule.onNodeWithText("50.2 % (7E8)").performScrollTo()
@@ -262,10 +272,7 @@ class LiveReadTest {
         FileSessionStore(dir).save(record)
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         val entry = "LIVE · bluetooth:classic · Finished, but nothing was read from the car"
-        rule.waitUntil(5_000) {
-            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText(entry)).fetchSemanticsNodes().isNotEmpty()
-        }
+        waitForSavedRow(entry)
         rule.onNodeWithText(entry).performClick()
         rule.waitUntil(5_000) {
             ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)

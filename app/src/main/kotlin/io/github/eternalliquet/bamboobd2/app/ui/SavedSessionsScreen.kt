@@ -82,23 +82,25 @@ fun SavedSessionsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onCompare: (
                         placeholder = { Text(stringResource(R.string.finder_code_hint)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth(),
                     )
-                    Box {
-                        OutlinedButton(onClick = { sourceMenu = true }) {
-                            Text(stringResource(R.string.finder_source_label, sourceLabel(source)))
-                        }
-                        DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
-                            val choices: List<Provenance?> = listOf(null) + Provenance.entries
-                            choices.forEach { choice ->
-                                DropdownMenuItem(text = { Text(sourceLabel(choice)) }, onClick = {
-                                    sourceMenu = false
-                                    resetPicker()
-                                    sourceName = choice?.name ?: ""
-                                })
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedButton(onClick = { sourceMenu = true }) {
+                                Text(stringResource(R.string.finder_source_label, sourceLabel(source)))
+                            }
+                            DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+                                val choices: List<Provenance?> = listOf(null) + Provenance.entries
+                                choices.forEach { choice ->
+                                    DropdownMenuItem(text = { Text(sourceLabel(choice)) }, onClick = {
+                                        sourceMenu = false
+                                        resetPicker()
+                                        sourceName = choice?.name ?: ""
+                                    })
+                                }
                             }
                         }
-                    }
-                    OutlinedButton(onClick = { resetPicker(); codeQuery = ""; sourceName = "" }) {
-                        Text(stringResource(R.string.finder_clear))
+                        OutlinedButton(onClick = { resetPicker(); codeQuery = ""; sourceName = "" }, modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.finder_clear))
+                        }
                     }
                     Text(pluralStringResource(R.plurals.finder_match_count, visibleReadable.size, visibleReadable.size))
                     if (codeQuery.isNotBlank()) Text(stringResource(R.string.finder_scope))

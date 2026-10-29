@@ -28,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
@@ -104,6 +105,17 @@ class SavedSessionFilterFlowTest {
         scrollTo(1)
         rule.onNodeWithText(secondDate).performClick()
         scrollTo(0)
+        rule.activityRule.scenario.recreate()
+        scrollTo(0)
+        waitFor("Source: REPLAY")
+        rule.onNodeWithText("2 readable matches").assertIsDisplayed()
+        rule.onAllNodes(hasText("Compare")).assertCountEquals(0)
+        rule.onNodeWithText("Choose two sessions").performClick()
+        scrollTo(2)
+        rule.onNodeWithText(firstDate).performClick()
+        scrollTo(1)
+        rule.onNodeWithText(secondDate).performClick()
+        scrollTo(0)
         rule.onNodeWithText("Compare").performClick()
         waitFor("Reported only in first")
         rule.onNodeWithContentDescription("Back").performClick()
@@ -126,7 +138,8 @@ class SavedSessionFilterFlowTest {
         rule.onAllNodes(hasText("Read codes")).assertCountEquals(0)
     }
 
-    @Test fun noMatchRetainsUnreadableNoticeWithoutClaimingCodeAbsence() {
+    @Test @Config(qualifiers = "w320dp-h640dp", fontScale = 2f)
+    fun noMatchRetainsUnreadableNoticeWithoutClaimingCodeAbsence() {
         val directory = sessionsDir().also { it.deleteRecursively() }
         FileSessionStore(directory).save(record("label-only", 1_700_000_000_000, Provenance.SIMULATED, null))
         directory.resolve("broken.1.json").writeText("invalid JSON P0133")
@@ -134,11 +147,16 @@ class SavedSessionFilterFlowTest {
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         waitFor("1 readable match")
         rule.onNode(hasSetTextAction()).performTextInput("P0133")
-        rule.onNodeWithText("0 readable matches").assertIsDisplayed()
-        rule.onNodeWithText("No readable saved sessions match these filters.").assertIsDisplayed()
+        rule.onNodeWithText("Source: All").performScrollTo().performClick()
+        rule.onNodeWithText("SIMULATED").performClick()
+        rule.onNodeWithText("Source: SIMULATED").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("0 readable matches").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("No readable saved sessions match these filters.").performScrollTo().assertIsDisplayed()
         scrollTo(1)
         rule.onNodeWithText("Unreadable file broken.1.json", substring = true).assertIsDisplayed()
         scrollTo(0)
+        rule.onNodeWithText("Clear filters").performScrollTo().assertIsDisplayed().performClick()
+        rule.onNodeWithText("1 readable match").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Choose two sessions").performScrollTo().assertIsNotEnabled()
         rule.onAllNodes(hasText("No saved sessions yet.")).assertCountEquals(0)
         assertEquals(before, bytes())
