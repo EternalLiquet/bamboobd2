@@ -98,7 +98,7 @@ class ElmObdReader(
     private var format: ResponseFormat? = null
     private var phase = "init"
     private var lastMalformedEcus: List<String?> = emptyList()
-    private var discoveryStopped = false
+    private var discoveryStop: ReaderStoppedException? = null
     private var discoveryStart: TimeSource.Monotonic.ValueTimeMark? = null
     private var discoveryStartedMillis: Long? = null
 
@@ -152,7 +152,8 @@ class ElmObdReader(
                 if (e !is DiscoveryDeadlineException && e !is ReaderStoppedException) throw e
                 expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery exchange stopped") }
                 notes += ReaderNote("supported_pids_incomplete", "discovery exchange stopped at $pid")
-                discoveryStopped = true
+                discoveryStop = if (e is ReaderStoppedException) e
+                    else ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline at $pid")
                 break
             }
             val (result, unresolved) = decode(request, reply)
@@ -222,7 +223,7 @@ class ElmObdReader(
     }
 
     override suspend fun readDtcs(kind: DtcKind): DtcRead {
-        if (discoveryStopped) throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery exchange stopped before codes")
+        discoveryStop?.let { throw it }
         val request = if (kind == DtcKind.STORED) VehicleRequest.STORED_DTCS else VehicleRequest.PENDING_DTCS
         phase = "${kind.name.lowercase()} codes"
         val (result, unresolved) = query(request)
@@ -235,7 +236,7 @@ class ElmObdReader(
     }
 
     override suspend fun readPid(pid: String): List<ReadingResult> {
-        if (discoveryStopped) throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery exchange stopped before readings")
+        discoveryStop?.let { throw it }
         val request = VehicleRequest.entries.firstOrNull { it.text == "01$pid" }
             ?: return listOf(ReadingResult.Failed("PID $pid is not allowlisted"))
         phase = "PID $pid"

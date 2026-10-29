@@ -103,6 +103,21 @@ class ElmObdReaderTest {
     }
 
     @Test
+    fun disconnectOnLaterPageKeepsEarlierMapAndDisconnectOutcome() = runTest {
+        val steps = init + listOf(
+            step("0100", 10L to "7E8 06 41 00 00 00 00 01\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", disconnectAfter = 100),
+        )
+        val run = session(script(steps))
+        assertEquals(SessionOutcome.DISCONNECTED, run.record.outcome)
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.VALID, support.pages.first().status)
+        assertEquals(PageStatus.MISSING, support.pages.last().status)
+        assertFalse("03" in run.transport.writes)
+    }
+
+    @Test
     fun malformedAndConflictingRespondersDoNotEraseIndependentValidPage() = runTest {
         val badFrame = script(init + listOf(
             step("0100", 10L to "7E8 07 41 00 08 00 00\r7E9 06 41 00 08 00 00 00\r\r>"),
