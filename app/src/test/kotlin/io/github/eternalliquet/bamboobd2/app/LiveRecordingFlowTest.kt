@@ -80,6 +80,16 @@ class LiveRecordingFlowTest {
             Thread.sleep(5)
         }
     }
+    private fun assertWritesStayUnchanged(expected: String) {
+        val end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(650)
+        do {
+            ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS)
+            assertEquals(expected, socket.writes())
+            Thread.sleep(5)
+        } while (System.nanoTime() < end)
+        ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS)
+        assertEquals(expected, socket.writes())
+    }
     private fun enter() {
         rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
         rule.onNodeWithText("Live recording (up to four readings)").performScrollTo().performClick()
@@ -107,14 +117,12 @@ class LiveRecordingFlowTest {
         val pausedId = (vm.recording.value as LiveReadState.Paused).record.id
         rule.activityRule.scenario.recreate()
         assertEquals(pausedId, (vm.recording.value as LiveReadState.Paused).record.id)
-        Thread.sleep(650)
-        assertEquals(pausedWrites, socket.writes())
+        assertWritesStayUnchanged(pausedWrites)
         rule.onNodeWithText("Resume").performScrollTo().performClick()
         rule.onNodeWithText("Stop and review").performScrollTo().performClick()
         until(5) { vm.recording.value is LiveReadState.Finished }
         val finalWrites = socket.writes()
-        Thread.sleep(650)
-        assertEquals(finalWrites, socket.writes())
+        assertWritesStayUnchanged(finalWrites)
         val record = (vm.recording.value as LiveReadState.Finished).record
         assertEquals(LiveStopReason.USER, record.recording!!.stopReason)
         assertEquals(listOf("04", "05", "0C", "0D"), record.recording!!.selectedPids)
@@ -155,8 +163,7 @@ class LiveRecordingFlowTest {
         until(5) { vm.recording.value is LiveReadState.Finished }
         assertEquals(LiveStopReason.CANCELLED, (vm.recording.value as LiveReadState.Finished).record.recording!!.stopReason)
         val before = socket.writes()
-        Thread.sleep(650)
-        assertEquals(before, socket.writes())
+        assertWritesStayUnchanged(before)
         assertTrue(vm.recordingPending.value)
         rule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         rule.onNodeWithText("Recording ended").assertExists()
