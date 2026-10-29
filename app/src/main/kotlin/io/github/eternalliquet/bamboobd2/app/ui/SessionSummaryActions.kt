@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.report.SessionSummary
