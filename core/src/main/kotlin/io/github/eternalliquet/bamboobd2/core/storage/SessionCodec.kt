@@ -110,10 +110,16 @@ object SessionCodec {
             lastElapsed = sample.elapsedMillis
         }
         var lastEvent = -1L
+        var paused = false
         live.events.forEachIndexed { index, event ->
             if (event.elapsedMillis < lastEvent || event.elapsedMillis !in 0..600_000 ||
                 (event.kind == LiveEventKind.END) != (event.reason != null) ||
                 (event.kind == LiveEventKind.END) != (index == live.events.lastIndex)) return "invalid live event order"
+            when (event.kind) {
+                LiveEventKind.PAUSE -> if (paused) return "invalid live event transition" else paused = true
+                LiveEventKind.RESUME -> if (!paused) return "invalid live event transition" else paused = false
+                LiveEventKind.END -> Unit
+            }
             lastEvent = event.elapsedMillis
         }
         if (live.stopReason != live.events.lastOrNull()?.reason ||
