@@ -13,6 +13,10 @@ This document authorizes nothing. Each adapter or car run is the owner's decisio
 
 Driving tests, code clearing, resets, coding and flashing are outside every stage.
 
+## L3 software slice and hardware gate
+
+[Issue #30](https://github.com/EternalLiquet/bamboobd2/issues/30) adds an explicit one-shot **Codes + sensor snapshot** choice in software. It uses the existing four allowlisted PIDs and requests only those confirmed by the supported map, with fake-socket and replay checks offline. This does **not** perform an L3 hardware run, validate a vehicle or satisfy [L3 issue #15](https://github.com/EternalLiquet/bamboobd2/issues/15). The default **Codes only** choice remains the L2 sequence; selecting the wider option on a vehicle needs the separate owner-operated L3 plan and written go.
+
 A stage is approved for one **host platform, transport medium and adapter model** together. A desktop app, a USB adapter, or a different adapter model is a new set of stage issues; Android approval does not carry over.
 
 ## Evidence needed before L1
@@ -47,7 +51,7 @@ Record these in the evidence note. They are measured during L1, never assumed be
 
 The owner agreed on 2026-10-28 to go from the in-car adapter check straight to a codes-only read with the app's **Read codes** screen in the parked car, and ran two such reads on 2026-10-29 (see the [readiness note](evidence/2026-10-28-hardware-readiness.md)). The owner has not waived the "Additional evidence before L2 and L3" list above, and several items on it are not done: no evidence log or SHA-256 for the captures, battery health unchecked, stop criteria only as written here. Whether those are required before the next read is the owner's call. The run sheet:
 - **Car:** parked, ignition **on** (dash lights and warning lamps lit, engine not started). Accessory mode is not enough: it may not power the engine computer. No other diagnostic app connected to the adapter at the same time.
-- **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup including `ATSP0` (automatic protocol detection, owner-approved 2026-10-29), `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
+- **What runs:** the default **Codes only** choice in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup including `ATSP0` (automatic protocol detection, owner-approved 2026-10-29), `0100`, `ATDPN`, `03`, `07`. The separate sensor-snapshot choice is L3 software and is not part of this L2 run sheet.
 - **Stop and unplug if:** a new warning light comes on, the car does anything unexpected, or the adapter gets hot.
 - **Afterwards:** save the session, copy the raw capture, and send both for review. The capture stays out of Git until it has been reviewed and sanitized.
 - **Running it is the owner's decision**, recorded in issue #14. This document doesn't authorize it.

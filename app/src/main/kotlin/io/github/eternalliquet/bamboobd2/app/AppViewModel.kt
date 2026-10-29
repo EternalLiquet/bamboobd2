@@ -199,7 +199,7 @@ class AppViewModel @JvmOverloads constructor(
         return BenchReport.text(result, appVersion(), platform)
     }
 
-    // Codes-only (L2) live read over Bluetooth Classic.
+    // One selected read scope over Bluetooth Classic; no automatic reconnect.
 
     private val _live = MutableStateFlow<LiveState>(LiveState.Available(BluetoothAvailability.PermissionNeeded))
     val live: StateFlow<LiveState> = _live.asStateFlow()
@@ -241,11 +241,13 @@ class AppViewModel @JvmOverloads constructor(
 
     fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
 
-    fun startLive(device: BondedDevice) {
+    fun startLive(device: BondedDevice, readScope: ReadScope = ReadScope.CODES_ONLY) {
         // Also never while a finished result still waits to be shown: it may be unsaved.
         if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running ||
             _live.value == LiveState.Started
         ) return
+        // This immutable value belongs to this connection attempt, even if UI state changes.
+        val selectedScope = readScope
         _live.value = LiveState.Connecting(device.name)
         liveJob = viewModelScope.launch {
             val recorder = CaptureRecorder()
@@ -257,16 +259,20 @@ class AppViewModel @JvmOverloads constructor(
                 is ClassicConnection.Connected -> connection.transport
             }
             try {
-                // L2: the supported-PID map and stored and pending codes only. The reader and
-                // controller decide everything else; provenance comes from the LIVE transport.
-                if (!controller.start(ElmObdReader(transport, "bluetooth:classic"), ReadScope.CODES_ONLY)) {
+                // The controller gates any sensor request on the supported map; provenance
+                // comes from the LIVE transport, not from the selected scope.
+                if (!controller.start(ElmObdReader(transport, "bluetooth:classic"), selectedScope)) {
                     _live.value = LiveState.Failed(device.name, "another session is running")
                     return@launch
                 }
                 _live.value = LiveState.Started
                 val finished = controller.state.first { it is SessionState.Finished } as SessionState.Finished
                 val id = finished.record.id
-                val source = "BambooBD2 ${appVersion()}, Bluetooth Classic, codes-only (L2) session, outcome " +
+                val scopeLabel = when (selectedScope) {
+                    ReadScope.CODES_ONLY -> "codes-only (L2) session"
+                    ReadScope.FULL -> "codes + supported sensor snapshot (L3 software; not vehicle-tested) session"
+                }
+                val source = "BambooBD2 ${appVersion()}, Bluetooth Classic, $scopeLabel, outcome " +
                     "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
                 _captures.update { it + (id to recorder.json(id, source)) }
             } finally {
