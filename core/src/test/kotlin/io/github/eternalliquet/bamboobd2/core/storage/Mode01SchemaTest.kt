@@ -13,6 +13,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Mode01SchemaTest {
+    @Test fun legacyContinuationDoesNotInventLaterRangeSupportAssertions() {
+        val old = SessionRecord(1, "old", 1, 2, Provenance.REPLAY, "synthetic", true,
+            outcome = SessionOutcome.COMPLETE, supportedPids = SupportedPids.Known(listOf("05", "20")))
+        val reopened = (SessionCodec.decode(SessionCodec.encode(old)) as DecodeResult.Ok).record
+        assertEquals(Capability.UNKNOWN, reopened.supportedPids.capability("2F").capability)
+        assertEquals(Capability.UNSUPPORTED, reopened.supportedPids.capability("04").capability)
+        assertEquals(Capability.SUPPORTED_AND_DECODABLE, reopened.supportedPids.capability("05").capability)
+        assertEquals(Capability.UNKNOWN, reopened.supportedPids.capability("05", "7E8").capability)
+    }
+
     @Test fun v1ReopensWithoutInventingEcuAndV2MapsRoundTrip() {
         val old = SessionRecord(1, "old", 1, 2, Provenance.REPLAY, "synthetic", true,
             outcome = SessionOutcome.COMPLETE, supportedPids = SupportedPids.Known(listOf("05")))

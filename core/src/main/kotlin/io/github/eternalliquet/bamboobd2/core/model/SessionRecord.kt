@@ -77,7 +77,8 @@ fun SupportedPids.capability(pid: String, ecu: String? = null): CapabilityResult
     if (pages.isEmpty()) return when {
         pid in pids && ecu == null -> supported()
         ecu != null -> CapabilityResult(Capability.UNKNOWN, "legacy union has no responder identity", page)
-        complete -> CapabilityResult(Capability.UNSUPPORTED, "legacy complete union", page)
+        complete && base == 0 -> CapabilityResult(Capability.UNSUPPORTED, "legacy complete first-page union", page)
+        base > 0 -> CapabilityResult(Capability.UNKNOWN, "legacy union has no page evidence for this range", page)
         else -> CapabilityResult(Capability.UNKNOWN, "legacy partial union", page)
     }
     fun forEcu(id: String?): CapabilityResult {

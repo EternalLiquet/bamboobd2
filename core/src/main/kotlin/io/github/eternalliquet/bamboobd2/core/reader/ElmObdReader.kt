@@ -98,6 +98,8 @@ class ElmObdReader(
     private var format: ResponseFormat? = null
     private var phase = "init"
     private var lastMalformedEcus: List<String?> = emptyList()
+    private data class ResponderIssue(val status: PageStatus, val reason: String)
+    private var lastResponderIssues: Map<String?, ResponderIssue> = emptyMap()
     private var discoveryStop: ReaderStoppedException? = null
     private var discoveryStart: TimeSource.Monotonic.ValueTimeMark? = null
     private var discoveryStartedMillis: Long? = null
@@ -143,6 +145,11 @@ class ElmObdReader(
         format = ResponseFormat(headers = true, form = form)
         val pages = mutableListOf<PageEvidence>()
         var expected: Set<String?>? = null
+        fun retainBeforeStop(pid: String, stop: ReaderStoppedException) {
+            expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery stopped") }
+            notes += ReaderNote("supported_pids_incomplete", "discovery stopped at $pid")
+            discoveryStop = stop
+        }
         for ((index, pid) in Mode01Catalog.pageIds.withIndex()) {
             val request = VehicleRequest.entries.single { it.text == "01$pid" }
             phase = "support page $pid"
@@ -150,13 +157,16 @@ class ElmObdReader(
                 discoveryExchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis)
             } catch (e: Exception) {
                 if (e !is DiscoveryDeadlineException && e !is ReaderStoppedException) throw e
-                expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery exchange stopped") }
-                notes += ReaderNote("supported_pids_incomplete", "discovery exchange stopped at $pid")
-                discoveryStop = if (e is ReaderStoppedException) e
-                    else ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline at $pid")
+                retainBeforeStop(pid, if (e is ReaderStoppedException) e
+                    else ReaderStoppedException(StopReason.NO_RESPONSE, "discovery deadline at $pid"))
                 break
             }
-            val (result, unresolved) = decode(request, reply)
+            val (result, unresolved) = try { decode(request, reply) }
+                catch (e: ReaderStoppedException) {
+                    if (index == 0) throw e
+                    retainBeforeStop(pid, e)
+                    break
+                }
             val valid = (result as? ObdResult.SupportedPids)?.perEcu.orEmpty()
             val validIds = valid.map { it.ecu }.toSet()
             // The first page establishes identities. Later pages are accepted only
@@ -168,31 +178,20 @@ class ElmObdReader(
                         continues = entry.ecu in (result as ObdResult.SupportedPids).continuationByEcu)
                 else PageEvidence(entry.ecu, pid, PageStatus.MALFORMED, reason = "unsolicited page without own continuation")
             }
-            val failures = (result as? ObdResult.SupportedPids)?.failures.orEmpty()
-            val negative = failures.filter { "negative response" in it }.map { it.substringBefore(":") }.toSet()
-            val conflicted = failures.filter { "duplicate or conflicting" in it }.map { it.substringBefore(":") }.toSet()
-            val malformed = (failures.mapNotNull { it.substringBefore(":").takeIf { id -> id != "responder" } } + lastMalformedEcus).toSet()
-            malformed.filterNot { it in validIds || it in expected.orEmpty() }.forEach { id ->
-                val status = when {
-                    id in conflicted -> PageStatus.CONFLICT
-                    id in negative -> PageStatus.NEGATIVE
-                    else -> PageStatus.MALFORMED
-                }
-                pages += PageEvidence(id, pid, status, reason = failures.firstOrNull { it.startsWith("$id:") } ?: "malformed frame")
+            val issues = lastResponderIssues + lastMalformedEcus.associateWith { ResponderIssue(PageStatus.MALFORMED, "malformed frame") }
+            issues.filterKeys { it !in validIds && it !in expected.orEmpty() && it !in unresolved }.forEach { (id, issue) ->
+                pages += PageEvidence(id, pid, issue.status, reason = issue.reason)
             }
             unresolved.filterNot { it in validIds }.forEach { id ->
                 pages += PageEvidence(id, pid, PageStatus.PENDING, reason = "response pending, no final reply")
             }
             expected.orEmpty().filterNot { it in validIds || it in unresolved }.forEach { id ->
-                val status = when {
-                    id in conflicted -> PageStatus.CONFLICT
-                    id in negative -> PageStatus.NEGATIVE
-                    id in malformed -> PageStatus.MALFORMED
+                val status = issues[id]?.status ?: when {
                     result == ObdResult.NoData -> PageStatus.NO_DATA
                     result is ObdResult.Malformed -> PageStatus.MALFORMED
                     else -> PageStatus.MISSING
                 }
-                pages += PageEvidence(id, pid, status, reason = describe(result))
+                pages += PageEvidence(id, pid, status, reason = issues[id]?.reason ?: describe(result))
             }
             if (index == 0 && valid.isEmpty()) {
                 notes += ReaderNote(SUPPORTED_PIDS_UNKNOWN, describe(result))
@@ -257,6 +256,7 @@ class ElmObdReader(
     private fun decode(request: VehicleRequest, raw: String): Pair<ObdResult, List<String?>> {
         val format = checkNotNull(format) { "protocol not determined" }
         lastMalformedEcus = emptyList()
+        lastResponderIssues = emptyMap()
         val initial = ElmResponseParser.parse(raw, RequestPolicy.vehicle(request), format)
         val parsed = if (initial is ParsedResponse.Malformed) salvageMessages(raw, request, format) ?: initial else initial
         if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET) {
@@ -264,6 +264,20 @@ class ElmObdReader(
             throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
         }
         val (finals, unresolved) = splitPending(parsed, request)
+        // Aggregate results may expose only one negative, or omit responder IDs
+        // when every reply is malformed. Classify each ECU with the same decoder
+        // so stored page statuses never depend on parsing diagnostic prose.
+        if (request.text.startsWith("01") && finals is ParsedResponse.Messages) {
+            lastResponderIssues = finals.messages.groupBy { it.ecu }.mapNotNull { (ecu, messages) ->
+                val own = ObdDecoder.decode(request, ParsedResponse.Messages(messages), format.form)
+                val status = when (own) {
+                    is ObdResult.Negative -> if (own.responsePending) PageStatus.PENDING else PageStatus.NEGATIVE
+                    is ObdResult.Malformed -> if (messages.size > 1) PageStatus.CONFLICT else PageStatus.MALFORMED
+                    else -> null
+                }
+                status?.let { ecu to ResponderIssue(it, describe(own)) }
+            }.toMap()
+        }
         return ObdDecoder.decode(request, finals, format.form) to unresolved
     }
 
@@ -276,15 +290,16 @@ class ElmObdReader(
             when (val parsed = ElmResponseParser.parse(line, RequestPolicy.vehicle(request), format)) {
                 is ParsedResponse.Messages -> messages += parsed.messages
                 is ParsedResponse.Malformed -> {
-                    val bytes = line.split(' ').filter { it.isNotEmpty() }
-                    bad += if (format.form == ProtocolForm.CAN_11BIT) bytes.firstOrNull()?.takeIf { it.matches(Regex("[0-9A-Fa-f]{3}")) }
-                        else bytes.getOrNull(2)?.takeIf { it.matches(Regex("[0-9A-Fa-f]{2}")) }
+                    val hex = compact(line)
+                    bad += if (format.form == ProtocolForm.CAN_11BIT) hex.take(3).takeIf { it.matches(Regex("[0-9A-F]{3}")) }
+                        else hex.drop(4).take(2).takeIf { it.matches(Regex("[0-9A-F]{2}")) }
                 }
                 else -> Unit
             }
         }
         lastMalformedEcus = bad
-        return messages.takeIf { it.isNotEmpty() }?.let { ParsedResponse.Messages(it) }
+        // An intact line does not resolve a damaged duplicate from that ECU.
+        return messages.filterNot { it.ecu in bad }.takeIf { it.isNotEmpty() }?.let { ParsedResponse.Messages(it) }
     }
 
     /**
@@ -307,7 +322,11 @@ class ElmObdReader(
                 finals += m
             }
         }
-        return if (finals.isEmpty()) parsed to emptyList() else ParsedResponse.Messages(finals) to pending.toList()
+        // A Mode 01 value/map preceding an unresolved pending response is not a
+        // final answer. DTCs keep their earlier codes with an incomplete list.
+        val safeFinals = if (request.text.startsWith("01")) finals.filterNot { it.ecu in pending } else finals
+        return if (safeFinals.isEmpty()) ParsedResponse.Messages(parsed.messages.filter { it.bytes == listOf(0x7F, service, 0x78) }) to pending.toList()
+            else ParsedResponse.Messages(safeFinals) to pending.toList()
     }
 
     private fun pendingReason(unresolved: List<String?>): String =

@@ -36,6 +36,106 @@ import java.nio.file.Files
 class ElmObdReaderTest {
 
     @Test
+    fun malformedDuplicateInvalidatesOnlyItsOwnResponderMap() = runTest {
+        val transport = ReplayTransport(script(init + listOf(
+            step("0100", 10L to "7e8\t06 41 00 08 00 00 00\r7e8\t07 41 00 00 00 00\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        )), testScheduler.timeSource)
+        val reader = ElmObdReader(transport, "synthetic", discoveryClockMillis = { testScheduler.currentTime })
+        reader.open()
+        val support = reader.readSupportedPids() as SupportedPids.Known
+        assertEquals(Capability.UNKNOWN, support.capability("05", "7E8").capability)
+        assertEquals(PageStatus.MALFORMED, support.pages.single { it.ecu == "7E8" }.status)
+        assertEquals(PageStatus.VALID, support.pages.single { it.ecu == "7E9" }.status)
+        assertFalse("05" in support.pids)
+    }
+
+    @Test
+    fun malformedDuplicateDoesNotYieldItsRespondersNumericValue() = runTest {
+        val run = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 08 00 00 00\r7E9 06 41 00 08 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes + step("0105", 10L to "7E8 03 41 05 7B\r7E8 07 41 05 7C\r7E9 03 41 05 7D\r\r>")))
+        assertEquals(listOf(ReadingResult.Value(85.0, "°C", "7E9")), run.record.reading("05").filterIsInstance<ReadingResult.Value>())
+        assertTrue(run.record.reading("05").filterIsInstance<ReadingResult.Failed>().any { "7E8" in it.reason })
+    }
+
+    @Test
+    fun pendingAfterPositiveDoesNotAuthorizeContinuation() = runTest {
+        val transport = ReplayTransport(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 08 00 00 01\r7E8 03 7F 01 78\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", 10L to "7E8 06 41 20 00 00 00 00\r\r>"),
+        )), testScheduler.timeSource)
+        val reader = ElmObdReader(transport, "synthetic", discoveryClockMillis = { testScheduler.currentTime })
+        reader.open()
+        val support = reader.readSupportedPids() as SupportedPids.Known
+        assertEquals(PageStatus.PENDING, support.pages.single { it.ecu == "7E8" && it.pageBase == "00" }.status)
+        assertEquals(Capability.UNKNOWN, support.capability("05", "7E8").capability)
+        assertEquals(PageStatus.VALID, support.pages.single { it.ecu == "7E9" }.status)
+        assertFalse("0120" in transport.writes)
+    }
+
+    @Test
+    fun pendingAfterPositiveDoesNotYieldItsRespondersNumericValue() = runTest {
+        val run = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 08 00 00 00\r7E9 06 41 00 08 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes + step("0105", 10L to "7E8 03 41 05 7B\r7E8 03 7F 01 78\r7E9 03 41 05 7D\r\r>")))
+        assertEquals(listOf(ReadingResult.Value(85.0, "°C", "7E9")), run.record.reading("05").filterIsInstance<ReadingResult.Value>())
+        assertTrue(run.record.reading("05").filterIsInstance<ReadingResult.Failed>().any { "7E8" in it.reason })
+    }
+
+    @Test
+    fun pendingAfterPositiveWithoutOtherFinalRemainsPending() = runTest {
+        val run = session(script(upToCoolant + step("0105", 10L to "7E8 03 41 05 7B\r7E8 03 7F 01 78\r\r>")))
+        assertEquals(listOf(ReadingResult.Failed("response pending, no final reply")), run.record.reading("05"))
+    }
+
+    @Test
+    fun negativeOnlyContinuationRetainsEveryRespondersStatus() = runTest {
+        for ((secondCode, status) in listOf("78" to PageStatus.PENDING, "12" to PageStatus.NEGATIVE)) {
+            val run = session(script(init + listOf(
+                step("0100", 10L to "7E8 06 41 00 00 00 00 01\r7E9 06 41 00 00 00 00 01\r\r>"),
+                step("ATDPN", 10L to "A6\r\r>"),
+                step("0120", 10L to "7E8 03 7F 01 11\r7E9 03 7F 01 $secondCode\r\r>"),
+            ) + noCodes))
+            val support = run.record.supportedPids as SupportedPids.Known
+            assertEquals(PageStatus.NEGATIVE, support.pages.single { it.ecu == "7E8" && it.pageBase == "20" }.status)
+            assertEquals(status, support.pages.single { it.ecu == "7E9" && it.pageBase == "20" }.status)
+            assertEquals(Capability.UNKNOWN, support.capability("2F").capability)
+            assertFalse(support.complete)
+        }
+    }
+
+    @Test
+    fun conflictingOnlyContinuationRetainsConflictStatus() = runTest {
+        val run = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 00 00 00 01\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", 10L to "7E8 06 41 20 00 00 00 00\r7E8 06 41 20 80 00 00 00\r\r>"),
+        ) + noCodes))
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.CONFLICT, support.pages.single { it.pageBase == "20" }.status)
+        assertEquals(Capability.UNKNOWN, support.capability("21", "7E8").capability)
+    }
+
+    @Test
+    fun adapterResetOnContinuationPreservesEarlierMapAndStopsTraffic() = runTest {
+        val run = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 00 00 00 01\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", 10L to "LV RESET\r\r>"),
+        )))
+        assertEquals(SessionOutcome.FAILED, run.record.outcome)
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.VALID, support.pages.first().status)
+        assertEquals(PageStatus.MISSING, support.pages.last().status)
+        assertTrue(run.record.events.last().detail.startsWith("adapter_reset"))
+        assertFalse("03" in run.transport.writes)
+    }
+
+    @Test
     fun followsOnlyEachRespondersContinuationThrough40() = runTest {
         val steps = init + listOf(
             step("0100", 10L to "7E8 06 41 00 00 00 00 01\r7E9 06 41 00 00 00 00 00\r\r>"),
