@@ -17,7 +17,7 @@ Page numbers below refer to ELM327DSJ.
 ## Request policy (F9)
 
 - Only `RequestPolicy` creates a `Request`. Its constructor is internal to `:core`, so Kotlin code in other modules (the Android shell) cannot call it; `internal` is not enforced against Java callers or deliberate compiler-suppression tricks. `AdapterTransport.write` takes only a `Request`.
-- Deny by default. Accepted vehicle requests are exactly `0100`, `0104`, `0105`, `010C`, `010D`, `03`, `07`. Accepted adapter commands are exactly the eight approved below. The SHA-256 of the combined allowlist is pinned in `RequestPolicyTest`.
+- Deny by default. Accepted vehicle requests are exactly `01` plus each of the 27 IDs in the catalog below, the eight page IDs `00/20/40/60/80/A0/C0/E0`, and `03`, `07`. Accepted adapter commands are exactly the eight approved below. The SHA-256 of the combined allowlist is pinned in `RequestPolicyTest`.
 - Only the exact canonical text is accepted. The ELM327 ignores spaces and control characters and is case-insensitive (p9), so `0 4` would reach a vehicle as mode 04. Variants are rejected, not normalized.
 - Empty and whitespace-only lines are rejected: a single carriage return repeats the last command (p9, p12).
 - Every AT command outside the approved list is rejected.
@@ -37,7 +37,7 @@ Page numbers below refer to ELM327DSJ.
 ## Decoding (F2, F6, F8, F13)
 
 - A reply decodes to a value only when its service byte is the request's service + 0x40 and, for mode 01, its PID byte matches. Otherwise it is malformed. Mode 01 replies must also have the exact data length.
-- **Supported PIDs (0100)**: four bitmap bytes, PID *n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (p31). Each responder's map is kept; support is the union. A missing, `NO DATA`, negative or malformed map leaves support **unknown**, and then no readings are requested (F8). If some responders report a map but another's reply stays pending (#10), the confirmed PIDs are still requested. Discovery is marked incomplete, so a PID missing from the maps is recorded as unknown rather than unsupported, and the saved session and the app keep showing that discovery was incomplete.
+- **Supported PIDs (0100 and continuation pages)**: four bitmap bytes, PID base+*n* is bit `7 − ((n−1) mod 8)` of byte `(n−1)/8` (ELM327DSJ p31). Per-responder pages and uncertainty are retained, with union support for aggregate planning. A missing, `NO DATA`, negative or malformed map stays unknown for that responder/range; confirmed readings from another responder may still be requested. See #45 below.
 - **Readings**:
 
   | PID | Formula | Source |
@@ -82,7 +82,7 @@ The owner approved the first seven on 2026-10-28 and `ATSP0` on 2026-10-29 (`Ada
 
 - **Order.**
   1. `ATE0`, `ATL0` and `ATH1`, each of which must answer `OK`. Anything else stops the session.
-  2. `0100`, then `ATDPN`, which picks the reply form: protocols 1–5 are non-CAN, and 6 and 8 are 11-bit CAN. Any other answer stops the session, because 29-bit CAN and J1939 aren't handled.
+  2. `0100`, then `ATDPN`, which picks the reply form: protocols 1–5 are non-CAN, and 6 and 8 are 11-bit CAN. Then follow only advertised support-page continuations through `01E0`. Any other protocol answer stops the session, because 29-bit CAN and J1939 are not handled.
   3. `03`, `07`, and only the readings the supported-PID map allows.
 
   `ATI`, `AT@1` and `ATRV` are approved but not used.
@@ -111,3 +111,35 @@ Fixtures live in `core/src/test/resources/fixtures/protocol/`, one JSON file eac
 ## Transport registry (G2)
 
 `transport-registry.txt` lists every `AdapterTransport` implementation in any module's `src/` tree (Kotlin and Java) with its declared kind. Today that is `FakeTransport` and a test spy (`FAKE`), `ReplayTransport` (`REPLAY`) and the Android `BluetoothClassicTransport` (`LIVE`, pinned with `reviewed:issue-12`; see [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md)). `verifyTransportRegistry` runs in both `./gradlew -p core check` and the root `check`. It fails on an unlisted, removed, undeclared or anonymous transport that directly names `AdapterTransport`, and on a `LIVE` one whose entry lacks a `reviewed:<reference>` marker. The marker records code review, not permission to run on hardware. It reads each class's supertype list after any annotations and constructor parameters, so a class that only takes a transport as a parameter is not counted. Comments and string literals are blanked out first. A class header that names `AdapterTransport` in a shape the scan can't parse (for example a `where` clause) fails the check rather than being skipped. It is a source-text scan, so an implementation that reaches the interface only through another base type would not be detected; adding such a base type must come with an update to the check.
+
+## Mode 01 catalog and bounded discovery (#45, 2026-10-29)
+
+The implemented scalar catalog is `Mode01Catalog.readings`; `lookup(pid)` accepts an exact two-digit uppercase ID. The eight `pageIds` are separate metadata requests. The old four-reading session choice remains in place until #46. This source check establishes generic decoder layout only, not support in either target car. The SAE J1979 / ISO 15031-5 text was not inspected. The vendor documents below are implementation evidence, and a conflicting implementation can still exist; unknown data remains unknown.
+
+| IDs | Meaning and label distinction | Bytes | Formula (unsigned A/B) | Unit | Inspected primary implementation source |
+| --- | --- | ---: | --- | --- | --- |
+| 04 | calculated engine load | 1 | 100A/255 | % | Emtron, Service 0x01 Common PIDs |
+| 05 | coolant temperature | 1 | A−40 | °C | ELM327DSJ p31; Emtron |
+| 06, 07 | short/long fuel trim bank 1 | 1 each | 100A/128−100 | % | ArCx WAT tutorial, PID 06 example (one unsigned byte); OBD Solutions ECUsim 5100 §7.1.1 raw 3C/46; CSS Electronics OBD2 DBC table 06/07 |
+| 08, 09 | short/long fuel trim bank 2 | 1 each | 100A/128−100 | % | CSS Electronics OBD2 DBC table 08/09; DashLogic 08/09 bank 2 A-byte definitions |
+| 0B, 33 | intake manifold absolute pressure / barometric absolute pressure | 1 each | A | kPa | Emtron, Service 0x01 Common PIDs; ECUsim §7.1.1 for 33 |
+| 0C | engine speed | 2 | (256A+B)/4 | rpm | ELM327DSJ pp31–32 |
+| 0D | vehicle speed | 1 | A | km/h | Emtron, Service 0x01 Common PIDs |
+| 0E | timing advance | 1 | (A−128)/2 | ° | Emtron, Service 0x01 Common PIDs |
+| 0F, 46, 5C | intake / ambient / engine oil temperature | 1 each | A−40 | °C | Emtron, Service 0x01 Common PIDs; ECUsim §7.1.1 for 0F/46 |
+| 10 | mass air flow | 2 | (256A+B)/100 | g/s | Emtron, Service 0x01 Common PIDs; ECUsim §7.1.1 |
+| 11 | absolute throttle position A | 1 | 100A/255 | % | Emtron 11 throttle; Snap-on printed pp35–36 distinguishes absolute from relative |
+| 1F | run time since engine start | 2 | 256A+B | s | Emtron; ECUsim §7.1.1 |
+| 2F | fuel tank level | 1 | 100A/255 | % | Emtron; ECUsim §7.1.1 |
+| 42 | control module voltage, distinct from adapter `ATRV` | 2 | (256A+B)/1000 | V | Emtron; ECUsim §7.1.1 |
+| 45 | relative throttle position | 1 | 100A/255 | % | DashLogic vendor listing `$45`; Snap-on printed pp35–36 |
+| 47, 48 | absolute throttle position B/C | 1 each | 100A/255 | % | DashLogic `$47/$48`; Snap-on printed pp35–36 |
+| 49, 4A, 4B | accelerator pedal position D/E/F | 1 each | 100A/255 | % | DashLogic `$49–$4B` byte/formula; **Snap-on** printed pp35–36 names APP_D/E/F |
+| 4C | commanded throttle actuator, not a measured plate position | 1 | 100A/255 | % | DashLogic `$4C`; Snap-on printed p36 |
+| 5A | relative accelerator pedal position | 1 | 100A/255 | % | DashLogic `$5A` |
+
+Sources inspected directly: [Emtron display OBD-II documentation](https://docs.emtronaustralia.com.au/displays/functions/obd2/index.html) “Service 0x01 Common PIDs”; [DashLogic OBD-II J1979 PID Listing](https://www.dashlogic.com/docs/technical/obdii_pids) (copyright 2018, `$45–$5A`); [Snap-on Global OBD Vehicle Communication Software Manual](https://www.snapon.com/Files/Diagnostics/UserManuals/GlobalOBDVehicleCommunicationSoftwareManual_EAZ0025B43.pdf) August 2013, EAZ0025B43C Rev. A, printed pp35–36 (PDF pp38–39); [ArCx WAT API Tutorial: OBD-II](https://support.arcx.com/WAT/wat_docs/tutorial-obd-II.obd.html) PID 06 example; [CSS Electronics OBD2 PID overview and own DBC conversion table](https://www.csselectronics.com/pages/obd2-pid-table-on-board-diagnostics-j1979), 06–09 rows; [OBD Solutions ECUsim 5100 User Guide](https://www.scantool.net/scantool/downloads/64/ECUsim_5100_UG.pdf) §7.1.1. ELM327DSJ and mirror/hash details are recorded earlier in this document. DashLogic labels `$49–$4B` “absolute throttle D/E/F” while Snap-on calls them accelerator pedal D/E/F; the latter wording is used. DashLogic includes an optional B byte for banks 3/4 on 06–09; this implementation accepts exactly the independently documented one-byte bank 1/2 layout and rejects an extra byte rather than truncating it. Emtron's fallback polling on failed discovery and its suggested fast rates are not adopted.
+
+A discovery run begins its 180-second wall-clock budget before `ATE0` and includes `ATL0`, `ATH1`, `ATSP0`, `0100`, `ATDPN` and every later page exchange. It follows only a valid responder continuation bit through 00/20/40/60/80/A0/C0/E0, with the existing one-retry prompt/resync exchange. Page bytes are MSB-first, the last bit advertises the next page, and no marker becomes a sensor reading. Each `PageEvidence` preserves ECU, page base, `VALID`/`MISSING`/`NO_DATA`/`NEGATIVE`/`MALFORMED`/`PENDING`/`CONFLICT`, supported scalar IDs, a separate continuation flag, and reason. A zero valid map ends that responder's chain; a missing page leaves its later range unknown. A page never lends support to another responder. A capped E0 continuation remains incomplete.
+
+Schema 2 adds `SupportedPids.Known.pages` with a default empty list and keeps `pids` union and `complete`. Schema 1 is decoded with empty pages, so it can establish only aggregate support by an unidentified responder; it cannot establish per-ECU support. The codec accepts schema 1/2, rejects unknown versions and invalid provenance, and does not rewrite saved schema-1 files. The next recording-model issue should add defaulted fields within schema 2.

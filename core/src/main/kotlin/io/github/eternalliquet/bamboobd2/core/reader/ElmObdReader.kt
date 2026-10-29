@@ -83,6 +83,7 @@ class ElmObdReader(
     private val transport: AdapterTransport,
     override val sourceLabel: String,
     private val profile: AdapterProfile = AdapterProfile.PROVISIONAL,
+    private val discoveryClockMillis: (() -> Long)? = null,
 ) : DiagnosticReader {
 
     override val provenance: Provenance = when (transport.kind) {
@@ -97,7 +98,9 @@ class ElmObdReader(
     private var format: ResponseFormat? = null
     private var phase = "init"
     private var lastMalformedEcus: List<String?> = emptyList()
+    private var discoveryStopped = false
     private var discoveryStart: TimeSource.Monotonic.ValueTimeMark? = null
+    private var discoveryStartedMillis: Long? = null
 
     override fun takeNotes(): List<ReaderNote> = notes.toList().also { notes.clear() }
 
@@ -108,6 +111,7 @@ class ElmObdReader(
      */
     override suspend fun open() {
         discoveryStart = TimeSource.Monotonic.markNow()
+        discoveryStartedMillis = discoveryClockMillis?.invoke()
         try {
         for (command in listOf(AdapterCommand.ECHO_OFF, AdapterCommand.LINEFEEDS_OFF, AdapterCommand.HEADERS_ON, AdapterCommand.AUTO_PROTOCOL)) {
             val lines = adapterLines(discoveryExchange(RequestPolicy.adapter(command), profile.adapterCommandMillis), command)
@@ -144,9 +148,11 @@ class ElmObdReader(
             phase = "support page $pid"
             val reply = if (index == 0) raw else try {
                 discoveryExchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis)
-            } catch (e: DiscoveryDeadlineException) {
-                expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery deadline") }
-                notes += ReaderNote("supported_pids_incomplete", "discovery deadline at $pid")
+            } catch (e: Exception) {
+                if (e !is DiscoveryDeadlineException && e !is ReaderStoppedException) throw e
+                expected.orEmpty().forEach { pages += PageEvidence(it, pid, PageStatus.MISSING, reason = "discovery exchange stopped") }
+                notes += ReaderNote("supported_pids_incomplete", "discovery exchange stopped at $pid")
+                discoveryStopped = true
                 break
             }
             val (result, unresolved) = decode(request, reply)
@@ -156,19 +162,30 @@ class ElmObdReader(
             // for responders whose own preceding valid page advertises this page.
             valid.forEach { entry ->
                 pages += if (expected == null || entry.ecu in expected.orEmpty())
-                    PageEvidence(entry.ecu, pid, PageStatus.VALID, entry.value.sorted().map { "%02X".format(it) })
+                    PageEvidence(entry.ecu, pid, PageStatus.VALID,
+                        entry.value.filter { it != pid.toInt(16) + 32 }.sorted().map { "%02X".format(it) },
+                        continues = entry.ecu in (result as ObdResult.SupportedPids).continuationByEcu)
                 else PageEvidence(entry.ecu, pid, PageStatus.MALFORMED, reason = "unsolicited page without own continuation")
             }
             val failures = (result as? ObdResult.SupportedPids)?.failures.orEmpty()
+            val negative = failures.filter { "negative response" in it }.map { it.substringBefore(":") }.toSet()
+            val conflicted = failures.filter { "duplicate or conflicting" in it }.map { it.substringBefore(":") }.toSet()
             val malformed = (failures.mapNotNull { it.substringBefore(":").takeIf { id -> id != "responder" } } + lastMalformedEcus).toSet()
             malformed.filterNot { it in validIds || it in expected.orEmpty() }.forEach { id ->
-                pages += PageEvidence(id, pid, PageStatus.MALFORMED, reason = "malformed or conflicting reply")
+                val status = when {
+                    id in conflicted -> PageStatus.CONFLICT
+                    id in negative -> PageStatus.NEGATIVE
+                    else -> PageStatus.MALFORMED
+                }
+                pages += PageEvidence(id, pid, status, reason = failures.firstOrNull { it.startsWith("$id:") } ?: "malformed frame")
             }
             unresolved.filterNot { it in validIds }.forEach { id ->
                 pages += PageEvidence(id, pid, PageStatus.PENDING, reason = "response pending, no final reply")
             }
             expected.orEmpty().filterNot { it in validIds || it in unresolved }.forEach { id ->
                 val status = when {
+                    id in conflicted -> PageStatus.CONFLICT
+                    id in negative -> PageStatus.NEGATIVE
                     id in malformed -> PageStatus.MALFORMED
                     result == ObdResult.NoData -> PageStatus.NO_DATA
                     result is ObdResult.Malformed -> PageStatus.MALFORMED
@@ -180,17 +197,15 @@ class ElmObdReader(
                 notes += ReaderNote(SUPPORTED_PIDS_UNKNOWN, describe(result))
                 return SupportedPids.Unknown
             }
-            val continuation = "%02X".format(pid.toInt(16) + 32)
             if (index == Mode01Catalog.pageIds.lastIndex) break
-            expected = pages.filter { it.pageBase == pid && it.status == PageStatus.VALID && continuation in it.supportedIds }
+            expected = pages.filter { it.pageBase == pid && it.status == PageStatus.VALID && it.continues }
                 .map { it.ecu }.toSet()
             if (expected.isNullOrEmpty()) break
         }
         // A map marker is metadata, not an observed scalar PID.
-        val union = pages.filter { it.status == PageStatus.VALID }.flatMap { it.supportedIds }
-            .filter { it.length == 2 && it !in Mode01Catalog.pageIds }.distinct().sorted()
+        val union = pages.filter { it.status == PageStatus.VALID }.flatMap { it.supportedIds }.distinct().sorted()
         val complete = pages.none { it.status != PageStatus.VALID } &&
-            pages.none { it.pageBase == "E0" && "100" in it.supportedIds }
+            pages.none { it.pageBase == "E0" && it.continues }
         if (!complete) notes += ReaderNote("supported_pids_incomplete", pages.filter { it.status != PageStatus.VALID }.joinToString { "${it.ecu ?: "responder"} ${it.pageBase}: ${it.status}" })
         return SupportedPids.Known(union, complete, pages)
     }
@@ -198,13 +213,16 @@ class ElmObdReader(
     private class DiscoveryDeadlineException : RuntimeException()
 
     private suspend fun discoveryExchange(request: Request, normalMillis: Long): String {
-        val remaining = DISCOVERY_MILLIS - (discoveryStart?.elapsedNow()?.inWholeMilliseconds ?: 0)
+        val elapsed = if (discoveryClockMillis != null) discoveryClockMillis.invoke() - checkNotNull(discoveryStartedMillis)
+            else discoveryStart?.elapsedNow()?.inWholeMilliseconds ?: 0
+        val remaining = DISCOVERY_MILLIS - elapsed
         if (remaining <= 0) throw DiscoveryDeadlineException()
         return withTimeoutOrNull(remaining) { exchange(request, minOf(normalMillis, remaining)) }
             ?: throw DiscoveryDeadlineException()
     }
 
     override suspend fun readDtcs(kind: DtcKind): DtcRead {
+        if (discoveryStopped) throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery exchange stopped before codes")
         val request = if (kind == DtcKind.STORED) VehicleRequest.STORED_DTCS else VehicleRequest.PENDING_DTCS
         phase = "${kind.name.lowercase()} codes"
         val (result, unresolved) = query(request)
@@ -217,6 +235,7 @@ class ElmObdReader(
     }
 
     override suspend fun readPid(pid: String): List<ReadingResult> {
+        if (discoveryStopped) throw ReaderStoppedException(StopReason.NO_RESPONSE, "discovery exchange stopped before readings")
         val request = VehicleRequest.entries.firstOrNull { it.text == "01$pid" }
             ?: return listOf(ReadingResult.Failed("PID $pid is not allowlisted"))
         phase = "PID $pid"

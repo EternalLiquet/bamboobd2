@@ -3,6 +3,9 @@ package io.github.eternalliquet.bamboobd2.core.reader
 import io.github.eternalliquet.bamboobd2.core.model.Dtc
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.Capability
+import io.github.eternalliquet.bamboobd2.core.model.PageStatus
+import io.github.eternalliquet.bamboobd2.core.model.capability
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
@@ -32,6 +35,102 @@ import java.nio.file.Files
 /** ElmObdReader over ReplayTransport, in virtual time. Every script here is synthetic. */
 class ElmObdReaderTest {
 
+    @Test
+    fun followsOnlyEachRespondersContinuationThrough40() = runTest {
+        val steps = init + listOf(
+            step("0100", 10L to "7E8 06 41 00 00 00 00 01\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", 10L to "7E8 06 41 20 80 00 00 01\r7E9 06 41 20 FF FF FF FF\r\r>"),
+            step("0140", 10L to "7E8 06 41 40 08 00 00 00\r\r>"),
+        ) + noCodes
+        val run = session(script(steps))
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(listOf("0100", "0120", "0140"), run.transport.writes.filter { it.startsWith("01") })
+        assertEquals(Capability.SUPPORTED_AND_DECODABLE, support.capability("45", "7E8").capability)
+        assertEquals(Capability.UNSUPPORTED, support.capability("45", "7E9").capability)
+        assertEquals(Capability.SUPPORTED_NOT_DECODED, support.capability("21", "7E8").capability)
+        assertEquals(PageStatus.MALFORMED, support.pages.single { it.ecu == "7E9" && it.pageBase == "20" }.status)
+        assertFalse(support.complete)
+    }
+
+    @Test
+    fun missingContinuationDoesNotInventLaterSupport() = runTest {
+        val steps = init + listOf(
+            step("0100", 10L to "7E8 06 41 00 00 00 00 01\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+            step("0120", 10L to "NO DATA\r\r>"),
+        ) + noCodes
+        val support = session(script(steps)).record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.NO_DATA, support.pages.single { it.pageBase == "20" }.status)
+        assertEquals(Capability.UNKNOWN, support.capability("45", "7E8").capability)
+        assertEquals(Capability.UNSUPPORTED, support.capability("45", "7E9").capability)
+    }
+
+    @Test
+    fun eightPageWalkStopsWithoutWrappingEvenWhenLastContinuationIsSet() = runTest {
+        val pages = listOf("00", "20", "40", "60", "80", "A0", "C0", "E0")
+        val steps = init + listOf(step("0100", 10L to "7E8 06 41 00 00 00 00 01\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>")) +
+            pages.drop(1).map { page -> step("01$page", 10L to "7E8 06 41 $page 00 00 00 01\r\r>") } + noCodes
+        val run = session(script(steps))
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(pages.map { "01$it" }, run.transport.writes.filter { it.startsWith("01") })
+        assertEquals(8, support.pages.size)
+        assertTrue(support.pages.all { it.continues && it.supportedIds.isEmpty() })
+        assertFalse("100" in support.pids)
+        assertFalse(support.pages.any { "100" in it.supportedIds })
+        assertFalse(support.complete)
+        assertEquals(Capability.UNSUPPORTED, support.capability("FF", "7E8").capability)
+    }
+
+    @Test
+    fun discoveryWideDeadlineIncludesSetupAndPreservesEarlierPages() = runTest {
+        val slow = AdapterProfile(50_000, 30_000, 30_000, 5_000, 5_000, 50)
+        val steps = listOf("ATE0", "ATL0", "ATH1", "ATSP0").map {
+            step(it, 30_000L to "OK\r\r>")
+        } + listOf(
+            step("0100", 20_000L to "7E8 06 41 00 00 00 00 01\r\r>"),
+            step("ATDPN", 20_000L to "A6\r\r>"),
+            step("0120", 25_000L to "7E8 06 41 20 00 00 00 00\r\r>"),
+        )
+        val run = session(script(steps), slow)
+        assertEquals(SessionOutcome.FAILED, run.record.outcome)
+        val support = run.record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.MISSING, support.pages.single { it.pageBase == "20" }.status)
+        assertEquals(Capability.UNKNOWN, support.capability("21", "7E8").capability)
+        assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "0120"), run.transport.writes)
+        assertTrue(run.record.endedAt!! <= 180_100)
+    }
+
+    @Test
+    fun malformedAndConflictingRespondersDoNotEraseIndependentValidPage() = runTest {
+        val badFrame = script(init + listOf(
+            step("0100", 10L to "7E8 07 41 00 08 00 00\r7E9 06 41 00 08 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes + listOf(step("0105", 10L to "7E9 03 41 05 7B\r\r>")))
+        val first = session(badFrame).record
+        val support = first.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.MALFORMED, support.pages.single { it.ecu == "7E8" }.status)
+        assertEquals(PageStatus.VALID, support.pages.single { it.ecu == "7E9" }.status)
+        assertEquals(Capability.UNKNOWN, support.capability("05", "7E8").capability)
+        assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E9")), first.reading("05"))
+
+        val duplicate = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 08 00 00 00\r7E8 06 41 00 00 00 00 00\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes)).record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.CONFLICT, duplicate.pages.single { it.ecu == "7E8" }.status)
+        assertEquals(PageStatus.VALID, duplicate.pages.single { it.ecu == "7E9" }.status)
+        assertEquals(Capability.UNKNOWN, duplicate.capability("05", "7E8").capability)
+
+        val negative = session(script(init + listOf(
+            step("0100", 10L to "7E8 03 7F 01 11\r7E9 06 41 00 00 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes)).record.supportedPids as SupportedPids.Known
+        assertEquals(PageStatus.NEGATIVE, negative.pages.single { it.ecu == "7E8" }.status)
+        assertEquals(PageStatus.VALID, negative.pages.single { it.ecu == "7E9" }.status)
+    }
+
     private fun step(request: String, vararg chunks: Pair<Long, String>, disconnectAfter: Long? = null) =
         ReplayStep(request, chunks.map { ReplayChunk(it.first, it.second) }, disconnectAfter)
 
@@ -57,7 +156,7 @@ class ElmObdReaderTest {
     private fun TestScope.session(script: ReplayScript, profile: AdapterProfile = AdapterProfile.PROVISIONAL): Run {
         val transport = ReplayTransport(script, testScheduler.timeSource)
         val controller = SessionController(this, clock = { testScheduler.currentTime }, ids = { "replay-1" })
-        controller.start(ElmObdReader(transport, "replay:${script.id}", profile))
+        controller.start(ElmObdReader(transport, "replay:${script.id}", profile, discoveryClockMillis = { testScheduler.currentTime }))
         advanceUntilIdle()
         val state = controller.state.value
         assertTrue("session did not finish: $state", state is SessionState.Finished)

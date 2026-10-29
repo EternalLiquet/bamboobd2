@@ -46,7 +46,7 @@ sealed interface SupportedPids {
 }
 
 @Serializable
-enum class PageStatus { VALID, MISSING, NO_DATA, MALFORMED, PENDING, CONFLICT }
+enum class PageStatus { VALID, MISSING, NO_DATA, NEGATIVE, MALFORMED, PENDING, CONFLICT }
 
 /** One responder and one requested support page. VALID with no IDs is an observed zero map. */
 @Serializable
@@ -55,6 +55,7 @@ data class PageEvidence(
     val pageBase: String,
     val status: PageStatus,
     val supportedIds: List<String> = emptyList(),
+    val continues: Boolean = false,
     val reason: String = "",
 )
 
@@ -65,6 +66,7 @@ data class CapabilityResult(val capability: Capability, val reason: String, val 
 fun SupportedPids.capability(pid: String, ecu: String? = null): CapabilityResult {
     val n = pid.toIntOrNull(16)?.takeIf { pid.length == 2 && it in 1..255 }
         ?: return CapabilityResult(Capability.UNKNOWN, "invalid PID", "")
+    if (pid in Mode01Catalog.pageIds) return CapabilityResult(Capability.UNKNOWN, "continuation marker is metadata", pid)
     val base = ((n - 1) / 32) * 32
     val page = "%02X".format(base)
     if (this !is SupportedPids.Known) return CapabilityResult(Capability.UNKNOWN, "no valid support map", page)
@@ -87,7 +89,7 @@ fun SupportedPids.capability(pid: String, ecu: String? = null): CapabilityResult
                 ?: return CapabilityResult(Capability.UNKNOWN, "missing or uncertain support page", bHex)
             if (b == base) return if (pid in valid.supportedIds) supported()
                 else CapabilityResult(Capability.UNSUPPORTED, "valid responder map excludes PID", page)
-            if ("%02X".format(b + 32) !in valid.supportedIds)
+            if (!valid.continues)
                 return CapabilityResult(Capability.UNSUPPORTED, "responder chain terminated", bHex)
         }
         return CapabilityResult(Capability.UNKNOWN, "page unavailable", page)

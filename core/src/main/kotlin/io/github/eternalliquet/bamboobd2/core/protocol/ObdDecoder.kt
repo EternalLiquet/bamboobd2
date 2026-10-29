@@ -12,7 +12,11 @@ data class EcuValue<T>(val ecu: String?, val value: T)
  */
 sealed interface ObdResult {
     /** Mode 01 PID 00: the PIDs 01-20 each responder reports as supported. */
-    data class SupportedPids(val perEcu: List<EcuValue<Set<Int>>>, val failures: List<String> = emptyList()) : ObdResult {
+    data class SupportedPids(
+        val perEcu: List<EcuValue<Set<Int>>>,
+        val failures: List<String> = emptyList(),
+        val continuationByEcu: Set<String?> = emptySet(),
+    ) : ObdResult {
         /** PIDs reported by at least one responder. */
         val union: Set<Int> get() = perEcu.flatMap { it.value }.toSet()
     }
@@ -61,8 +65,13 @@ object ObdDecoder {
             return ObdResult.Negative(first.ecu, first.bytes[1], first.bytes[2])
         }
         if (negatives.isNotEmpty() && request.text.length == 4) {
-            val result = decodeMode01(request, positives)
-            val failures = negatives.map { "${it.ecu ?: "responder"}: negative or malformed response" }
+            val overlapping = negatives.map { it.ecu }.intersect(positives.map { it.ecu }.toSet())
+            val safe = positives.filterNot { it.ecu in overlapping }
+            val result = if (safe.isEmpty()) ObdResult.Malformed("conflicting reply from one responder")
+                else decodeMode01(request, safe)
+            val failures = negatives.map {
+                "${it.ecu ?: "responder"}: ${if (it.ecu in overlapping) "duplicate or conflicting reply" else "negative response"}"
+            }
             return when (result) {
                 is ObdResult.SupportedPids -> result.copy(failures = result.failures + failures)
                 is ObdResult.Reading -> result.copy(failures = result.failures + failures)
@@ -98,13 +107,14 @@ object ObdDecoder {
             if (reason != null) failures += "${m.ecu ?: "responder"}: $reason"
             reason == null
         }
-        val duplicates = valid.groupBy { it.ecu }.filterValues { it.size > 1 }.keys
+        val duplicates = messages.groupBy { it.ecu }.filterValues { it.size > 1 }.keys
         val unique = valid.filterNot { it.ecu in duplicates }
         failures += duplicates.map { "${it ?: "responder"}: duplicate or conflicting reply" }
         if (unique.isEmpty()) return ObdResult.Malformed(failures.joinToString("; ").substringAfter(": "))
         return if (page) ObdResult.SupportedPids(
             unique.map { m -> EcuValue(m.ecu, supportedFromBitmap(m.bytes.subList(2, 6), pid)) },
             failures,
+            unique.filter { it.bytes[5] and 1 != 0 }.map { it.ecu }.toSet(),
         ) else ObdResult.Reading(reading!!.unit,
             unique.map { m -> EcuValue(m.ecu, reading.decode(m.bytes.drop(2))) }, failures)
     }
@@ -112,7 +122,7 @@ object ObdDecoder {
     /** PID base+1 through base+32; the last bit is the next page's continuation marker. */
     private fun supportedFromBitmap(bytes: List<Int>, base: Int): Set<Int> =
         (1..0x20).filter { n -> (bytes[(n - 1) / 8] shr (7 - (n - 1) % 8)) and 1 == 1 }
-            .map { base + it }.toSet()
+            .map { base + it }.filter { it <= 0xFF }.toSet()
 
     /**
      * Mode 03/07. CAN replies carry a DTC count in the second byte; other

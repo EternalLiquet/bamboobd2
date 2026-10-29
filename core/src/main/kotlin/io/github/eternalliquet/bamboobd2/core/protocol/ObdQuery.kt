@@ -34,7 +34,7 @@ object ReadPlan {
 
     /** Converts a decoded 0100 reply into the session model; anything else leaves support unknown. */
     fun supportedFrom(result: ObdResult): SupportedPids = when (result) {
-        is ObdResult.SupportedPids -> SupportedPids.Known(result.union.sorted().map { "%02X".format(it) })
+        is ObdResult.SupportedPids -> SupportedPids.Known(result.union.sorted().map { "%02X".format(it) }.filterNot { it in Mode01Catalog.pageIds || it.length != 2 })
         else -> SupportedPids.Unknown
     }
 }

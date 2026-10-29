@@ -22,7 +22,7 @@ object Mode01Catalog {
     private val trim: (Int) -> Double = { it * 100.0 / 128.0 - 100.0 }
 
     val readings: List<Mode01Reading> = listOf(
-        one("04", "calculated_engine_load", "%", "emtron", percent),
+        one("04", "engine_load", "%", "emtron", percent),
         one("05", "coolant_temperature", "°C", "elm", temperature),
         one("06", "short_fuel_trim_bank_1", "%", "arcx-ecusim", trim),
         one("07", "long_fuel_trim_bank_1", "%", "ecusim-css", trim),
