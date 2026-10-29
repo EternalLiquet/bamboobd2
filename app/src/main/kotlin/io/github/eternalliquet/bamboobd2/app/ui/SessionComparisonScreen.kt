@@ -104,7 +104,10 @@ private fun ReadingRow(row: ReadingComparison) {
     Text("First: ${row.first.joinToString(" | ") { observation(it, row.key.pid) }}")
     Text("Second: ${row.second.joinToString(" | ") { observation(it, row.key.pid) }}")
     val delta = row.delta
-    if (delta != null) Text("Second minus first: ${if (delta >= 0) "+" else ""}$delta ${row.key.pid.unit}")
+    if (delta != null) {
+        val signed = if (delta == 0.0) "+0.0" else if (delta > 0) "+$delta" else delta.toString()
+        Text("Second minus first: $signed ${row.key.pid.unit}")
+    }
     else Text("Not comparable: ${row.reason?.name?.lowercase()?.replace('_', ' ') ?: "unknown"}")
 }
 

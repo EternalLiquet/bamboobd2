@@ -75,6 +75,23 @@ class SessionComparisonTest {
     }
 
     @Test
+    fun readCoverageWithMalformedCodeOrResponderShowsListsButNoDifference() {
+        val first = record("a").copy(dtcKindsRead = listOf(DtcKind.STORED),
+            dtcs = listOf(Dtc("P0133", DtcKind.STORED, "SECRET_A")))
+        val second = record("b").copy(dtcKindsRead = listOf(DtcKind.STORED),
+            dtcs = listOf(Dtc("P0133", DtcKind.STORED, "7E8")))
+        for (left in listOf(first, first.copy(dtcs = listOf(Dtc("INVALID_SECRET", DtcKind.STORED, "7E8"))))) {
+            val compared = ready(left, second).codeKinds.single { it.kind == DtcKind.STORED }
+            assertEquals(CodeCoverage.READ, compared.first.coverage)
+            assertEquals(CodeCoverage.READ, compared.second.coverage)
+            assertTrue(compared.first.codes.isNotEmpty())
+            assertNull(compared.differences)
+        }
+        val unknownAttribution = first.copy(dtcs = listOf(Dtc("P0133", DtcKind.STORED, null)))
+        assertTrue(ready(unknownAttribution, second).codeKinds.single { it.kind == DtcKind.STORED }.differences != null)
+    }
+
+    @Test
     fun finiteMatchingValuesShowSignedPositiveAndZeroDeltas() {
         for ((firstValue, secondValue, expected) in listOf(Triple(50.0, 52.5, 2.5), Triple(1726.0, 1726.0, 0.0))) {
             val a = record("a").copy(readings = listOf(Reading("0C", ReadingResult.Value(firstValue, "rpm", "10"), 8)))

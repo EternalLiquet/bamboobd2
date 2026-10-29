@@ -120,7 +120,7 @@
     <string name="compare_codes">Generic emissions codes</string>
     <string name="compare_stored">Stored codes</string>
     <string name="compare_pending">Pending codes</string>
-    <string name="compare_no_code_conclusion">At least one code list was not fully read. No set difference is inferred.</string>
+    <string name="compare_no_code_conclusion">Incomplete coverage or unrecognized entries prevent a set difference. Both recorded lists are shown.</string>
     <string name="compare_readings">Sensor snapshots</string>
     <string name="compare_limitations">Results can differ with responder attribution and engine conditions. Missing data is not zero. This comparison is not a diagnosis or a measure of vehicle health.</string>
     <string name="back">Back</string>

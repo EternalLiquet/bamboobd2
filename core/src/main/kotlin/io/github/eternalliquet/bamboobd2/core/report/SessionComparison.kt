@@ -35,6 +35,7 @@ data class ReadingComparison(
 /** Compares only existing structured generic observations; it makes no vehicle identity or health claim. */
 object SessionComparison {
     private val responder = Regex("(?:[0-9A-F]{2}|[0-7][0-9A-F]{2})")
+    private val code = Regex("[PCBU][0-3][0-9A-F]{3}")
 
     fun compare(first: SessionRecord, second: SessionRecord): ComparisonResult {
         if (first.id == second.id) return ComparisonResult.Blocked(ComparisonBlock.SAME_SESSION)
@@ -61,7 +62,8 @@ object SessionComparison {
         }
         val a = list(first)
         val b = list(second)
-        val differences = if (a.coverage == CodeCoverage.READ && b.coverage == CodeCoverage.READ) {
+        val allKeysRecognized = (a.codes + b.codes).all { code.matches(it.code) && (it.ecu == null || responder.matches(it.ecu)) }
+        val differences = if (a.coverage == CodeCoverage.READ && b.coverage == CodeCoverage.READ && allKeysRecognized) {
             val aKeys = a.codes.toSet()
             val bKeys = b.codes.toSet()
             CodeDifferences(a.codes.filter { it in bKeys }, a.codes.filter { it !in bKeys }, b.codes.filter { it !in aKeys })
