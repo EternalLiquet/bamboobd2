@@ -36,6 +36,19 @@ import java.nio.file.Files
 class ElmObdReaderTest {
 
     @Test
+    fun malformedDtcResponderCannotBecomeACompleteEmptyList() = runTest {
+        val run = session(script(init + twoResponders + listOf(
+            step("03", 10L to "7E8 07 43 00\r7E9 02 43 00\r\r>"),
+            step("07", 10L to "7E8 07 47 00\r7E9 02 47 00\r\r>"),
+        )))
+        assertEquals(SessionOutcome.COMPLETE, run.record.outcome)
+        assertTrue(run.record.dtcs.isEmpty())
+        assertTrue(run.record.dtcKindsRead.isEmpty())
+        assertFalse(run.record.allCodesRead)
+        assertEquals(2, run.record.events.count { it.kind == "codes_not_read" && "malformed" in it.detail })
+    }
+
+    @Test
     fun malformedDuplicateInvalidatesOnlyItsOwnResponderMap() = runTest {
         val transport = ReplayTransport(script(init + listOf(
             step("0100", 10L to "7e8\t06 41 00 08 00 00 00\r7e8\t07 41 00 00 00 00\r7E9 06 41 00 00 00 00 00\r\r>"),

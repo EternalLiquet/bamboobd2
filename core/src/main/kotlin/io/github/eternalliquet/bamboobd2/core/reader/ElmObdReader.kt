@@ -258,7 +258,10 @@ class ElmObdReader(
         lastMalformedEcus = emptyList()
         lastResponderIssues = emptyMap()
         val initial = ElmResponseParser.parse(raw, RequestPolicy.vehicle(request), format)
-        val parsed = if (initial is ParsedResponse.Malformed) salvageMessages(raw, request, format) ?: initial else initial
+        // Per-responder salvage belongs to Mode 01. DTC lists keep their
+        // existing whole-response validation so damaged replies cannot look complete.
+        val parsed = if (request.text.startsWith("01") && initial is ParsedResponse.Malformed)
+            salvageMessages(raw, request, format) ?: initial else initial
         if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET) {
             // The adapter restarted and lost its settings; later replies would be misread.
             throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
