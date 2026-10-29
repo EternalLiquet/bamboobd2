@@ -3,7 +3,7 @@
   "label": "CAN, one stored code",
   "provenance": "SYNTHETIC",
   "sourceTier": "constructed",
-  "source": "Constructed from ELM327DSJ: OK replies and echo (p17-18), headers-on 11-bit CAN layout and the 0100 reply '7E8 06 41 00 BE 1F B8 10' (p41), DPN 'A6' (pp17, 25-26), DTC count byte (p34), coolant 41 05 7B and RPM 41 0C 1A F8 (pp31-32), response pending 7F xx 78 (p45). Load and speed bytes are invented. The code P0133 is invented. Timing is invented, not measured.",
+  "source": "Constructed from ELM327DSJ: OK replies and echo (p17-18), headers-on 11-bit CAN layout and the 0100 reply '7E8 06 41 00 BE 1F B8 10' (p41), ATSP0 'OK' and DPN 'A6' after an automatic search (pp17, 25-26), DTC count byte (p34), coolant 41 05 7B and RPM 41 0C 1A F8 (pp31-32), response pending 7F xx 78 (p45). Load and speed bytes are invented. The code P0133 is invented. Timing is invented, not measured.",
   "steps": [
     {
       "request": "ATE0",
@@ -25,6 +25,15 @@
     },
     {
       "request": "ATH1",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "OK\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "ATSP0",
       "chunks": [
         {
           "atMillis": 20,

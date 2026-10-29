@@ -1,13 +1,13 @@
 # Live-test gate
 
-Nothing below is authorized, including powering or connecting any adapter. This lists the evidence and permissions a later adapter or parked-car test needs. Each stage needs its own issue, a reviewed plan, and the owner's written **go** in that issue naming the stage. Approval of one stage does not carry to the next. See also [safety boundary](SAFETY_AND_EVIDENCE.md).
+This document authorizes nothing. Each adapter or car run is the owner's decision. It lists the evidence and permissions an adapter or parked-car test needs, and the status of each stage as the owner decided it. Each stage needs its own issue, a reviewed plan, and the owner's written **go** in that issue naming the stage. Approval of one stage does not carry to the next. See also [safety boundary](SAFETY_AND_EVIDENCE.md).
 
 ## Stages
 
 | Stage | What happens | Vehicle traffic |
 | --- | --- | --- |
 | L0 | Offline: fake reader, fake transport, synthetic and sanitized replay (current) | None |
-| L1 | Bench: adapter powered from a bench 12 V supply, not plugged into a car; the host device (phone first) connects; adapter-local commands only | None |
+| L1 | Adapter-only: the host device (phone first) connects and sends adapter-local commands only. Originally on a bench 12 V supply; revised 2026-10-28 by the owner (no bench supply exists or is planned) to the adapter in the parked car's OBD-II port, engine off. **Satisfied 2026-10-28** (see below) | None from our code; adapter-originated traffic unmeasured |
 | L2 | Parked, ignition on, engine off: allowlisted generic reads only (`0100`, `03`, `07`) | Read-only, generic |
 | L3 | Parked, engine running outdoors or ventilated, in park with parking brake: the four live PIDs | Read-only, generic |
 
@@ -17,7 +17,7 @@ A stage is approved for one **host platform, transport medium and adapter model*
 
 ## Evidence needed before L1
 
-Current status (2026-10-28): phone, adapter and operator are recorded, the phone's Android version and the adapter label are still to be recorded, and **the bench supply is not confirmed, so L1 is blocked**. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
+**Status (2026-10-28): L1 is satisfied by owner decision.** The owner has no bench supply and won't get one, so the bench requirement is dropped. The owner's adapter-only check in the parked car (engine off, accessory mode) answered L1's question: this phone connects to this adapter over Bluetooth Classic, and it answers `ATI`, `AT@1` and `ATRV`. Further L1 runs (repeat-connection reliability, chip identity, `ATRV` accuracy) are judged not worth a separate stage; anything relevant will show up in L2. The adapter label is still unrecorded. The rest of this section is kept as the original L1 checklist. See the [hardware readiness note](evidence/2026-10-28-hardware-readiness.md). The offline bench path for L1 is described in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md).
 
 These are documentation items. None requires powering or connecting the adapter.
 
@@ -42,6 +42,15 @@ Record these in the evidence note. They are measured during L1, never assumed be
 - Vehicle set-up: stationary, parking brake on, battery healthy or on a maintainer, no other diagnostic tool attached, a person present, adapter removed afterwards (an adapter left plugged in may draw battery power; the amount for this adapter is unmeasured).
 - Written stop criteria. Unplug the adapter and stop on: a new warning light or unexpected vehicle behavior, adapter heat, low battery voltage, any response outside the allowlist's expected shapes, repeated timeouts, or the owner saying stop.
 - Operator authorization in the stage issue, from the vehicle owner.
+
+## L2 run sheet (code in PR #26)
+
+The owner agreed on 2026-10-28 to go from the in-car adapter check straight to a codes-only read with the app's **Read codes** screen in the parked car, and ran two such reads on 2026-10-29 (see the [readiness note](evidence/2026-10-28-hardware-readiness.md)). The owner has not waived the "Additional evidence before L2 and L3" list above, and several items on it are not done: no evidence log or SHA-256 for the captures, battery health unchecked, stop criteria only as written here. Whether those are required before the next read is the owner's call. The run sheet:
+- **Car:** parked, ignition **on** (dash lights and warning lamps lit, engine not started). Accessory mode is not enough: it may not power the engine computer. No other diagnostic app connected to the adapter at the same time.
+- **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup including `ATSP0` (automatic protocol detection, owner-approved 2026-10-29), `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
+- **Stop and unplug if:** a new warning light comes on, the car does anything unexpected, or the adapter gets hot.
+- **Afterwards:** save the session, copy the raw capture, and send both for review. The capture stays out of Git until it has been reviewed and sanitized.
+- **Running it is the owner's decision**, recorded in issue #14. This document doesn't authorize it.
 
 ## What would change this plan
 

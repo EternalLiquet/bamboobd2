@@ -4,6 +4,12 @@ This is how a real adapter capture could become a replay script in Git. **No cap
 
 Replay scripts live in `core/src/main/resources/replay/` (bundled) or in tests. Their format is `ReplayScript` in `core/.../protocol/ReplayTransport.kt`: the request expected at each step, and the adapter's output as timed ASCII chunks.
 
+## Captures from the app
+
+A live codes-only session (L2) produces a raw capture: the "Copy raw capture for review" button on the finished session. It is a `ReplayScript` JSON with every request and reply chunk and its timing, marked `RAW_CAPTURE`. `ReplayScript.parse` rejects that provenance, so a raw capture can't be used as a fixture by accident. The steps below turn it into one. Expected content of an L2 capture: adapter setup replies, the supported-PID bitmap, the protocol number and trouble codes. It contains no VIN, because none is requested. Review it anyway before it leaves private storage. The capture keeps every byte, but replay sends chunks as ASCII, so a byte above 0x7F in a capture would not replay faithfully. ELM327 replies are normally plain ASCII.
+
+**Known limitation: disconnects are not recorded.** The capture holds each request and each received chunk with its timing, but not the moment the connection ended. A session that ended `DISCONNECTED` (for example, the adapter unplugged) replays as silence after its last chunk and ends `FAILED` instead. If the connection dropped while a reply was awaited, the reader waits out its deadline and resync window and reports no response. If it dropped between requests, the reader sends a request the capture doesn't contain, and replay stops with a `ReplayDivergedException`. Either way the replay doesn't reproduce the `DISCONNECTED` outcome. Note a disconnect in the evidence log, and add `disconnectAfterMillis` to the sanitized script by hand if the fixture needs it.
+
 ## Before anything enters Git
 
 1. **Authorized source.** The capture comes from a stage the owner approved in writing, in that stage's issue. If you can't name the issue, stop.

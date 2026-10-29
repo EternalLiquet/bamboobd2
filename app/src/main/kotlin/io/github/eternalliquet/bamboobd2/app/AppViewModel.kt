@@ -12,6 +12,11 @@ import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.core.bench.AdapterBenchCheck
 import io.github.eternalliquet.bamboobd2.core.bench.BenchReport
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
+import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
+import io.github.eternalliquet.bamboobd2.core.session.ReadScope
+import io.github.eternalliquet.bamboobd2.app.bluetooth.ClassicConnection
+import io.github.eternalliquet.bamboobd2.app.bluetooth.connectClassic
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,12 +61,27 @@ sealed interface BenchState {
     data class Failed(val device: String, val reason: String) : BenchState
 }
 
-/** Wiring only: connects the core controller, store and bench check to the screens. */
+/** The codes-only (L2) live read before its session starts. */
+sealed interface LiveState {
+    data class Available(val availability: BluetoothAvailability, val permissionDenied: Boolean = false) : LiveState
+    data class Connecting(val device: String) : LiveState
+    data class Failed(val device: String, val reason: String) : LiveState
+
+    /**
+     * A live session started and its screen hasn't been shown yet. It stays set,
+     * even after the session finishes, until the live-read screen navigates to the
+     * session and calls [AppViewModel.acknowledgeLiveStarted]. So a read that ends
+     * while the app is in the background is still reachable on return.
+     */
+    data object Started : LiveState
+}
+
+/** Wiring only: connects the core controller, store, bench check and live read to the screens. */
 class AppViewModel @JvmOverloads constructor(
     application: Application,
     private val store: SessionStore = FileSessionStore(File(application.filesDir, "sessions")),
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val bluetooth: BluetoothPlatform = AndroidBluetoothPlatform(application),
+    private val bluetooth: BluetoothPlatform = BluetoothPlatforms.create(application),
 ) : AndroidViewModel(application) {
 
     private val controller = SessionController(viewModelScope)
@@ -79,15 +99,19 @@ class AppViewModel @JvmOverloads constructor(
     /** The synthetic replay scripts bundled with `:core`. */
     val replays: List<ReplayScript> by lazy { ReplayTransport.bundledIds.map(ReplayTransport::bundled) }
 
-    fun start(scenario: FakeScenario) {
-        controller.start(FakeReader(scenario))
-    }
+    /** Starts a simulated session. False (nothing started) while a live result waits to be opened. */
+    fun start(scenario: FakeScenario): Boolean =
+        !liveResultPending() && controller.start(FakeReader(scenario))
 
     /** Runs a bundled script through the real protocol path; the session is REPLAY, never live. */
-    fun startReplay(id: String) {
+    fun startReplay(id: String): Boolean {
+        if (liveResultPending()) return false
         val script = replays.first { it.id == id }
-        controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
+        return controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
     }
+
+    // An unacknowledged live session may be unsaved: no other session may replace it.
+    private fun liveResultPending() = _live.value == LiveState.Started
 
     fun cancel() = controller.cancel()
 
@@ -148,7 +172,8 @@ class AppViewModel @JvmOverloads constructor(
     fun onPermissionResult(granted: Boolean) = refreshBluetooth(permissionDenied = !granted)
 
     fun startBench(device: BondedDevice) {
-        if (benchJob?.isActive == true) return
+        // One Bluetooth use at a time: never alongside a live read.
+        if (benchJob?.isActive == true || liveJob?.isActive == true) return
         _bench.value = BenchState.Connecting(device.name)
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
@@ -171,13 +196,115 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun benchReport(result: BenchResult): String {
+        return BenchReport.text(result, appVersion(), platform)
+    }
+
+    // Codes-only (L2) live read over Bluetooth Classic.
+
+    private val _live = MutableStateFlow<LiveState>(LiveState.Available(BluetoothAvailability.PermissionNeeded))
+    val live: StateFlow<LiveState> = _live.asStateFlow()
+    private var liveJob: Job? = null
+
+    // Raw captures by session id, in memory only. Copied out by the owner for review.
+    private val _captures = MutableStateFlow<Map<String, String>>(emptyMap())
+    val captures: StateFlow<Map<String, String>> = _captures.asStateFlow()
+
+    fun refreshLive(permissionDenied: Boolean = false) {
+        // Never drop a connection in progress or an unacknowledged result hand-off.
+        if (_live.value is LiveState.Connecting || _live.value == LiveState.Started) return
+        _live.value = LiveState.Available(bluetooth.availability(), permissionDenied)
+    }
+
+    /** On opening the live-read screen: keeps a connection failure or a pending hand-off until the user moves on. */
+    fun refreshLiveIfIdle() {
+        if (_live.value is LiveState.Available) refreshLive()
+    }
+
+    /**
+     * Explicitly drops a pending live result: a read still running is cancelled (its
+     * connection closes), then the session is cleared. Nothing reconnects.
+     */
+    fun discardPendingLive() {
+        if (!liveResultPending()) return
+        _live.value = LiveState.Available(bluetooth.availability())
+        controller.cancel()
+        viewModelScope.launch {
+            controller.state.first { it !is SessionState.Running }
+            finishSession()
+        }
+    }
+
+    /** The live-read screen has navigated to the started session: the hand-off is consumed. */
+    fun acknowledgeLiveStarted() {
+        if (_live.value == LiveState.Started) _live.value = LiveState.Available(bluetooth.availability())
+    }
+
+    fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
+
+    fun startLive(device: BondedDevice) {
+        // Also never while a finished result still waits to be shown: it may be unsaved.
+        if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running ||
+            _live.value == LiveState.Started
+        ) return
+        _live.value = LiveState.Connecting(device.name)
+        liveJob = viewModelScope.launch {
+            val recorder = CaptureRecorder()
+            val transport = when (val connection = connectClassic(bluetooth, device, io, recorder)) {
+                is ClassicConnection.Failed -> {
+                    _live.value = LiveState.Failed(device.name, connection.reason)
+                    return@launch
+                }
+                is ClassicConnection.Connected -> connection.transport
+            }
+            try {
+                // L2: the supported-PID map and stored and pending codes only. The reader and
+                // controller decide everything else; provenance comes from the LIVE transport.
+                if (!controller.start(ElmObdReader(transport, "bluetooth:classic"), ReadScope.CODES_ONLY)) {
+                    _live.value = LiveState.Failed(device.name, "another session is running")
+                    return@launch
+                }
+                _live.value = LiveState.Started
+                val finished = controller.state.first { it is SessionState.Finished } as SessionState.Finished
+                val id = finished.record.id
+                val source = "BambooBD2 ${appVersion()}, Bluetooth Classic, codes-only (L2) session, outcome " +
+                    "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
+                _captures.update { it + (id to recorder.json(id, source)) }
+            } finally {
+                // No reconnect: a new read is a new connection and a new session. The Started
+                // hand-off stays until the screen acknowledges it.
+                transport.close()
+            }
+        }
+    }
+
+    /**
+     * On leaving the live-read screen: stops a connection attempt, or a session that
+     * started in the same instant (it would otherwise run with no screen showing it).
+     */
+    fun cancelLiveConnect() {
+        when (_live.value) {
+            is LiveState.Connecting -> {
+                liveJob?.cancel()
+                _live.value = LiveState.Available(bluetooth.availability())
+            }
+            LiveState.Started -> controller.cancel()
+            else -> Unit
+        }
+    }
+
+    private fun appVersion(): String {
         val app = getApplication<Application>()
-        val version = app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "unknown version"
-        return BenchReport.text(result, version, platform)
+        return app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "unknown version"
     }
 }
 
 /** Main-dispatcher delays are scheduled on uptime, so replay timing reads the same clock. */
 private object UptimeTimeSource : AbstractLongTimeSource(DurationUnit.MILLISECONDS) {
     override fun read(): Long = SystemClock.uptimeMillis()
+}
+
+/** Where the ViewModel gets its Bluetooth platform. Tests replace it before the activity starts. */
+internal object BluetoothPlatforms {
+    @Volatile
+    var create: (Application) -> BluetoothPlatform = ::AndroidBluetoothPlatform
 }

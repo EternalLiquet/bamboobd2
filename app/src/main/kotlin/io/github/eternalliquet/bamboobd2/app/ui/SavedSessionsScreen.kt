@@ -41,7 +41,7 @@ fun SavedSessionsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onBack: () -
                     when (entry) {
                         is StoredSession.Readable -> {
                             val r = entry.record
-                            val status = statusText(r.outcome)
+                            val status = statusText(r)
                             ListItem(
                                 headlineContent = { Text(DateFormat.getDateTimeInstance().format(Date(r.startedAt))) },
                                 supportingContent = { Text("${r.provenance} · ${r.sourceLabel} · $status") },

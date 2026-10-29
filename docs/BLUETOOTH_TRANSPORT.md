@@ -28,6 +28,15 @@ The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection fr
 - For the test handoff, the screen shows "This phone: Android <version> (API <level>)" and a copyable report. The report holds the app version, that line, each command's reply, timing and chunk count, and how the check ended. It has no device identifiers, no Bluetooth address and no adapter serial.
 - The banner reads "ADAPTER BENCH — adapter-only commands, never vehicle requests". Confirming before a run is not required; authorization lives in the L1 issue, not in the app.
 
+## The codes-only live read (L2)
+
+- A separate **Read codes** screen (banner "LIVE READ — car codes only, no sensor readings or clearing") connects to a paired adapter and runs the normal `ElmObdReader` session in **codes-only scope** (`ReadScope.CODES_ONLY` in `:core`).
+- **Sequence:** `ATE0`, `ATL0`, `ATH1` and `ATSP0`, each of which must answer `OK`. Then `0100`, during which the adapter searches protocols (bounded 30 s budget). Then `ATDPN`, which reports the protocol found and picks the reply form. Then `03` and `07`. Any of these may be sent once more under the single retry after a missed deadline. No sensor PIDs, no clearing, no other protocol command; the protocol is detected, not hardcoded. A test checks the exact bytes written.
+- **When the car doesn't answer:** a session that gets nothing says "Finished, but nothing was read from the car". It shows the reported protocol and the adapter's reason for each list it couldn't read (for example `BUS INIT: ...ERROR`). It never says "no codes" unless both code lists were read.
+- **Behavior:** the same deadlines, single retry, response-pending and stale-reply rules as replay sessions. Provenance is `LIVE`, from the transport. The session can be saved and reopened like any other. The connection closes when the session ends; nothing reconnects.
+- **Raw capture:** the transport records every request and reply chunk with its timing. The finished session screen offers "Copy raw capture for review". The capture is kept in memory only and marked `RAW_CAPTURE`, which the replay loader rejects until it goes through [CAPTURE_IMPORT.md](CAPTURE_IMPORT.md). It doesn't record when a connection ended, so a disconnected session doesn't replay as `DISCONNECTED` (see the limitation there).
+- The bench check stays a separate adapter-only path.
+
 ## G2 transport registry
 
 `BluetoothClassicTransport LIVE reviewed:issue-12` is pinned in `transport-registry.txt`. A LIVE entry now needs a `reviewed:<reference>` marker. An unpinned, unmarked or undeclared transport still fails. **The marker records code review only; it is not permission to run the transport on hardware.**

@@ -33,6 +33,7 @@ import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
     val state by vm.session.collectAsStateWithLifecycle()
     val saveStatuses by vm.saveStatus.collectAsStateWithLifecycle()
+    val captures by vm.captures.collectAsStateWithLifecycle()
 
     // Back cancels a running session; after it finishes, back leaves the screen.
     BackHandler {
@@ -77,6 +78,8 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
                         is SaveResult.Failed -> stringResource(R.string.save_failed, result.reason)
                         null -> null
                     }
+                    // LIVE sessions only: the raw adapter conversation, for review before any fixture use.
+                    captures[s.record.id]?.let { CopyButton(text = it, label = R.string.copy_capture) }
                     saveMessage?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }

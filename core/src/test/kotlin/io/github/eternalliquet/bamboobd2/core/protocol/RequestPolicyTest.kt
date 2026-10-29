@@ -13,7 +13,7 @@ class RequestPolicyTest {
     private val vehicleAllowlist = setOf("0100", "0104", "0105", "010C", "010D", "03", "07")
 
     // Owner-approved adapter configuration/information commands (2026-10-28).
-    private val adapterAllowlist = setOf("ATE0", "ATL0", "ATH1", "ATDPN", "ATI", "AT@1", "ATRV")
+    private val adapterAllowlist = setOf("ATE0", "ATL0", "ATH1", "ATDPN", "ATI", "AT@1", "ATRV", "ATSP0")
     private val allowlist = vehicleAllowlist + adapterAllowlist
 
     /** Records every write; used to show rejected requests never reach a transport. */
@@ -47,7 +47,7 @@ class RequestPolicyTest {
             "04", "0400", "08", "09", "0902", "0A", "10", "11", "1101", "14", "19", "22", "22F190", "27", "2701", "2E",
             "2F", "31", "3101", "34", "35", "36", "3E", "02", "0200", "05", "06", "0101", "0120", "0140", "010E",
             "", " ", "\r", "\t", "0 4", "01 05", "010c", "0105 ", " 0105", "0105\r", "01050", "0105\r04",
-            "ATZ", "ATWS", "ATD", "ATSP0", "AT SP 0", "ATTP0", "ATSH7E0", "ATCRA7E8", "ATPP2CSV81", "ATSD00",
+            "ATZ", "ATWS", "ATD", "ATSP6", "ATSP3", "ATSPA0", "ATSP00", "atsp0", "ATSP 0", "AT SP 0", "ATTP0", "ATTPA6", "ATSH7E0", "ATCRA7E8", "ATPP2CSV81", "ATSD00",
             "ATSI", "ATFI", "ATMA", "ATST32", "ATDP", "ATE1", "ATH0", "ATL1", "ATS0", "ATI0", "AT@2", "ATRV0",
             "atz", "ate0", "AT E0", "ATE0 ", " ATI", "ATI\r", "ATE0\rATZ", "AT@1\r04",
         )
@@ -103,6 +103,6 @@ class RequestPolicyTest {
     }
 
     private companion object {
-        const val PINNED_ALLOWLIST_SHA256 = "d5c01c2f55c9fba8cea515bb6b2a5c52c8639ba39efb988b69c673d9b5870335"
+        const val PINNED_ALLOWLIST_SHA256 = "8daedb2823cb7e2ba42765f3e28fdbc947de3c7c36b767ea9198a52721500a40"
     }
 }

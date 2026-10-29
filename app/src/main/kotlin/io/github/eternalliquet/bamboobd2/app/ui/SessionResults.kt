@@ -21,13 +21,19 @@ import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.reader.ElmObdReader
+import io.github.eternalliquet.bamboobd2.core.session.SessionController
 
 /** Read-only rendering of a session record, used live and when reopening. */
 @Composable
 fun SessionResults(record: SessionRecord, showStatus: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showStatus) {
-            Text(statusText(record.outcome), style = MaterialTheme.typography.titleMedium)
+            Text(statusText(record), style = MaterialTheme.typography.titleMedium)
+            // The protocol the adapter reported (ATDPN), as the reader recorded it.
+            record.events.lastOrNull { it.kind == ElmObdReader.PROTOCOL_NOTE }?.let {
+                Text(stringResource(R.string.protocol_line, it.detail), style = MaterialTheme.typography.bodyMedium)
+            }
             // Why a session stopped, as the reader reported it.
             if (record.outcome == SessionOutcome.FAILED || record.outcome == SessionOutcome.DISCONNECTED) {
                 record.events.lastOrNull()?.detail?.takeIf { it.isNotEmpty() }?.let {
@@ -48,13 +54,25 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
             record.dtcs.isEmpty() && record.dtcKindsRead.isEmpty() -> Text(stringResource(R.string.not_read), style = MaterialTheme.typography.bodyLarge)
             else -> Text(stringResource(R.string.codes_incomplete), style = MaterialTheme.typography.bodyLarge)
         }
+        // Why a list or the supported-reading map wasn't read, as the reader recorded it.
+        record.events.forEach { event ->
+            val reason = when (event.kind) {
+                SessionController.CODES_NOT_READ -> R.string.reason_codes_not_read
+                SessionController.CODES_INCOMPLETE -> R.string.reason_codes_incomplete
+                ElmObdReader.SUPPORTED_PIDS_UNKNOWN -> R.string.reason_map_not_read
+                else -> null
+            }
+            reason?.let { Text(stringResource(it, event.detail), style = MaterialTheme.typography.bodyMedium) }
+        }
 
         HorizontalDivider()
         Text(stringResource(R.string.readings_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         if ((record.supportedPids as? SupportedPids.Known)?.complete == false) {
             Text(stringResource(R.string.discovery_incomplete), style = MaterialTheme.typography.bodySmall)
         }
-        ObdPid.entries.forEach { pid ->
+        if (record.events.any { it.kind == SessionController.READINGS_NOT_REQUESTED }) {
+            Text(stringResource(R.string.readings_not_requested), style = MaterialTheme.typography.bodyLarge)
+        } else ObdPid.entries.forEach { pid ->
             // One row per responder; a PID never read shows once as "Not read".
             val results = record.readings.filter { it.pid == pid.code }.map { it.result }.ifEmpty { listOf(null) }
             results.forEach { result ->
@@ -73,6 +91,21 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
             }
         }
     }
+}
+
+@Composable
+fun statusText(record: SessionRecord): String {
+    if (!record.readNothing) return statusText(record.outcome)
+    // Never "Complete" or "partial results" when the car gave nothing.
+    return stringResource(
+        when (record.outcome) {
+            SessionOutcome.COMPLETE -> R.string.status_nothing_read
+            SessionOutcome.CANCELLED -> R.string.status_cancelled_nothing
+            SessionOutcome.FAILED -> R.string.status_failed_nothing
+            SessionOutcome.DISCONNECTED -> R.string.status_disconnected_nothing
+            null -> R.string.reading_progress
+        },
+    )
 }
 
 @Composable
