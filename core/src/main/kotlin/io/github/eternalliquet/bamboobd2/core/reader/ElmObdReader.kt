@@ -292,6 +292,9 @@ class ElmObdReader(
             if (line == request.text || line == "SEARCHING...") continue
             when (val parsed = ElmResponseParser.parse(line, RequestPolicy.vehicle(request), format)) {
                 is ParsedResponse.Messages -> messages += parsed.messages
+                // NO DATA describes the whole exchange and contradicts payload
+                // lines. It cannot be isolated as one damaged responder.
+                ParsedResponse.NoData -> return null
                 is ParsedResponse.Malformed -> {
                     val hex = compact(line)
                     bad += if (format.form == ProtocolForm.CAN_11BIT) hex.take(3).takeIf { it.matches(Regex("[0-9A-F]{3}")) }

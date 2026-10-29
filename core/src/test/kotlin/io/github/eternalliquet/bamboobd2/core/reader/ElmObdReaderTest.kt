@@ -36,6 +36,21 @@ import java.nio.file.Files
 class ElmObdReaderTest {
 
     @Test
+    fun noDataMixedWithPayloadCannotSupplySupportOrNumericValues() = runTest {
+        val transport = ReplayTransport(script(init + listOf(
+            step("0100", 10L to "NO DATA\r7E8 06 41 00 08 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        )), testScheduler.timeSource)
+        val reader = ElmObdReader(transport, "synthetic", discoveryClockMillis = { testScheduler.currentTime })
+        reader.open()
+        assertEquals(SupportedPids.Unknown, reader.readSupportedPids())
+
+        val run = session(script(upToCoolant + step("0105", 10L to "7E8 03 41 05 7B\rNO DATA\r\r>")))
+        assertTrue(run.record.reading("05").filterIsInstance<ReadingResult.Value>().isEmpty())
+        assertTrue(run.record.reading("05").single() is ReadingResult.Failed)
+    }
+
+    @Test
     fun malformedDtcResponderCannotBecomeACompleteEmptyList() = runTest {
         val run = session(script(init + twoResponders + listOf(
             step("03", 10L to "7E8 07 43 00\r7E9 02 43 00\r\r>"),
