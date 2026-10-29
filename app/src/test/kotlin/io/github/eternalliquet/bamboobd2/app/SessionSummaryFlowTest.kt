@@ -70,7 +70,7 @@ class SessionSummaryFlowTest {
         rule.onNodeWithText("Share").performClick()
         val chooser = requireNotNull(shadowOf(rule.activity).nextStartedActivity)
         assertEquals(Intent.ACTION_CHOOSER, chooser.action)
-        val send = chooser.getParcelableExtra(Intent.EXTRA_INTENT) as Intent
+        val send = requireNotNull(chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT))
         assertEquals(Intent.ACTION_SEND, send.action)
         assertEquals("text/plain", send.type)
         assertEquals(copied, send.getStringExtra(Intent.EXTRA_TEXT))
