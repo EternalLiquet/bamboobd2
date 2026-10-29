@@ -69,6 +69,20 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         }
 
         HorizontalDivider()
+        Text(stringResource(R.string.sensor_support_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+        Text(stringResource(R.string.sensor_support_explainer), style = MaterialTheme.typography.bodySmall)
+        ObdPid.entries.forEach { pid ->
+            val support = when (val map = record.supportedPids) {
+                is SupportedPids.Known -> when {
+                    pid.code in map.pids -> R.string.sensor_support_supported
+                    map.complete -> R.string.sensor_support_unsupported
+                    else -> R.string.sensor_support_unknown
+                }
+                SupportedPids.Unknown -> R.string.sensor_support_unknown
+            }
+            Text(stringResource(R.string.sensor_support_row, stringResource(pidLabel(pid)), stringResource(support)))
+        }
+        HorizontalDivider()
         val isSnapshot = record.readings.isNotEmpty() ||
             record.events.any { it.kind == SessionController.READ_SCOPE && it.detail == "FULL" }
         Text(stringResource(if (isSnapshot) R.string.snapshot_heading else R.string.readings_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })

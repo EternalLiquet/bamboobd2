@@ -162,6 +162,39 @@ class ReplayFlowTest {
     }
 
     @Test
+    fun fourSensorSupportRowsKeepMapCoverageSeparateFromCodesOnlyMeasurements() {
+        val cases = listOf(
+            Triple("complete-map", SupportedPids.Known(listOf("04", "0C")), listOf("Supported by at least one responder", "Unsupported", "Supported by at least one responder", "Unsupported")),
+            Triple("partial-map", SupportedPids.Known(listOf("04", "0C"), complete = false), listOf("Supported by at least one responder", "Unknown", "Supported by at least one responder", "Unknown")),
+            Triple("unknown-map", SupportedPids.Unknown, listOf("Unknown", "Unknown", "Unknown", "Unknown")),
+        )
+        val store = FileSessionStore(viewModelSessionsDir())
+        cases.forEach { (id, map, _) ->
+            store.save(SessionRecord(
+                schemaVersion = SessionRecord.SCHEMA_VERSION, id = id, startedAt = 1, endedAt = 2,
+                provenance = Provenance.REPLAY, sourceLabel = "replay:$id", complete = true, outcome = SessionOutcome.COMPLETE,
+                supportedPids = map, dtcKindsRead = DtcKind.entries, events = listOf(SessionEvent(1, "read_scope", "CODES_ONLY"),
+                    SessionEvent(2, "readings_not_requested", "synthetic")),
+            ))
+        }
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        val labels = listOf("Engine load", "Coolant temperature", "Engine speed", "Vehicle speed")
+        for ((id, _, statuses) in cases) {
+            val entry = "REPLAY · replay:$id · Complete"
+            waitForText(entry)
+            rule.onNodeWithText(entry).performClick()
+            waitForText("REPLAY · replay:$id")
+            rule.onNodeWithText("Sensor support").performScrollTo().assertIsDisplayed()
+            labels.zip(statuses).forEach { (label, status) ->
+                rule.onNodeWithText("$label: $status").performScrollTo().assertIsDisplayed()
+            }
+            rule.onNodeWithText("Live readings were not requested: this was a codes-only session.")
+                .performScrollTo().assertIsDisplayed()
+            rule.onNodeWithContentDescription("Back").performClick()
+        }
+    }
+
+    @Test
     fun disconnectIsShownAsDisconnectedWithoutReconnecting() {
         startReplay("Disconnect during stored codes")
         rule.onNodeWithText("Disconnected: partial results. Not reconnected.").performScrollTo().assertIsDisplayed()
