@@ -49,6 +49,15 @@ This covers the directly pinned dependencies. Their transitive dependencies were
 
 ## Commands
 
+For the overnight debug APK [#29](https://github.com/EternalLiquet/bamboobd2/issues/29), use the lean gate below. The repository's [verification workflow](../.github/workflows/verify.yml) runs the same commands on Ubuntu 24.04 with Temurin JDK 21, Gradle wrapper 8.14.3 and the runner's preinstalled Android SDK `platforms;android-36` plus `build-tools;35.0.0`. It checks those SDK files before building and does not run license acceptance. The workflow checks out the exact PR head or master commit, caches Gradle dependencies, checks APK package/version/SDK levels and signature, logs the checked SHA, signing digest and APK checksum, and publishes the debug APK named by source SHA. It needs no signing secret. CI cold setup and downloads are separate from warm verification time.
+
+```sh
+./gradlew -p core check
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:verifyNoForbiddenPermissions :app:assembleDebug
+```
+
+The core command includes unit tests, purity, API-26 compatibility plus negative control, and transport registry safeguards. The app command runs debug JVM/Robolectric tests and lint, verifies **both debug and release merged manifests**, then assembles the debug APK at `app/build/outputs/apk/debug/app-debug.apk`. The broader `:app:check` still runs both variant test suites when needed; the nightly lane focuses on the debug deliverable. Neither path operates an adapter or verifies a vehicle, Android runtime, screen pixels, or target-car compatibility.
+
 Core only. This needs no Android SDK and never resolves the Android Gradle Plugin, because `core/settings.gradle.kts` has no `google()` repository:
 
 ```sh
@@ -67,7 +76,7 @@ Android app (needs the SDK, via `ANDROID_HOME` or `local.properties`):
 
 ## What the app tests do and don't show
 
-The app tests run under Robolectric, which executes Android framework code on the host JVM. They exercise the screens, navigation, the provenance banner, replay sessions, save/reopen and the bench screen. They are **not** a device or emulator run: file I/O uses the host JVM, not Android's runtime, and rendering is not pixel-accurate. The app has not been run on a phone or emulator.
+The app tests run under Robolectric, which executes Android framework code on the host JVM. They exercise the screens, navigation, the provenance banner, replay sessions, save/reopen and the bench screen. They are **not** a device or emulator run: file I/O uses the host JVM, not Android's runtime, and rendering is not pixel-accurate. Separately, the owner reported an earlier phone smoke test of fake/replay and later adapter and codes-only attempts; see the [public evidence note](evidence/2026-10-28-hardware-readiness.md). Those observations do not validate this overnight APK or a target vehicle.
 
 ## Environment notes (not part of the repository)
 
