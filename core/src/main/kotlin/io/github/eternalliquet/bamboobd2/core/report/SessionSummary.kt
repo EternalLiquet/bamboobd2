@@ -8,7 +8,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
-import java.util.Locale
+import kotlin.math.round
 
 /** A deliberately narrow, deterministic export of a saved or finished session. */
 object SessionSummary {
@@ -67,7 +67,7 @@ object SessionSummary {
                 } else rows.forEach { reading ->
                     val result = when (val value = reading.result) {
                         is ReadingResult.Value -> if (value.value.isFinite() && value.unit == pid.unit) {
-                            "${String.format(Locale.ROOT, "%.1f", value.value)} ${pid.unit} (${responder(value.ecu)})"
+                            "${formatValue(value.value)} ${pid.unit} (${responder(value.ecu)})"
                         } else "No usable value"
                         ReadingResult.NoData -> "No data"
                         is ReadingResult.Failed -> "Failed (no value)"
@@ -102,4 +102,10 @@ object SessionSummary {
     private fun responder(value: String?): String = if (value != null && responderPattern.matches(value)) {
         "responder $value"
     } else "unknown responder"
+
+    // toString and Kotlin rounding avoid locale dependence and java.* in pure core.
+    private fun formatValue(value: Double): String {
+        val scaled = value * 10.0
+        return if (scaled.isFinite()) (round(scaled) / 10.0).toString() else value.toString()
+    }
 }
