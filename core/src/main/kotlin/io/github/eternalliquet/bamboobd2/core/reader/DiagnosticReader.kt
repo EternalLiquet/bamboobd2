@@ -20,6 +20,9 @@ interface DiagnosticReader {
     /** One result per responder; non-value results are a single entry. */
     suspend fun readPid(pid: String): List<ReadingResult>
 
+    /** Live path retains the identity of a responder whose reply failed. */
+    suspend fun readPidObservations(pid: String): List<ReadingResult> = readPid(pid)
+
     /** Notes since the last call (retries, discarded replies). The controller timestamps and records them. */
     fun takeNotes(): List<ReaderNote> = emptyList()
 }
