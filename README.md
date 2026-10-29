@@ -8,7 +8,7 @@ The expanded catalog, broad snapshot, polling and saved history have offline tes
 
 ## Use and stop
 
-On the Live screen, connect an already paired adapter and choose codes only, a one-pass sensor snapshot or Live recording. Recording prepares support maps and codes once, then offers implemented PIDs positively advertised as supported. Choose up to four and press Start. Pause finishes an in-flight reply and admits no next write until Resume; Stop ends the session. Backgrounding, disconnect, cancellation or a limit ends it and leaves completed samples available for Save or Discard. Leaving an unsaved finished result asks before discarding it. There is no automatic reconnect. Further vehicle operation follows the separate [owner-operated live-test gate](docs/LIVE_TEST_GATE.md).
+On the Live screen, choose codes only, a one-pass sensor snapshot or Live recording, then select an already paired adapter to connect. Recording prepares support maps and codes once, then offers implemented PIDs positively advertised as supported. Choose up to four and press Start. Pause finishes an in-flight reply and admits no next write until Resume; Stop ends the session. Backgrounding, disconnect, cancellation or a limit ends it and leaves completed samples available for Save or Discard. Leaving an unsaved finished result asks before discarding it. There is no automatic reconnect. Further vehicle operation follows the separate [owner-operated live-test gate](docs/LIVE_TEST_GATE.md).
 
 ## Read first
 
