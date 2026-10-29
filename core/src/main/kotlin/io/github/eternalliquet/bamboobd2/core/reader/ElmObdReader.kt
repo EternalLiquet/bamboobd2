@@ -236,24 +236,36 @@ class ElmObdReader(
         }
     }
 
-    override suspend fun readPid(pid: String): List<ReadingResult> = readPidObservations(pid).map {
-        if (it is ReadingResult.Failed) it.copy(ecu = null) else it
-    }
+    override suspend fun readPid(pid: String): List<ReadingResult> = readPidResults(pid, observations = false)
 
-    override suspend fun readPidObservations(pid: String): List<ReadingResult> {
+    override suspend fun readPidObservations(pid: String): List<ReadingResult> = readPidResults(pid, observations = true)
+
+    private suspend fun readPidResults(pid: String, observations: Boolean): List<ReadingResult> {
         discoveryStop?.let { throw it }
         val request = VehicleRequest.entries.firstOrNull { it.text == "01$pid" }
             ?: return listOf(ReadingResult.Failed("PID $pid is not allowlisted"))
         phase = "PID $pid"
         val (result, unresolved) = query(request)
+        if (observations) {
+            // These typed per-responder issues survive even when the aggregate
+            // decoder has no valid value or exposes only the first negative.
+            val issues = linkedMapOf<String?, String>()
+            lastResponderIssues.forEach { (ecu, issue) -> issues[ecu] = issue.reason }
+            lastMalformedEcus.forEach { issues[it] = "malformed frame" }
+            unresolved.forEach { issues[it] = "response pending, no final reply" }
+            val reading = result as? ObdResult.Reading
+            val values = reading?.perEcu.orEmpty().map {
+                ReadingResult.Value(it.value, checkNotNull(reading).unit, it.ecu)
+            }
+            if (values.isNotEmpty() || issues.isNotEmpty())
+                return values + issues.map { (ecu, reason) -> ReadingResult.Failed(reason, ecu) }
+        }
         return when (result) {
             is ObdResult.Reading -> result.perEcu.map { ReadingResult.Value(it.value, result.unit, it.ecu) } +
-                (result.failures + lastMalformedEcus.map { "${it ?: "responder"}: malformed frame" }).map { failure ->
-                    ReadingResult.Failed(failure, failure.substringBefore(": ").takeIf { it.matches(Regex("[0-9A-F]{2,3}")) })
-                } + unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply", it) }
+                (result.failures + lastMalformedEcus.map { "${it ?: "responder"}: malformed frame" }).map { ReadingResult.Failed(it) } +
+                unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply") }
             ObdResult.NoData -> listOf(ReadingResult.NoData)
-            else -> listOf(ReadingResult.Failed(describe(result),
-                (result as? ObdResult.Negative)?.ecu ?: lastResponderIssues.keys.singleOrNull()))
+            else -> listOf(ReadingResult.Failed(describe(result)))
         }
     }
 
@@ -348,7 +360,6 @@ class ElmObdReader(
 
     /** One request and its prompt-terminated reply, retried at most once after a passive resync. */
     private suspend fun exchange(request: Request, deadlineMillis: Long): String {
-        awaitIdle()
         attempt(request, deadlineMillis, false)?.let { return it }
         // Sending anything now would interrupt the adapter (p9); wait for its prompt instead.
         if (awaitPrompt(profile.resyncMillis) == null) {
@@ -356,13 +367,12 @@ class ElmObdReader(
         }
         notes += ReaderNote("late_reply_discarded", request.text)
         notes += ReaderNote("retry", request.text)
-        awaitIdle()
         return attempt(request, deadlineMillis, true)
             ?: throw ReaderStoppedException(StopReason.NO_RESPONSE, "no reply to '${request.text}' after one retry ($phase)")
     }
 
     private suspend fun attempt(request: Request, deadlineMillis: Long, retry: Boolean): String? {
-        requestGate?.beforeWrite(retry)
+        if (requestGate == null) awaitIdle() else requestGate.beforeWrite(retry, ::awaitIdle)
         var written = false
         try {
             transport.write(request)

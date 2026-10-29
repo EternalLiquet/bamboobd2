@@ -50,7 +50,10 @@ sealed interface LiveReadState {
     data class Finished(val record: SessionRecord) : LiveReadState
 }
 
-/** One prepared connection, one serial polling job, and one global write gate. */
+/**
+ * One prepared connection, one serial polling job, and one global write gate.
+ * Confine operations and the supplied scope to the same single-threaded dispatcher, as required by ElmObdReader.
+ */
 class LiveReadController(
     private val scope: CoroutineScope,
     private val wallClock: Clock = Clock.System,
@@ -64,7 +67,7 @@ class LiveReadController(
     private var reader: DiagnosticReader? = null
     private var startedMono = 0L
     private var lastWrite: Long? = null
-    private var previousWrite: Long? = null
+    private var activeSession: Any? = null
     private var job: Job? = null
     private var deadlineJob: Job? = null
     private var pauseRequested = false
@@ -78,16 +81,21 @@ class LiveReadController(
     fun prepare(readerFactory: (RequestGate) -> DiagnosticReader): Boolean {
         if (_state.value !is LiveReadState.Idle && _state.value !is LiveReadState.Finished) return false
         job?.cancel(); deadlineJob?.cancel()
+        val session = Any()
+        activeSession = session
         startedMono = monotonicClock.nowMillis()
         lastWrite = null
-        previousWrite = null
         pauseRequested = false
         resumeSignal = null
         val initialWall = wallClock.nowMillis()
         val gate = object : RequestGate {
-            override suspend fun beforeWrite(retry: Boolean) = this@LiveReadController.beforeWrite(retry)
-            override fun wrote(retry: Boolean) = this@LiveReadController.wrote(retry)
-            override fun rejectedWrite() = this@LiveReadController.rejectedWrite()
+            override suspend fun beforeWrite(retry: Boolean, awaitIdle: suspend () -> Unit) =
+                this@LiveReadController.beforeWrite(session, retry, awaitIdle)
+            override fun wrote(retry: Boolean) {
+                ensureCurrent(session)
+                this@LiveReadController.wrote(retry)
+            }
+            override fun rejectedWrite() = Unit
         }
         val preparedReader = readerFactory(gate)
         reader = preparedReader
@@ -96,18 +104,24 @@ class LiveReadController(
             complete = false, recording = LiveRecording())
         _state.value = LiveReadState.Preparing(record)
         deadlineJob = scope.launch {
-            delay(policy.durationMillis)
-            if (_state.value !is LiveReadState.Finished) stop(LiveStopReason.DURATION_LIMIT)
+            delay(remaining().coerceAtLeast(0))
+            if (activeSession === session) stop(LiveStopReason.DURATION_LIMIT)
+        }.also { deadline ->
+            // Completion runs even if the owning scope was cancelled before launch,
+            // and remains active while preparation is Ready with no polling job.
+            deadline.invokeOnCompletion { cause ->
+                if (cause is CancellationException) finish(LiveStopReason.CANCELLED, session)
+            }
         }
         job = scope.launch {
             try {
-                bounded { preparedReader.open() }
+                bounded(session) { preparedReader.open() }
                 notes(preparedReader)
-                val support = bounded { preparedReader.readSupportedPids() }
+                val support = bounded(session) { preparedReader.readSupportedPids() }
                 update { it.copy(supportedPids = support) }
                 notes(preparedReader)
                 for (kind in listOf(DtcKind.STORED, DtcKind.PENDING)) {
-                    when (val result = bounded { preparedReader.readDtcs(kind) }) {
+                    when (val result = bounded(session) { preparedReader.readDtcs(kind) }) {
                         is DtcRead.Read -> update { it.copy(dtcs = it.dtcs + result.codes, dtcKindsRead = it.dtcKindsRead + kind) }
                         is DtcRead.Incomplete -> update { it.copy(dtcs = it.dtcs + result.codes, events = it.events + SessionEvent(wallClock.nowMillis(), "codes_incomplete", "${kind.name}: ${result.reason}")) }
                         is DtcRead.NotRead -> update { it.copy(events = it.events + SessionEvent(wallClock.nowMillis(), "codes_not_read", "${kind.name}: ${result.reason}")) }
@@ -116,13 +130,13 @@ class LiveReadController(
                 }
                 if (_state.value !is LiveReadState.Finished) _state.value = LiveReadState.Ready(record)
             } catch (e: CancellationException) {
-                if (_state.value !is LiveReadState.Finished) finish(LiveStopReason.CANCELLED)
+                finish(LiveStopReason.CANCELLED, session)
             } catch (e: BoundReached) {
-                finish(e.reason)
+                finish(e.reason, session)
             } catch (e: ReaderStoppedException) {
-                finish(if (e.reason == StopReason.DISCONNECTED) LiveStopReason.DISCONNECTED else LiveStopReason.FAILED)
+                finish(if (e.reason == StopReason.DISCONNECTED) LiveStopReason.DISCONNECTED else LiveStopReason.FAILED, session)
             } catch (e: Exception) {
-                finish(LiveStopReason.FAILED)
+                finish(LiveStopReason.FAILED, session)
             }
         }
         return true
@@ -138,6 +152,7 @@ class LiveReadController(
         update { it.copy(recording = it.recording!!.copy(selectedPids = selectedPids.toList())) }
         _state.value = LiveReadState.Recording(record)
         val selected = selectedPids.toList()
+        val session = checkNotNull(activeSession)
         job = scope.launch {
             try {
                 var index = 0
@@ -148,7 +163,7 @@ class LiveReadController(
                     }
                     if (remaining() <= 0) throw BoundReached(LiveStopReason.DURATION_LIMIT)
                     val pid = selected[index++ % selected.size]
-                    val results = bounded { checkNotNull(reader).readPidObservations(pid) }
+                    val results = bounded(session) { checkNotNull(reader).readPidObservations(pid) }
                     notes(checkNotNull(reader))
                     append(pid, results)
                     if (record.recording!!.samples.size >= policy.maxSamples) throw BoundReached(LiveStopReason.SAMPLE_LIMIT)
@@ -158,13 +173,13 @@ class LiveReadController(
                     delay(1)
                 }
             } catch (e: CancellationException) {
-                if (_state.value !is LiveReadState.Finished) finish(LiveStopReason.CANCELLED)
+                finish(LiveStopReason.CANCELLED, session)
             } catch (e: BoundReached) {
-                finish(e.reason)
+                finish(e.reason, session)
             } catch (e: ReaderStoppedException) {
-                finish(if (e.reason == StopReason.DISCONNECTED) LiveStopReason.DISCONNECTED else LiveStopReason.FAILED)
+                finish(if (e.reason == StopReason.DISCONNECTED) LiveStopReason.DISCONNECTED else LiveStopReason.FAILED, session)
             } catch (e: Exception) {
-                finish(LiveStopReason.FAILED)
+                finish(LiveStopReason.FAILED, session)
             }
         }
         return true
@@ -197,9 +212,14 @@ class LiveReadController(
         resumeSignal?.complete(Unit)
     }
 
-    private suspend fun beforeWrite(retry: Boolean) {
+    private fun ensureCurrent(session: Any) {
+        if (activeSession !== session || _state.value is LiveReadState.Finished)
+            throw CancellationException("live session stopped")
+    }
+
+    private suspend fun beforeWrite(session: Any, retry: Boolean, awaitIdle: suspend () -> Unit) {
         while (true) {
-            if (_state.value is LiveReadState.Finished) throw CancellationException("live session stopped")
+            ensureCurrent(session)
             if (remaining() <= 0) throw BoundReached(LiveStopReason.DURATION_LIMIT)
             if (pauseRequested) {
                 _state.value = LiveReadState.Paused(record)
@@ -214,28 +234,32 @@ class LiveReadController(
                 delay(minOf(wait, remaining()))
                 continue
             }
-            previousWrite = lastWrite
-            lastWrite = monotonicClock.nowMillis()
+            // Spacing and pause may suspend long after the reader last saw a prompt.
+            // Re-establish idle, then recheck admission without another suspension.
+            awaitIdle()
+            ensureCurrent(session)
+            if (remaining() <= 0) throw BoundReached(LiveStopReason.DURATION_LIMIT)
+            if (pauseRequested) continue
             return
         }
     }
 
     private fun wrote(retry: Boolean) {
-        previousWrite = null
+        // A transport write may itself suspend. Starting the next interval here
+        // conservatively keeps actual writes at least one full interval apart.
+        lastWrite = monotonicClock.nowMillis()
         update { it.copy(recording = it.recording!!.copy(
             writeCount = it.recording!!.writeCount + 1,
             retryCount = it.recording!!.retryCount + if (retry) 1 else 0)) }
     }
 
-    private fun rejectedWrite() {
-        lastWrite = previousWrite
-        previousWrite = null
-    }
-
-    private suspend fun <T> bounded(block: suspend () -> T): T {
+    private suspend fun <T> bounded(session: Any, block: suspend () -> T): T {
+        ensureCurrent(session)
         val time = remaining()
         if (time <= 0) throw BoundReached(LiveStopReason.DURATION_LIMIT)
-        return withTimeoutOrNull(time) { block() } ?: throw BoundReached(LiveStopReason.DURATION_LIMIT)
+        val result = withTimeoutOrNull(time) { block() } ?: throw BoundReached(LiveStopReason.DURATION_LIMIT)
+        ensureCurrent(session)
+        return result
     }
 
     private fun append(pid: String, results: List<ReadingResult>) {
@@ -288,8 +312,8 @@ class LiveReadController(
         }
     }
 
-    private fun finish(reason: LiveStopReason) {
-        if (_state.value is LiveReadState.Finished) return
+    private fun finish(reason: LiveStopReason, session: Any? = activeSession) {
+        if (activeSession !== session || _state.value is LiveReadState.Finished) return
         val outcome = when (reason) {
             LiveStopReason.CANCELLED -> SessionOutcome.CANCELLED
             LiveStopReason.DISCONNECTED -> SessionOutcome.DISCONNECTED

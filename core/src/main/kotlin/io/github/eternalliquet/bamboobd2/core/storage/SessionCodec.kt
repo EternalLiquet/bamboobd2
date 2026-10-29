@@ -6,6 +6,8 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.LiveEventKind
 import io.github.eternalliquet.bamboobd2.core.model.LiveSampleOutcome
 import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
+import io.github.eternalliquet.bamboobd2.core.model.Capability
+import io.github.eternalliquet.bamboobd2.core.model.capability
 import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -95,7 +97,9 @@ object SessionCodec {
         if (record.readings.isNotEmpty()) return "recording cannot duplicate scalar snapshot readings"
         if (live.policyId != "provisional-live-v1") return "unknown live policy"
         if (live.selectedPids.size > 4 || live.selectedPids.distinct().size != live.selectedPids.size ||
-            live.selectedPids.any { Mode01Catalog.lookup(it) == null }) return "invalid live selection"
+            live.selectedPids.any { Mode01Catalog.lookup(it) == null ||
+                record.supportedPids.capability(it).capability != Capability.SUPPORTED_AND_DECODABLE })
+            return "invalid live selection"
         if (live.writeCount !in 0..1200 || live.retryCount !in 0..3 || live.retryCount > live.writeCount)
             return "invalid live write/retry counters"
         if (live.samples.size > 10_000) return "too many live outcomes"

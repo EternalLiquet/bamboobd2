@@ -10,12 +10,71 @@ import org.junit.rules.TemporaryFolder
 import io.github.eternalliquet.bamboobd2.core.session.Clock
 import io.github.eternalliquet.bamboobd2.core.session.IdGenerator
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
 
 class LiveReadControllerTest {
     @get:Rule val tmp = TemporaryFolder()
+
+    @Test fun stoppedPollingCannotCancelNextPreparedSession() = runTest {
+        var ids = 0
+        val c = LiveReadController(this, Clock { 0 }, MonotonicClock { testScheduler.currentTime },
+            IdGenerator { "restart-${++ids}" })
+        assertTrue(c.prepare { FakeReader(FakeScenario.NO_CODES, 0) })
+        runCurrent(); assertTrue(c.start(listOf("04"))); runCurrent()
+        c.stop()
+        assertTrue(c.prepare { FakeReader(FakeScenario.NO_CODES, 0) })
+        runCurrent()
+        assertTrue("previous cancellation terminated new preparation: ${c.state.value}", c.state.value is LiveReadState.Ready)
+        assertEquals("restart-2", (c.state.value as LiveReadState.Ready).record.id)
+        c.stop()
+    }
+
+    @Test fun scopeCancellationBeforePreparationRunsExposesFinalRecord() = runTest {
+        val sessionScope = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
+        val c = LiveReadController(sessionScope, Clock { 0 }, MonotonicClock { testScheduler.currentTime },
+            IdGenerator { "cancel-before" })
+        var opened = false
+        assertTrue(c.prepare { object : DiagnosticReader by FakeReader(FakeScenario.NO_CODES, 0) {
+            override suspend fun open() { opened = true }
+        } })
+        sessionScope.cancel(); runCurrent()
+        assertFalse(opened)
+        assertEquals(SessionOutcome.CANCELLED, (c.state.value as LiveReadState.Finished).record.outcome)
+    }
+
+    @Test fun scopeCancellationWhileReadyExposesFinalRecord() = runTest {
+        val sessionScope = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
+        val c = LiveReadController(sessionScope, Clock { 0 }, MonotonicClock { testScheduler.currentTime },
+            IdGenerator { "cancel-ready" })
+        assertTrue(c.prepare { FakeReader(FakeScenario.NO_CODES, 0) }); runCurrent()
+        assertTrue(c.state.value is LiveReadState.Ready)
+        sessionScope.cancel(); runCurrent()
+        assertEquals(SessionOutcome.CANCELLED, (c.state.value as LiveReadState.Finished).record.outcome)
+    }
+
+    @Test fun delayedWriteCompletionStillLeavesFullGlobalSpacing() = runTest {
+        val writeTimes = mutableListOf<Long>()
+        val c = LiveReadController(this, Clock { 0 }, MonotonicClock { testScheduler.currentTime },
+            IdGenerator { "delayed-write" }, LiveReadPolicy(maxWrites = 2))
+        assertTrue(c.prepare { gate -> object : DiagnosticReader by FakeReader(FakeScenario.NO_CODES, 0) {
+            override suspend fun open() {
+                gate.beforeWrite(false)
+                delay(400)
+                writeTimes += testScheduler.currentTime; gate.wrote(false)
+                gate.beforeWrite(false)
+                writeTimes += testScheduler.currentTime; gate.wrote(false)
+                gate.beforeWrite(false)
+            }
+        } })
+        advanceUntilIdle()
+        assertEquals(listOf(400L, 900L), writeTimes)
+        assertEquals(LiveStopReason.WRITE_LIMIT, (c.state.value as LiveReadState.Finished).record.recording!!.stopReason)
+    }
     @Test fun preparationOnceAndSelectionThenPausePreservesResponderGaps() = runTest {
         val calls = mutableListOf<String>()
         val c = LiveReadController(this, Clock { 1000 - testScheduler.currentTime },
@@ -88,7 +147,9 @@ class LiveReadControllerTest {
         val c = LiveReadController(this, Clock { 1000 }, MonotonicClock { testScheduler.currentTime }, IdGenerator { "live-3" })
         assertTrue(c.prepare { gate ->
             val observed = object : RequestGate {
-                override suspend fun beforeWrite(retry: Boolean) { gate.beforeWrite(retry); times += testScheduler.currentTime }
+                override suspend fun beforeWrite(retry: Boolean, awaitIdle: suspend () -> Unit) {
+                    gate.beforeWrite(retry, awaitIdle); times += testScheduler.currentTime
+                }
                 override fun wrote(retry: Boolean) = gate.wrote(retry)
                 override fun rejectedWrite() = gate.rejectedWrite()
             }
@@ -107,6 +168,7 @@ class LiveReadControllerTest {
 
     @Test fun realStoreRoundTripsPartialAndCompleteAndRejectsInvalidLiveSamples() {
         val base = SessionRecord(2, "r1", 100, 200, Provenance.REPLAY, "synthetic", true, SessionOutcome.COMPLETE,
+            supportedPids = SupportedPids.Known(listOf("05")),
             recording = LiveRecording(selectedPids = listOf("05"), writeCount = 8,
                 samples = listOf(LiveSample(1, 120, 20, "05", "7E8", "°C", LiveSampleOutcome.VALUE, 83.0),
                     LiveSample(2, 120, 20, "05", "7E9", "°C", LiveSampleOutcome.MISSING, reason = "silent")),
@@ -286,6 +348,63 @@ class LiveReadControllerTest {
         val final = (c.state.value as LiveReadState.Finished).record
         assertEquals(SessionOutcome.CANCELLED, final.outcome)
         assertTrue(final.recording!!.samples.isEmpty())
+    }
+
+    @Test fun gatedWriteRechecksIdleAfterSpacingAndPause() = runTest {
+        val steps = listOf(
+            ReplayStep("ATE0", listOf(ReplayChunk(1, "ATE0\rOK\r\r>"),
+                ReplayChunk(200, "stale\r"), ReplayChunk(800, ">"))),
+            ReplayStep("ATL0", listOf(ReplayChunk(1, "OK\r\r>"))),
+            ReplayStep("ATH1", listOf(ReplayChunk(1, "OK\r\r>"))),
+            ReplayStep("ATSP0", listOf(ReplayChunk(1, "OK\r\r>"))),
+            ReplayStep("0100", listOf(ReplayChunk(1, "7E8 06 41 00 08 00 00 00\r\r>"))),
+            ReplayStep("ATDPN", listOf(ReplayChunk(1, "A6\r\r>"))),
+            ReplayStep("03", listOf(ReplayChunk(1, "7E8 02 43 00\r\r>"))),
+            ReplayStep("07", listOf(ReplayChunk(1, "7E8 02 47 00\r\r>"))),
+            ReplayStep("0105", listOf(ReplayChunk(1, "7E8 03 41 05 7B\r\r>"))),
+        )
+        val replay = ReplayTransport(ReplayScript("late-idle", "stale", "SYNTHETIC", "constructed", "test", steps = steps), testScheduler.timeSource)
+        val c = LiveReadController(this, Clock { 0 }, MonotonicClock { testScheduler.currentTime }, IdGenerator { "late-idle" })
+        assertTrue(c.prepare { gate -> ElmObdReader(replay, "synthetic", discoveryClockMillis = { testScheduler.currentTime }, requestGate = gate) })
+        advanceTimeBy(5_000); runCurrent()
+        assertTrue("stale input contaminated next exchange: ${c.state.value}", c.state.value is LiveReadState.Ready)
+        assertTrue(c.start(listOf("05"))); runCurrent()
+        advanceTimeBy(20); runCurrent(); assertTrue(c.pause())
+        advanceTimeBy(100); runCurrent()
+        assertEquals(8, replay.writes.size)
+        assertTrue(c.state.value is LiveReadState.Paused)
+        assertTrue(c.resume()); advanceTimeBy(100); runCurrent()
+        c.stop()
+        assertEquals(1, replay.writes.count { it == "0105" })
+    }
+
+    @Test fun allFailedRespondersKeepTheirOwnTypedFailures() = runTest {
+        for (reply in listOf(
+            "7E8 03 41 0C 7B\r7E9 03 41 0C 7C\r\r>",
+            "7E8 03 7F 01 12\r7E9 03 7F 01 12\r\r>",
+            "7E8 03 7F 01 78\r7E9 03 7F 01 78\r\r>",
+            "7E8 ZZ\r7E9 ZZ\r\r>",
+        )) {
+            val steps = listOf("ATE0", "ATL0", "ATH1", "ATSP0").mapIndexed { i, cmd ->
+                ReplayStep(cmd, listOf(ReplayChunk(1, if (i == 0) "ATE0\rOK\r\r>" else "OK\r\r>")))
+            } + listOf(
+                ReplayStep("0100", listOf(ReplayChunk(1, "7E8 06 41 00 08 00 00 00\r7E9 06 41 00 08 00 00 00\r\r>"))),
+                ReplayStep("ATDPN", listOf(ReplayChunk(1, "A6\r\r>"))),
+                ReplayStep("03", listOf(ReplayChunk(1, "7E8 02 43 00\r\r>"))),
+                ReplayStep("07", listOf(ReplayChunk(1, "7E8 02 47 00\r\r>"))),
+                ReplayStep("0105", listOf(ReplayChunk(1, reply))),
+            )
+            val replay = ReplayTransport(ReplayScript("failed", "all-failed", "SYNTHETIC", "constructed", "test", steps = steps), testScheduler.timeSource)
+            val c = LiveReadController(this, Clock { 0 }, MonotonicClock { testScheduler.currentTime },
+                IdGenerator { "all-failed" }, LiveReadPolicy(maxSamples = 2))
+            assertTrue(c.prepare { gate -> ElmObdReader(replay, "synthetic", discoveryClockMillis = { testScheduler.currentTime }, requestGate = gate) })
+            advanceTimeBy(5_000); runCurrent(); assertTrue(c.start(listOf("05")))
+            advanceTimeBy(1_000); runCurrent()
+            val samples = (c.state.value as LiveReadState.Finished).record.recording!!.samples
+            assertEquals(reply, listOf("7E8", "7E9"), samples.map { it.ecu })
+            assertEquals(listOf(LiveSampleOutcome.FAILURE, LiveSampleOutcome.FAILURE), samples.map { it.outcome })
+            assertTrue(samples.all { it.value == null && !it.reason.isNullOrBlank() })
+        }
     }
 
 }
