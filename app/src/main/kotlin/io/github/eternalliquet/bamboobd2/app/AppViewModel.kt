@@ -169,7 +169,9 @@ class AppViewModel @JvmOverloads constructor(
     fun onAppBackgrounded() {
         if (recording.value !is LiveReadState.Idle && recording.value !is LiveReadState.Finished)
             stopRecording(LiveStopReason.CANCELLED)
-        if (_live.value is LiveState.Connecting) cancelLiveConnect()
+        // Codes/snapshot reads may finish while stopped; their Started hand-off remains
+        // pending for the screen on resume. Only recording setup is stopped here.
+        if (_recordingPending.value && _live.value is LiveState.Connecting) cancelLiveConnect()
     }
     fun finishRecording() {
         if (recording.value !is LiveReadState.Finished) return
