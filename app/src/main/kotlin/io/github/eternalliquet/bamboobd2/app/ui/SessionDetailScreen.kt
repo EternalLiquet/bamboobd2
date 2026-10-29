@@ -40,6 +40,7 @@ fun SessionDetailScreen(vm: AppViewModel, id: String, onBack: () -> Unit) {
                 else -> {
                     Text("${record.provenance} · ${record.sourceLabel}", style = MaterialTheme.typography.labelLarge)
                     SessionResults(record, showStatus = true)
+                    SessionSummaryActions(record)
                 }
             }
         }

@@ -80,6 +80,7 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
                     }
                     // LIVE sessions only: the raw adapter conversation, for review before any fixture use.
                     captures[s.record.id]?.let { CopyButton(text = it, label = R.string.copy_capture) }
+                    SessionSummaryActions(s.record)
                     saveMessage?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }

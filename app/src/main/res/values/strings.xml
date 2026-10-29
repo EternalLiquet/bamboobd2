@@ -96,6 +96,14 @@
     <string name="no_saved_sessions">No saved sessions yet.</string>
     <string name="unreadable_file">Unreadable file %1$s: %2$s</string>
     <string name="session_missing">This session could not be opened.</string>
+    <string name="summary_preview">Preview summary</string>
+    <string name="summary_title">Session summary</string>
+    <string name="summary_review_notice">Review before copying or sharing. This text includes the session time and diagnostic results.</string>
+    <string name="summary_copy">Copy summary</string>
+    <string name="summary_share">Share</string>
+    <string name="summary_share_chooser">Share session summary</string>
+    <string name="summary_share_unavailable">No sharing app is available.</string>
+    <string name="summary_close">Close</string>
     <string name="back">Back</string>
     <string name="pid_04">Engine load</string>
     <string name="pid_05">Coolant temperature</string>
