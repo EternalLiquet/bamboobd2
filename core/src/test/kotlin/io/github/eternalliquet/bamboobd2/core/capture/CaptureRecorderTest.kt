@@ -44,6 +44,7 @@ class CaptureRecorderTest {
             step("ATE0", 10L to "ATE0\rOK\r\r>"),
             step("ATL0", 10L to "OK\r\r>"),
             step("ATH1", 10L to "OK\r\r>"),
+            step("ATSP0", 10L to "OK\r\r>"),
             step("0100", 100L to "SEARCHING...\r", 400L to "7E8 06 41 00 BE 1F B8 10\r\r>"),
             step("ATDPN", 10L to "A6\r\r>"),
             step("03", 30L to "7E8 04 43 01 01 33\r\r>"),
@@ -64,7 +65,7 @@ class CaptureRecorderTest {
         val r = session(replay)
         assertEquals(SessionOutcome.COMPLETE, r.outcome)
         // Any other request would diverge from the script and fail the session.
-        assertEquals(listOf("ATE0", "ATL0", "ATH1", "0100", "ATDPN", "03", "07"), replay.writes)
+        assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), replay.writes)
         assertTrue(r.readings.isEmpty())
         assertTrue(r.events.any { it.kind == SessionController.READINGS_NOT_REQUESTED })
         assertTrue(r.allCodesRead)
@@ -82,8 +83,8 @@ class CaptureRecorderTest {
         }
         val raw = ReplayScript.serializer().let { kotlinx.serialization.json.Json.decodeFromString(it, captured) }
         assertEquals(CaptureRecorder.RAW_CAPTURE, raw.provenance)
-        assertEquals(listOf("ATE0", "ATL0", "ATH1", "0100", "ATDPN", "03", "07"), raw.steps.map { it.request })
-        assertEquals(listOf(ReplayChunk(100, "SEARCHING...\r"), ReplayChunk(400, "7E8 06 41 00 BE 1F B8 10\r\r>")), raw.steps[3].chunks)
+        assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), raw.steps.map { it.request })
+        assertEquals(listOf(ReplayChunk(100, "SEARCHING...\r"), ReplayChunk(400, "7E8 06 41 00 BE 1F B8 10\r\r>")), raw.steps[4].chunks)
         try {
             ReplayScript.parse(captured)
             fail("a raw capture must not load as a fixture")

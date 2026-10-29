@@ -31,8 +31,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class AdapterProfile(
     /** From writing an adapter command to its prompt. */
     val adapterCommandMillis: Long,
-    /** From writing a vehicle request to its prompt. Protocol search can make the first one slow. */
+    /** From writing a vehicle request to its prompt. */
     val vehicleRequestMillis: Long,
+    /**
+     * For the first vehicle request after `ATSP0`: the adapter searches the protocols
+     * before answering, which can take several seconds per protocol tried.
+     */
+    val protocolSearchMillis: Long,
     /** Added once when a "7F xx 78" (response pending) line has been seen; J1979 allows 5 s (ELM327DSJ p45). */
     val pendingExtensionMillis: Long,
     /** After a missed deadline, how long to wait passively for the adapter's prompt. */
@@ -44,6 +49,7 @@ data class AdapterProfile(
         val PROVISIONAL = AdapterProfile(
             adapterCommandMillis = 2_000,
             vehicleRequestMillis = 10_000,
+            protocolSearchMillis = 30_000,
             pendingExtensionMillis = 5_000,
             resyncMillis = 5_000,
             quietMillis = 50,
@@ -89,9 +95,13 @@ class ElmObdReader(
 
     override fun takeNotes(): List<ReaderNote> = notes.toList().also { notes.clear() }
 
-    /** Echo off, linefeeds off, headers on; each must answer OK. */
+    /**
+     * Echo off, linefeeds off, headers on, automatic protocol; each must answer OK.
+     * `ATSP0` replaces any fixed protocol an earlier app stored, which otherwise makes
+     * a car on another protocol fail with "BUS INIT: ...ERROR" (ELM327DSJ p26).
+     */
     override suspend fun open() {
-        for (command in listOf(AdapterCommand.ECHO_OFF, AdapterCommand.LINEFEEDS_OFF, AdapterCommand.HEADERS_ON)) {
+        for (command in listOf(AdapterCommand.ECHO_OFF, AdapterCommand.LINEFEEDS_OFF, AdapterCommand.HEADERS_ON, AdapterCommand.AUTO_PROTOCOL)) {
             val lines = adapterLines(exchange(RequestPolicy.adapter(command), profile.adapterCommandMillis), command)
             if (lines != listOf("OK")) {
                 throw ReaderStoppedException(StopReason.ADAPTER_REJECTED, "${command.text} answered '${lines.joinToString(" ")}'")
@@ -107,8 +117,10 @@ class ElmObdReader(
     override suspend fun readSupportedPids(): SupportedPids {
         phase = "supported PIDs"
         val request = RequestPolicy.vehicle(VehicleRequest.SUPPORTED_PIDS_01_20)
-        val raw = exchange(request, profile.vehicleRequestMillis)
+        // The protocol search happens here, so this request gets the longer, still bounded, budget.
+        val raw = exchange(request, profile.protocolSearchMillis)
         val dpn = adapterLines(exchange(RequestPolicy.adapter(AdapterCommand.DESCRIBE_PROTOCOL_NUMBER), profile.adapterCommandMillis), AdapterCommand.DESCRIBE_PROTOCOL_NUMBER)
+        dpn.singleOrNull()?.let { notes += ReaderNote(PROTOCOL_NOTE, describeProtocol(it)) }
         val number = dpn.singleOrNull()?.removePrefix("A")
         val form = when (number) {
             "1", "2", "3", "4", "5" -> ProtocolForm.NON_CAN
@@ -278,8 +290,35 @@ class ElmObdReader(
 
     private fun compact(text: String): String = text.uppercase().filterNot { it == ' ' || it == '\t' }
 
-    private companion object {
-        val pendingLine = Regex("7F[0-9A-F]{2}78")
-        const val MAX_STALE_CHUNKS = 64
+    companion object {
+        /** Session event kind holding the protocol `ATDPN` reported. */
+        const val PROTOCOL_NOTE = "protocol"
+
+        /** "A6" becomes "6: ISO 15765-4 CAN (11 bit ID, 500 kbaud), found by automatic search" (pp25-26). */
+        fun describeProtocol(dpn: String): String {
+            val auto = dpn.startsWith("A") && dpn.length > 1
+            val number = if (auto) dpn.substring(1) else dpn
+            if (number == "0") return if (auto) "0: automatic search found no protocol" else "0: automatic, not yet searched"
+            val name = PROTOCOL_NAMES[number] ?: "unknown protocol"
+            return "$number: $name" + if (auto) ", found by automatic search" else ", fixed setting"
+        }
+
+        private val PROTOCOL_NAMES = mapOf(
+            "1" to "SAE J1850 PWM",
+            "2" to "SAE J1850 VPW",
+            "3" to "ISO 9141-2 (5 baud init)",
+            "4" to "ISO 14230-4 KWP (5 baud init)",
+            "5" to "ISO 14230-4 KWP (fast init)",
+            "6" to "ISO 15765-4 CAN (11 bit ID, 500 kbaud)",
+            "7" to "ISO 15765-4 CAN (29 bit ID, 500 kbaud)",
+            "8" to "ISO 15765-4 CAN (11 bit ID, 250 kbaud)",
+            "9" to "ISO 15765-4 CAN (29 bit ID, 250 kbaud)",
+            "A" to "SAE J1939 CAN",
+            "B" to "USER1 CAN",
+            "C" to "USER2 CAN",
+        )
+
+        private val pendingLine = Regex("7F[0-9A-F]{2}78")
+        private const val MAX_STALE_CHUNKS = 64
     }
 }

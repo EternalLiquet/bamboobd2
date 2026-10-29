@@ -107,6 +107,15 @@ data class SessionRecord(
     val readings: List<Reading> = emptyList(),
     val events: List<SessionEvent> = emptyList(),
 ) {
+    /**
+     * True when the car gave nothing usable: no supported-PID map, no code list
+     * read, no codes and no reading value. A session can be COMPLETE and still read
+     * nothing, for example when the adapter could not initialize the bus.
+     */
+    val readNothing: Boolean
+        get() = supportedPids == SupportedPids.Unknown && dtcKindsRead.isEmpty() && dtcs.isEmpty() &&
+            readings.none { it.result is ReadingResult.Value }
+
     /** True when both stored and pending codes were read, so an empty list means none were reported. */
     val allCodesRead: Boolean
         get() = DtcKind.STORED in dtcKindsRead && DtcKind.PENDING in dtcKindsRead

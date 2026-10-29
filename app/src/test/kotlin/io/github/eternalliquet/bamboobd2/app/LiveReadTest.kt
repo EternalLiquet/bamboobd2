@@ -88,6 +88,7 @@ class LiveReadTest {
             "ATE0" to "ATE0\rOK\r\r>",
             "ATL0" to "OK\r\r>",
             "ATH1" to "OK\r\r>",
+            "ATSP0" to "OK\r\r>",
             "0100" to "SEARCHING...\r7E8 06 41 00 BE 1F B8 10\r\r>",
             "ATDPN" to "A6\r\r>",
             "03" to "7E8 04 43 01 01 33\r\r>",
@@ -119,7 +120,7 @@ class LiveReadTest {
         val record = (vm.session.value as SessionState.Finished).record
 
         // Exactly the L2 sequence: no sensor PIDs, no other vehicle request.
-        assertEquals("ATE0\rATL0\rATH1\r0100\rATDPN\r03\r07\r", socket.writtenText())
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writtenText())
         assertEquals(Provenance.LIVE, record.provenance)
         assertEquals(SessionOutcome.COMPLETE, record.outcome)
         assertEquals(listOf("P0133"), record.dtcs.map { it.code })
@@ -131,7 +132,7 @@ class LiveReadTest {
         val capture = vm.captures.value.getValue(record.id)
         assertTrue(capture, "\"provenance\": \"${CaptureRecorder.RAW_CAPTURE}\"" in capture)
         val requests = Regex(""""request": "([^"]+)"""").findAll(capture).map { it.groupValues[1] }.toList()
-        assertEquals(listOf("ATE0", "ATL0", "ATH1", "0100", "ATDPN", "03", "07"), requests)
+        assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), requests)
         // No device identifiers in what is kept or shared.
         val saved = io.github.eternalliquet.bamboobd2.core.storage.SessionCodec.encode(record)
         for (identifier in listOf(device.address, device.name)) {

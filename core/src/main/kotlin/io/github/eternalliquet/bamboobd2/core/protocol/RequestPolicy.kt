@@ -61,6 +61,14 @@ enum class AdapterCommand(val text: String) {
 
     /** Read the adapter's input voltage (p24), as measured at the adapter, not a vehicle sensor reading. */
     INPUT_VOLTAGE("ATRV"),
+
+    /**
+     * Set the protocol to automatic (p26): the next vehicle request searches the
+     * protocols until one answers. SP 0 itself writes nothing to EEPROM, but with the
+     * adapter's memory function on, a protocol it finds becomes the saved default.
+     * The search is adapter-originated traffic. Owner-approved 2026-10-29.
+     */
+    AUTO_PROTOCOL("ATSP0"),
 }
 
 sealed interface PolicyDecision {

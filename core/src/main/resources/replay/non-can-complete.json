@@ -33,6 +33,15 @@
       ]
     },
     {
+      "request": "ATSP0",
+      "chunks": [
+        {
+          "atMillis": 20,
+          "text": "OK\r\r>"
+        }
+      ]
+    },
+    {
       "request": "0100",
       "chunks": [
         {

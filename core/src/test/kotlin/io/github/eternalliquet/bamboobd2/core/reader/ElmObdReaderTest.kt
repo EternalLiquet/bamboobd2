@@ -42,6 +42,7 @@ class ElmObdReaderTest {
         step("ATE0", 10L to "ATE0\rOK\r\r>"),
         step("ATL0", 10L to "OK\r\r>"),
         step("ATH1", 10L to "OK\r\r>"),
+        step("ATSP0", 10L to "OK\r\r>"),
     )
     private val protocol = listOf(
         step("0100", 20L to "7E8 06 41 00 BE 1F B8 10\r\r>"),
@@ -304,6 +305,62 @@ class ElmObdReaderTest {
         assertTrue(r.readings.all { it.result == ReadingResult.UnknownCapability })
         assertFalse(run.transport.writes.any { it.startsWith("01") && it != "0100" })
         assertTrue(r.allCodesRead)
+    }
+
+    // ATSP0 (automatic protocol): the first 0100 may take much longer while the adapter searches.
+
+    @Test
+    fun autoSearchLongerThanANormalDeadlineIsReadWithoutRetryAndReportsTheProtocol() = runTest {
+        val p = AdapterProfile.PROVISIONAL
+        val found = p.vehicleRequestMillis + 5_000
+        val steps = init + listOf(
+            // Map with only PID 01 set, so this full-scope session requests no readings.
+            step("0100", 100L to "SEARCHING...\r", found to "7E8 06 41 00 80 00 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes
+        val run = session(script(steps))
+        val r = run.record
+        assertEquals(SessionOutcome.COMPLETE, r.outcome)
+        assertTrue(r.supportedPids is SupportedPids.Known)
+        assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN"), run.transport.writes.take(6))
+        assertEquals(1, run.transport.writes.count { it == "0100" })
+        assertTrue(r.events.any { it.kind == ElmObdReader.PROTOCOL_NOTE && it.detail == "6: ISO 15765-4 CAN (11 bit ID, 500 kbaud), found by automatic search" })
+        assertFalse(r.readNothing)
+    }
+
+    @Test
+    fun autoSearchThatFindsNothingStopsBoundedAndReadsNothing() = runTest {
+        val steps = init + listOf(
+            step("0100", 100L to "SEARCHING...\r", 12_000L to "UNABLE TO CONNECT\r\r>"),
+            step("ATDPN", 10L to "A0\r\r>"),
+        )
+        val r = session(script(steps)).record
+        assertEquals(SessionOutcome.FAILED, r.outcome)
+        assertTrue(r.events.last().detail, r.events.last().detail.startsWith("no_protocol"))
+        assertTrue(r.events.any { it.kind == ElmObdReader.PROTOCOL_NOTE && it.detail == "0: automatic search found no protocol" })
+        assertTrue(r.readNothing)
+        assertFalse(r.allCodesRead)
+    }
+
+    @Test
+    fun busInitFailureOnEveryRequestReadsNothingAndNeverClaimsNoCodes() = runTest {
+        // Shaped like the owner's 2026-10-29 captures: each request ends in "BUS INIT: ...ERROR".
+        val busInitError = arrayOf(30L to "BUS INIT: ", 750L to ".", 1_350L to ".", 1_950L to ".", 2_900L to "ERROR\r\r>")
+        val steps = init + listOf(
+            step("0100", *busInitError),
+            step("ATDPN", 10L to "A3\r\r>"),
+            step("03", *busInitError),
+            step("07", *busInitError),
+        )
+        val r = session(script(steps)).record
+        assertEquals(SessionOutcome.COMPLETE, r.outcome)
+        assertTrue(r.readNothing)
+        assertFalse(r.allCodesRead)
+        assertTrue(r.dtcKindsRead.isEmpty())
+        assertEquals(SupportedPids.Unknown, r.supportedPids)
+        val reasons = r.events.filter { it.kind == "codes_not_read" || it.kind == "supported_pids_unknown" }.map { it.detail }
+        assertEquals(3, reasons.size)
+        assertTrue(reasons.toString(), reasons.all { "BUS INIT: ...ERROR" in it })
     }
 
     @Test
