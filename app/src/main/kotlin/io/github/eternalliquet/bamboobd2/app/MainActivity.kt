@@ -16,6 +16,7 @@ import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
 import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SavedSessionsScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionDetailScreen
+import io.github.eternalliquet.bamboobd2.app.ui.SessionComparisonScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SessionScreen
 
 class MainActivity : ComponentActivity() {
@@ -59,7 +60,13 @@ class MainActivity : ComponentActivity() {
                         BenchScreen(vm = vm, onBack = { nav.popBackStack() })
                     }
                     composable("saved") {
-                        SavedSessionsScreen(vm = vm, onOpen = { id -> nav.navigate("saved/$id") }, onBack = { nav.popBackStack() })
+                        SavedSessionsScreen(vm = vm, onOpen = { id -> nav.navigate("saved/$id") },
+                            onCompare = { first, second -> nav.navigate("saved/compare/$first/$second") },
+                            onBack = { nav.popBackStack() })
+                    }
+                    composable("saved/compare/{firstId}/{secondId}") { entry ->
+                        SessionComparisonScreen(vm = vm, firstId = entry.arguments?.getString("firstId").orEmpty(),
+                            secondId = entry.arguments?.getString("secondId").orEmpty(), onBack = { nav.popBackStack() })
                     }
                     composable("saved/{id}") { entry ->
                         SessionDetailScreen(vm = vm, id = entry.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() })
