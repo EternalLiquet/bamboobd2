@@ -83,6 +83,12 @@
     <string name="codes_scope">Generic OBD-II engine codes only, not body, ABS, airbag or other modules.</string>
     <string name="readings_heading">Readings</string>
     <string name="snapshot_heading">Sensor snapshot (one pass)</string>
+    <string name="sensor_support_heading">Sensor support</string>
+    <string name="sensor_support_explainer">Support comes from the reported PID map for this session. It is separate from a measurement or request, and one responder supporting a sensor does not mean all do.</string>
+    <string name="sensor_support_row">%1$s: %2$s</string>
+    <string name="sensor_support_supported">Supported by at least one responder</string>
+    <string name="sensor_support_unsupported">Unsupported</string>
+    <string name="sensor_support_unknown">Unknown</string>
     <string name="reading_captured_at">Captured %1$s</string>
     <string name="not_read">Not read</string>
     <string name="codes_incomplete">Not every code list was read completely, so codes may be missing.</string>
