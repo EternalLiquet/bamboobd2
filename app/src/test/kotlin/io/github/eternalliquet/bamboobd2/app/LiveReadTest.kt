@@ -4,11 +4,12 @@ import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothManager
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -226,10 +227,15 @@ class LiveReadTest {
     @Test
     fun liveChoiceStartsCodesOnlyAndExplainsThatSnapshotHasNoVehicleTest() {
         rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
-        rule.onNodeWithText("Codes only").assertExists()
+        rule.onNodeWithText("Codes only").assertIsSelected()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
         rule.onNodeWithText("Codes + sensor snapshot").performScrollTo().performClick()
         rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — codes + one sensor snapshot; no clearing")
         rule.onNodeWithText("Not yet tested on a vehicle", substring = true).assertExists()
+        rule.onNodeWithContentDescription("Back").performClick()
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
+        rule.onNodeWithText("Codes only").assertIsSelected()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
     }
 
     @Test
