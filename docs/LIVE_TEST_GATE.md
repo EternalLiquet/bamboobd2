@@ -43,6 +43,15 @@ Record these in the evidence note. They are measured during L1, never assumed be
 - Written stop criteria. Unplug the adapter and stop on: a new warning light or unexpected vehicle behavior, adapter heat, low battery voltage, any response outside the allowlist's expected shapes, repeated timeouts, or the owner saying stop.
 - Operator authorization in the stage issue, from the vehicle owner.
 
+## L2 run sheet (code in PR #26)
+
+L2 is lighter than L1 was planned to be, by owner decision (2026-10-28). It is one run of the app's **Read codes** screen in the parked car:
+- **Car:** parked, ignition on, engine off. No other diagnostic app connected to the adapter at the same time.
+- **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup, `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
+- **Stop and unplug if:** a new warning light comes on, the car does anything unexpected, or the adapter gets hot.
+- **Afterwards:** save the session, copy the raw capture, and send both for review. The capture stays out of Git until it has been reviewed and sanitized.
+- **Running it is the owner's decision**, recorded in issue #14. This document doesn't authorize it.
+
 ## What would change this plan
 
 A different adapter model, a host device without the needed connection mode, or a capture showing the car does not answer generic OBD-II on this adapter. Each returns the work to L0 with a new issue.

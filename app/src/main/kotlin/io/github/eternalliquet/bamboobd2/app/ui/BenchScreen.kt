@@ -99,6 +99,7 @@ internal fun Availability(
     onRequest: () -> Unit,
     onRefresh: () -> Unit,
     onPick: (BondedDevice) -> Unit,
+    pickPrompt: Int = R.string.bench_pick,
 ) {
     when (val a = availability) {
         BluetoothAvailability.NoAdapter -> Text(stringResource(R.string.bench_no_adapter))
@@ -111,7 +112,7 @@ internal fun Availability(
             if (a.bonded.isEmpty()) {
                 Text(stringResource(R.string.bench_no_paired))
             } else {
-                Text(stringResource(R.string.bench_pick))
+                Text(stringResource(pickPrompt))
                 a.bonded.forEach { device ->
                     OutlinedButton(onClick = { onPick(device) }, modifier = Modifier.fillMaxWidth()) { Text(device.name) }
                 }

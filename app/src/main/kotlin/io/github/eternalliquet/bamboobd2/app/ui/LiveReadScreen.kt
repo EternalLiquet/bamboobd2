@@ -56,6 +56,7 @@ fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onBack: () -> Unit) 
                     onRequest = { vm.bluetoothPermission?.let(permission::launch) },
                     onRefresh = { vm.refreshLive() },
                     onPick = vm::startLive,
+                    pickPrompt = R.string.live_pick,
                 )
                 is LiveState.Connecting -> Progress(stringResource(R.string.live_connecting, s.device), vm::cancelLiveConnect)
                 is LiveState.Failed -> {

@@ -4,6 +4,10 @@ This is how a real adapter capture could become a replay script in Git. **No cap
 
 Replay scripts live in `core/src/main/resources/replay/` (bundled) or in tests. Their format is `ReplayScript` in `core/.../protocol/ReplayTransport.kt`: the request expected at each step, and the adapter's output as timed ASCII chunks.
 
+## Captures from the app
+
+A live codes-only session (L2) produces a raw capture: the "Copy raw capture for review" button on the finished session. It is a `ReplayScript` JSON with every request and reply chunk and its timing, marked `RAW_CAPTURE`. `ReplayScript.parse` rejects that provenance, so a raw capture can't be used as a fixture by accident. The steps below turn it into one. Expected content of an L2 capture: adapter setup replies, the supported-PID bitmap, the protocol number and trouble codes. It contains no VIN, because none is requested. Review it anyway before it leaves private storage.
+
 ## Before anything enters Git
 
 1. **Authorized source.** The capture comes from a stage the owner approved in writing, in that stage's issue. If you can't name the issue, stop.
