@@ -12,12 +12,16 @@ data class EcuValue<T>(val ecu: String?, val value: T)
  */
 sealed interface ObdResult {
     /** Mode 01 PID 00: the PIDs 01-20 each responder reports as supported. */
-    data class SupportedPids(val perEcu: List<EcuValue<Set<Int>>>) : ObdResult {
+    data class SupportedPids(
+        val perEcu: List<EcuValue<Set<Int>>>,
+        val failures: List<String> = emptyList(),
+        val continuationByEcu: Set<String?> = emptySet(),
+    ) : ObdResult {
         /** PIDs reported by at least one responder. */
         val union: Set<Int> get() = perEcu.flatMap { it.value }.toSet()
     }
 
-    data class Reading(val unit: String, val perEcu: List<EcuValue<Double>>) : ObdResult
+    data class Reading(val unit: String, val perEcu: List<EcuValue<Double>>, val failures: List<String> = emptyList()) : ObdResult
 
     /** Trouble codes, deduplicated by (ecu, code). An empty list means none reported by the responders. */
     data class Dtcs(val codes: List<Dtc>) : ObdResult
@@ -53,61 +57,72 @@ object ObdDecoder {
 
     private fun decodeMessages(request: VehicleRequest, messages: List<EcuMessage>, form: ProtocolForm): ObdResult {
         val service = request.text.substring(0, 2).toInt(16)
-        // A negative response from any responder is reported as such.
-        for (m in messages) {
-            if (m.bytes.firstOrNull() == 0x7F) {
-                if (m.bytes.size < 3) return ObdResult.Malformed("negative response too short")
-                if (m.bytes[1] != service) return ObdResult.Malformed("negative response for another service")
-                return ObdResult.Negative(m.ecu, m.bytes[1], m.bytes[2])
+        val negatives = messages.filter { it.bytes.firstOrNull() == 0x7F }
+        val positives = messages - negatives.toSet()
+        if (positives.isEmpty() && negatives.isNotEmpty()) {
+            val first = negatives.first()
+            if (first.bytes.size != 3 || first.bytes[1] != service) return ObdResult.Malformed("invalid negative response")
+            return ObdResult.Negative(first.ecu, first.bytes[1], first.bytes[2])
+        }
+        if (negatives.isNotEmpty() && request.text.length == 4) {
+            val overlapping = negatives.map { it.ecu }.intersect(positives.map { it.ecu }.toSet())
+            val safe = positives.filterNot { it.ecu in overlapping }
+            val result = if (safe.isEmpty()) ObdResult.Malformed("conflicting reply from one responder")
+                else decodeMode01(request, safe)
+            val failures = negatives.map {
+                "${it.ecu ?: "responder"}: ${if (it.ecu in overlapping) "duplicate or conflicting reply" else "negative response"}"
+            }
+            return when (result) {
+                is ObdResult.SupportedPids -> result.copy(failures = result.failures + failures)
+                is ObdResult.Reading -> result.copy(failures = result.failures + failures)
+                else -> result
             }
         }
-        // Wrong service never yields a value.
-        if (messages.any { it.bytes.firstOrNull() != service + 0x40 }) {
-            return ObdResult.Malformed("reply is for a different service")
-        }
         return when (request) {
-            VehicleRequest.STORED_DTCS -> decodeDtcs(messages, DtcKind.STORED, form)
-            VehicleRequest.PENDING_DTCS -> decodeDtcs(messages, DtcKind.PENDING, form)
+            VehicleRequest.STORED_DTCS -> {
+                if (messages.any { it.bytes.firstOrNull() != service + 0x40 }) ObdResult.Malformed("reply is for a different service")
+                else decodeDtcs(messages, DtcKind.STORED, form)
+            }
+            VehicleRequest.PENDING_DTCS -> {
+                if (messages.any { it.bytes.firstOrNull() != service + 0x40 }) ObdResult.Malformed("reply is for a different service")
+                else decodeDtcs(messages, DtcKind.PENDING, form)
+            }
             else -> decodeMode01(request, messages)
         }
     }
 
     private fun decodeMode01(request: VehicleRequest, messages: List<EcuMessage>): ObdResult {
         val pid = request.text.substring(2, 4).toInt(16)
-        if (messages.any { it.bytes.getOrNull(1) != pid }) return ObdResult.Malformed("reply is for a different PID")
-        val size = when (request) {
-            VehicleRequest.SUPPORTED_PIDS_01_20 -> 4
-            VehicleRequest.ENGINE_RPM -> 2
-            else -> 1
-        }
-        if (messages.any { it.bytes.size != 2 + size }) return ObdResult.Malformed("wrong data length for PID ${request.text}")
-        return when (request) {
-            VehicleRequest.SUPPORTED_PIDS_01_20 -> ObdResult.SupportedPids(
-                messages.map { m -> EcuValue(m.ecu, supportedFromBitmap(m.bytes.subList(2, 6))) },
-            )
-            else -> {
-                val (unit, formula) = formulas.getValue(request)
-                ObdResult.Reading(unit, messages.map { m -> EcuValue(m.ecu, formula(m.bytes.subList(2, m.bytes.size))) })
+        val page = request.text.substring(2) in Mode01Catalog.pageIds
+        val reading = Mode01Catalog.lookup(request.text.substring(2))
+        val size = if (page) 4 else reading?.bytes ?: return ObdResult.Malformed("PID is not a decoder or page")
+        val failures = mutableListOf<String>()
+        val valid = messages.filter { m ->
+            val reason = when {
+                m.bytes.firstOrNull() != 0x41 -> "reply is for a different service"
+                m.bytes.getOrNull(1) != pid -> "reply is for a different PID"
+                m.bytes.size != 2 + size -> "wrong data length for PID ${request.text}"
+                else -> null
             }
+            if (reason != null) failures += "${m.ecu ?: "responder"}: $reason"
+            reason == null
         }
+        val duplicates = messages.groupBy { it.ecu }.filterValues { it.size > 1 }.keys
+        val unique = valid.filterNot { it.ecu in duplicates }
+        failures += duplicates.map { "${it ?: "responder"}: duplicate or conflicting reply" }
+        if (unique.isEmpty()) return ObdResult.Malformed(failures.joinToString("; ").substringAfter(": "))
+        return if (page) ObdResult.SupportedPids(
+            unique.map { m -> EcuValue(m.ecu, supportedFromBitmap(m.bytes.subList(2, 6), pid)) },
+            failures,
+            unique.filter { it.bytes[5] and 1 != 0 }.map { it.ecu }.toSet(),
+        ) else ObdResult.Reading(reading!!.unit,
+            unique.map { m -> EcuValue(m.ecu, reading.decode(m.bytes.drop(2))) }, failures)
     }
 
-    /**
-     * Formulas. Coolant (A - 40, °C) and RPM ((256A + B) / 4) follow the worked
-     * examples in ELM327DSJ p31-32. Engine load (100A / 255, %) and vehicle speed
-     * (A, km/h) follow manufacturer implementation documentation (Emtron), accepted
-     * by the owner for this milestone; SAE J1979 was not inspected. See docs/PROTOCOL.md.
-     */
-    private val formulas: Map<VehicleRequest, Pair<String, (List<Int>) -> Double>> = mapOf(
-        VehicleRequest.ENGINE_LOAD to ("%" to { d -> d[0] * 100.0 / 255.0 }),
-        VehicleRequest.COOLANT_TEMP to ("°C" to { d -> d[0] - 40.0 }),
-        VehicleRequest.ENGINE_RPM to ("rpm" to { d -> (d[0] * 256 + d[1]) / 4.0 }),
-        VehicleRequest.VEHICLE_SPEED to ("km/h" to { d -> d[0].toDouble() }),
-    )
-
-    /** PID n (1-32) is supported when bit (7 - ((n-1) mod 8)) of byte (n-1)/8 is set, MSB first (p31). */
-    private fun supportedFromBitmap(bytes: List<Int>): Set<Int> =
-        (1..0x20).filter { n -> (bytes[(n - 1) / 8] shr (7 - (n - 1) % 8)) and 1 == 1 }.toSet()
+    /** PID base+1 through base+32; the last bit is the next page's continuation marker. */
+    private fun supportedFromBitmap(bytes: List<Int>, base: Int): Set<Int> =
+        (1..0x20).filter { n -> (bytes[(n - 1) / 8] shr (7 - (n - 1) % 8)) and 1 == 1 }
+            .map { base + it }.filter { it <= 0xFF }.toSet()
 
     /**
      * Mode 03/07. CAN replies carry a DTC count in the second byte; other

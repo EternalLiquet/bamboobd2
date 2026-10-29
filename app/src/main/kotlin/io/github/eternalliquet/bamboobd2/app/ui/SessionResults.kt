@@ -22,6 +22,8 @@ import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.model.Capability
+import io.github.eternalliquet.bamboobd2.core.model.capability
 import io.github.eternalliquet.bamboobd2.core.reader.ElmObdReader
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import java.text.DateFormat
@@ -72,13 +74,10 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         Text(stringResource(R.string.sensor_support_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(stringResource(R.string.sensor_support_explainer), style = MaterialTheme.typography.bodySmall)
         ObdPid.entries.forEach { pid ->
-            val support = when (val map = record.supportedPids) {
-                is SupportedPids.Known -> when {
-                    pid.code in map.pids -> R.string.sensor_support_supported
-                    map.complete -> R.string.sensor_support_unsupported
-                    else -> R.string.sensor_support_unknown
-                }
-                SupportedPids.Unknown -> R.string.sensor_support_unknown
+            val support = when (record.supportedPids.capability(pid.code).capability) {
+                Capability.SUPPORTED_AND_DECODABLE, Capability.SUPPORTED_NOT_DECODED -> R.string.sensor_support_supported
+                Capability.UNSUPPORTED -> R.string.sensor_support_unsupported
+                Capability.UNKNOWN -> R.string.sensor_support_unknown
             }
             Text(stringResource(R.string.sensor_support_row, stringResource(pidLabel(pid)), stringResource(support)))
         }

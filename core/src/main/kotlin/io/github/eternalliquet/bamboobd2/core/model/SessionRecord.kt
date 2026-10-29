@@ -2,6 +2,7 @@ package io.github.eternalliquet.bamboobd2.core.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 
 /** Where a session's data came from. Readers derive it from their transport's kind; callers cannot set it. */
 @Serializable
@@ -32,12 +33,73 @@ sealed interface SupportedPids {
      */
     @Serializable
     @SerialName("known")
-    data class Known(val pids: List<String>, val complete: Boolean = true) : SupportedPids
+    data class Known(
+        val pids: List<String>,
+        val complete: Boolean = true,
+        val pages: List<PageEvidence> = emptyList(),
+    ) : SupportedPids
 
     /** The supported-PID map could not be read. Nothing is requested on that basis. */
     @Serializable
     @SerialName("unknown")
     data object Unknown : SupportedPids
+}
+
+@Serializable
+enum class PageStatus { VALID, MISSING, NO_DATA, NEGATIVE, MALFORMED, PENDING, CONFLICT }
+
+/** One responder and one requested support page. VALID with no IDs is an observed zero map. */
+@Serializable
+data class PageEvidence(
+    val ecu: String?,
+    val pageBase: String,
+    val status: PageStatus,
+    val supportedIds: List<String> = emptyList(),
+    val continues: Boolean = false,
+    val reason: String = "",
+)
+
+enum class Capability { SUPPORTED_AND_DECODABLE, SUPPORTED_NOT_DECODED, UNSUPPORTED, UNKNOWN }
+data class CapabilityResult(val capability: Capability, val reason: String, val pageBase: String)
+
+/** A v1 union says at least one unidentified responder supported a PID, never which ECU. */
+fun SupportedPids.capability(pid: String, ecu: String? = null): CapabilityResult {
+    val n = pid.toIntOrNull(16)?.takeIf { pid.length == 2 && it in 1..255 }
+        ?: return CapabilityResult(Capability.UNKNOWN, "invalid PID", "")
+    if (pid in Mode01Catalog.pageIds) return CapabilityResult(Capability.UNKNOWN, "continuation marker is metadata", pid)
+    val base = ((n - 1) / 32) * 32
+    val page = "%02X".format(base)
+    if (this !is SupportedPids.Known) return CapabilityResult(Capability.UNKNOWN, "no valid support map", page)
+    fun supported() = CapabilityResult(
+        if (Mode01Catalog.lookup(pid) != null) Capability.SUPPORTED_AND_DECODABLE else Capability.SUPPORTED_NOT_DECODED,
+        "advertised by responder", page,
+    )
+    if (pages.isEmpty()) return when {
+        pid in pids && ecu == null -> supported()
+        ecu != null -> CapabilityResult(Capability.UNKNOWN, "legacy union has no responder identity", page)
+        complete && base == 0 -> CapabilityResult(Capability.UNSUPPORTED, "legacy complete first-page union", page)
+        base > 0 -> CapabilityResult(Capability.UNKNOWN, "legacy union has no page evidence for this range", page)
+        else -> CapabilityResult(Capability.UNKNOWN, "legacy partial union", page)
+    }
+    fun forEcu(id: String?): CapabilityResult {
+        val chain = pages.filter { it.ecu == id }
+        for (b in 0..base step 32) {
+            val bHex = "%02X".format(b)
+            val entries = chain.filter { it.pageBase == bHex }
+            val valid = entries.singleOrNull()?.takeIf { it.status == PageStatus.VALID }
+                ?: return CapabilityResult(Capability.UNKNOWN, "missing or uncertain support page", bHex)
+            if (b == base) return if (pid in valid.supportedIds) supported()
+                else CapabilityResult(Capability.UNSUPPORTED, "valid responder map excludes PID", page)
+            if (!valid.continues)
+                return CapabilityResult(Capability.UNSUPPORTED, "responder chain terminated", bHex)
+        }
+        return CapabilityResult(Capability.UNKNOWN, "page unavailable", page)
+    }
+    if (ecu != null) return forEcu(ecu)
+    val states = pages.map { it.ecu }.distinct().map(::forEcu)
+    return states.firstOrNull { it.capability == Capability.SUPPORTED_AND_DECODABLE || it.capability == Capability.SUPPORTED_NOT_DECODED }
+        ?: if (states.isNotEmpty() && states.all { it.capability == Capability.UNSUPPORTED }) states.first()
+        else CapabilityResult(Capability.UNKNOWN, "at least one responder is unresolved", page)
 }
 
 @Serializable
@@ -121,7 +183,7 @@ data class SessionRecord(
         get() = DtcKind.STORED in dtcKindsRead && DtcKind.PENDING in dtcKindsRead
 
     companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
     }
 }
 

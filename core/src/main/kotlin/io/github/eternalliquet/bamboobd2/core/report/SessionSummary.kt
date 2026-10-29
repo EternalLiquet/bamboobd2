@@ -8,6 +8,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import kotlin.math.round
 
 /** A deliberately narrow, deterministic export of a saved or finished session. */
@@ -37,7 +38,7 @@ object SessionSummary {
         val usable = record.supportedPids is SupportedPids.Known || record.dtcKindsRead.isNotEmpty() ||
             record.dtcs.any { codePattern.matches(it.code) } ||
             record.readings.any { reading ->
-                val pid = ObdPid.entries.firstOrNull { it.code == reading.pid }
+                val pid = Mode01Catalog.lookup(reading.pid)
                 val result = reading.result as? ReadingResult.Value
                 pid != null && result != null && result.value.isFinite() && result.unit == pid.unit
             }
@@ -54,16 +55,12 @@ object SessionSummary {
             appendCodes(record, DtcKind.PENDING, "Pending codes")
             appendLine()
             appendLine("Sensor readings (generic Mode 01):")
-            ObdPid.entries.forEach { pid ->
-                val label = when (pid) {
-                    ObdPid.ENGINE_LOAD -> "Engine load"
-                    ObdPid.COOLANT_TEMP -> "Coolant temperature"
-                    ObdPid.ENGINE_RPM -> "Engine speed"
-                    ObdPid.VEHICLE_SPEED -> "Vehicle speed"
-                }
-                val rows = record.readings.filter { it.pid == pid.code }
+            ObdPid.entries.mapNotNull { Mode01Catalog.lookup(it.code) }.forEach { pid ->
+                val label = pid.labelKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+                val code = pid.pid
+                val rows = record.readings.filter { it.pid == code }
                 if (rows.isEmpty()) {
-                    appendLine("$label (PID ${pid.code}): ${if (scope == "CODES_ONLY") "Not requested" else "Not read"}")
+                    appendLine("$label (PID ${code}): ${if (scope == "CODES_ONLY") "Not requested" else "Not read"}")
                 } else rows.forEach { reading ->
                     val result = when (val value = reading.result) {
                         is ReadingResult.Value -> if (value.value.isFinite() && value.unit == pid.unit) {
@@ -74,7 +71,7 @@ object SessionSummary {
                         ReadingResult.Unsupported -> "Not reported by vehicle"
                         ReadingResult.UnknownCapability -> "Support unknown; not requested"
                     }
-                    appendLine("$label (PID ${pid.code}): $result; captured ${formatTime(reading.atMillis)}")
+                    appendLine("$label (PID ${code}): $result; captured ${formatTime(reading.atMillis)}")
                 }
             }
             appendLine()
