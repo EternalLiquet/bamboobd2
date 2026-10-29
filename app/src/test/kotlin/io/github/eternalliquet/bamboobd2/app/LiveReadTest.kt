@@ -174,7 +174,10 @@ class LiveReadTest {
         assertEquals(SessionOutcome.COMPLETE, record.outcome)
         assertEquals(4, record.readings.size)
         val byPid = record.readings.associateBy { it.pid }
-        assertEquals(ReadingResult.Value(50.2, "%", "7E8"), byPid.getValue("04").result)
+        val load = byPid.getValue("04").result as ReadingResult.Value
+        assertEquals(50.19607843137255, load.value, 0.000001) // raw 0x80; UI rounds to 50.2 %
+        assertEquals("%", load.unit)
+        assertEquals("7E8", load.ecu)
         assertEquals(ReadingResult.Value(83.0, "°C", "7E8"), byPid.getValue("05").result)
         assertEquals(ReadingResult.Value(1726.0, "rpm", "7E8"), byPid.getValue("0C").result)
         assertEquals(ReadingResult.Value(0.0, "km/h", "7E8"), byPid.getValue("0D").result)
