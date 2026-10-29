@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out the exact source commit
@@ -29,8 +29,11 @@ jobs:
           java-version: '21'
       - name: Set up cached Gradle
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4.4.3
-      - name: Install pinned Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Check preinstalled Android SDK components
+        run: |
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
+          printf 'Android SDK: %s; platform 36 and build-tools 35.0.0 present\n' "$ANDROID_HOME"
       - name: Verify core safety and tests
         run: ./gradlew -p core check --console=plain
       - name: Verify debug app and both merged manifests

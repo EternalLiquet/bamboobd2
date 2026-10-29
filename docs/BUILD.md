@@ -49,7 +49,7 @@ This covers the directly pinned dependencies. Their transitive dependencies were
 
 ## Commands
 
-For the overnight debug APK [#29](https://github.com/EternalLiquet/bamboobd2/issues/29), use the lean gate below. The repository's [verification workflow](../.github/workflows/verify.yml) runs the same commands on Ubuntu with Temurin JDK 21, Gradle wrapper 8.14.3 and Android SDK `platforms;android-36` plus `build-tools;35.0.0`. The workflow checks out the exact PR head or master commit, caches Gradle dependencies, logs the checked SHA and APK checksum, and publishes the debug APK named by source SHA. It needs no signing secret. CI cold setup and downloads are separate from warm verification time.
+For the overnight debug APK [#29](https://github.com/EternalLiquet/bamboobd2/issues/29), use the lean gate below. The repository's [verification workflow](../.github/workflows/verify.yml) runs the same commands on Ubuntu 24.04 with Temurin JDK 21, Gradle wrapper 8.14.3 and the runner's preinstalled Android SDK `platforms;android-36` plus `build-tools;35.0.0`. It checks those SDK files before building and does not run license acceptance. The workflow checks out the exact PR head or master commit, caches Gradle dependencies, logs the checked SHA and APK checksum, and publishes the debug APK named by source SHA. It needs no signing secret. CI cold setup and downloads are separate from warm verification time.
 
 ```sh
 ./gradlew -p core check
