@@ -9,10 +9,11 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.input.key.Key
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -42,13 +43,18 @@ class SessionSummaryFlowTest {
             .assertIsDisplayed()
         rule.onNodeWithText("SIMULATED — synthetic data", substring = true).assertIsDisplayed()
         assertEquals(null, shadowOf(rule.activity).nextStartedActivity)
-        rule.onNodeWithText("Copy summary").performClick()
+        rule.onNodeWithText("Copy summary").performScrollTo().performClick()
         val clipboard = rule.activity.getSystemService(ClipboardManager::class.java)
         val copied = clipboard.primaryClip!!.getItemAt(0).text.toString()
         assertTrue(copied.contains("Stored codes: Read"))
         assertTrue(copied.contains("P0133"))
         assertTrue(copied.contains("Pending codes: Read"))
         assertTrue(copied.contains("not a diagnosis"))
+        rule.onNodeWithText(copied).assertExists()
+        rule.onNodeWithText("Session summary").performKeyInput { pressKey(Key.Back) }
+        rule.onAllNodes(hasText("Session summary")).assertCountEquals(0)
+        rule.onNodeWithText("Preview summary").performScrollTo().performClick()
+        rule.onNodeWithText(copied).assertExists()
         rule.onNodeWithText("Close").performClick()
         rule.onNodeWithText("Save").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Saved")).fetchSemanticsNodes().isNotEmpty() }
@@ -59,9 +65,9 @@ class SessionSummaryFlowTest {
         rule.onNodeWithText(entry).performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Preview summary")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Preview summary").performScrollTo().performClick()
+        rule.onNodeWithText(copied).assertExists()
         rule.onNodeWithText("Share").performClick()
-        val chooser = shadowOf(rule.activity).nextStartedActivity
-        assertNotNull(chooser)
+        val chooser = requireNotNull(shadowOf(rule.activity).nextStartedActivity)
         assertEquals(Intent.ACTION_CHOOSER, chooser.action)
         val send = chooser.getParcelableExtra(Intent.EXTRA_INTENT) as Intent
         assertEquals(Intent.ACTION_SEND, send.action)

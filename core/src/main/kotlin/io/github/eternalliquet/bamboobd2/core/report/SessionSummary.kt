@@ -89,13 +89,13 @@ object SessionSummary {
             it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':') == kind.name.lowercase()
         }
         val status = when {
-            incomplete -> "Incomplete"
             kind in record.dtcKindsRead -> "Read"
+            incomplete || entries.isNotEmpty() -> "Incomplete"
             else -> "Not read"
         }
         appendLine("$label: $status")
         validated.forEach { appendLine("  ${it.code} (${responder(it.ecu)})") }
-        if (entries.isEmpty() && !incomplete && kind in record.dtcKindsRead) appendLine("  No codes reported")
+        if (entries.isEmpty() && kind in record.dtcKindsRead) appendLine("  No codes reported")
         if (entries.isNotEmpty() && validated.isEmpty()) appendLine("  No validated code included")
     }
 

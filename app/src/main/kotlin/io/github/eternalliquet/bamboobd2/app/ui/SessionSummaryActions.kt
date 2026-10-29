@@ -49,9 +49,9 @@ fun SessionSummaryActions(record: SessionRecord) {
             onDismissRequest = { preview = null },
             title = { Text(stringResource(R.string.summary_title)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.summary_review_notice))
-                    Text(text, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
+                    Text(text, modifier = Modifier.heightIn(max = 360.dp))
                     CopyButton(text = text, label = R.string.summary_copy)
                     if (shareUnavailable) Text(stringResource(R.string.summary_share_unavailable))
                 }

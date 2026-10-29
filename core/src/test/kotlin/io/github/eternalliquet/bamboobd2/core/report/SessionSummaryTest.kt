@@ -60,13 +60,35 @@ class SessionSummaryTest {
                 SessionEvent(13, "read_scope", hostile),
             ),
         ))
-        listOf("Stored codes: Incomplete", "Pending codes: Not read", "No usable value",
+        listOf("Stored codes: Incomplete", "Pending codes: Incomplete", "No usable value",
             "Failed (no value)", "1726.0 rpm (unknown responder)",
             "Read scope: Unknown", "unknown responder", "No validated code included").forEach {
             assertTrue("Expected '$it' in report: $report", report.contains(it))
         }
         listOf(hostile, "SECRET_SESSION_ID", "SECRET_SOURCE_LABEL", "No codes reported", "NaN").forEach {
             assertFalse("Leaked '$it' in report: $report", report.contains(it))
+        }
+    }
+
+    @Test
+    fun eachCodeKindReportsReadThenIncompleteThenNotReadByEvidence() {
+        for (kind in DtcKind.entries) {
+            val label = if (kind == DtcKind.STORED) "Stored" else "Pending"
+            val code = Dtc("P0133", kind)
+            val incomplete = SessionEvent(11, "codes_incomplete", "${kind.name.lowercase()}: hidden reason")
+            val cases = listOf(
+                Triple(record().copy(dtcs = listOf(code), dtcKindsRead = listOf(kind), events = listOf(incomplete)), "Read", true),
+                Triple(record().copy(dtcs = listOf(code)), "Incomplete", true),
+                Triple(record().copy(events = listOf(incomplete)), "Incomplete", false),
+                Triple(record(), "Not read", false),
+            )
+            cases.forEach { (input, status, hasEntry) ->
+                val report = render(input)
+                assertTrue(report.contains("$label codes: $status"))
+                assertTrue(report.contains("P0133 (unknown responder)") == hasEntry)
+                assertFalse(report.contains("hidden reason"))
+                if (status != "Read") assertFalse(report.contains("No codes reported"))
+            }
         }
     }
 
