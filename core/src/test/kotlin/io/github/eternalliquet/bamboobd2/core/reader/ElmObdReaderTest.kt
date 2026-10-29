@@ -348,7 +348,8 @@ class ElmObdReaderTest {
         val busInitError = arrayOf(30L to "BUS INIT: ", 750L to ".", 1_350L to ".", 1_950L to ".", 2_900L to "ERROR\r\r>")
         val steps = init + listOf(
             step("0100", *busInitError),
-            step("ATDPN", 10L to "A3\r\r>"),
+            // A bare "3" as in the capture: bus-init status shows only with automatic search off (p33).
+            step("ATDPN", 10L to "3\r\r>"),
             step("03", *busInitError),
             step("07", *busInitError),
         )
@@ -358,7 +359,8 @@ class ElmObdReaderTest {
         assertFalse(r.allCodesRead)
         assertTrue(r.dtcKindsRead.isEmpty())
         assertEquals(SupportedPids.Unknown, r.supportedPids)
-        val reasons = r.events.filter { it.kind == "codes_not_read" || it.kind == "supported_pids_unknown" }.map { it.detail }
+        val reasons = r.events.filter { it.kind == SessionController.CODES_NOT_READ || it.kind == ElmObdReader.SUPPORTED_PIDS_UNKNOWN }.map { it.detail }
+        assertTrue(r.events.any { it.kind == ElmObdReader.PROTOCOL_NOTE && it.detail == "3: ISO 9141-2 (5 baud init), fixed setting" })
         assertEquals(3, reasons.size)
         assertTrue(reasons.toString(), reasons.all { "BUS INIT: ...ERROR" in it })
     }

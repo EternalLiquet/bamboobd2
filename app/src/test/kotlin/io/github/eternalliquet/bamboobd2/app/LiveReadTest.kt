@@ -141,7 +141,10 @@ class LiveReadTest {
             assertTrue("$identifier in record", identifier !in saved)
         }
         assertTrue("connection closed after the session", socket.closed.await(5, TimeUnit.SECONDS))
-        idleUntil(5) { vm.live.value is LiveState.Available }
+        // With no screen to acknowledge it, the result hand-off stays pending; acknowledging consumes it.
+        assertEquals(LiveState.Started, vm.live.value)
+        vm.acknowledgeLiveStarted()
+        assertTrue(vm.live.value is LiveState.Available)
     }
 
     @Test
@@ -149,7 +152,7 @@ class LiveReadTest {
         // Every vehicle request ends like the owner's BRZ captures, even after ATSP0.
         val busInitError = "BUS INIT: ...ERROR\r\r>"
         val socket = FakeElmSocket(
-            carReplies + mapOf("0100" to busInitError, "ATDPN" to "A3\r\r>", "03" to busInitError, "07" to busInitError),
+            carReplies + mapOf("0100" to busInitError, "ATDPN" to "3\r\r>", "03" to busInitError, "07" to busInitError),
         )
         val live = viewModel(socket)
         live.startLive(device)
@@ -172,11 +175,11 @@ class LiveReadTest {
         rule.onNodeWithText(entry).performClick()
         rule.waitUntil(5_000) {
             ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Adapter protocol: 3: ISO 9141-2 (5 baud init), found by automatic search")).fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodes(hasText("Adapter protocol: 3: ISO 9141-2 (5 baud init), fixed setting")).fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText("Finished, but nothing was read from the car").performScrollTo()
-        rule.onNodeWithText("Not read, stored: adapter reported BUS INIT: ...ERROR").performScrollTo()
-        rule.onNodeWithText("Not read, pending: adapter reported BUS INIT: ...ERROR").performScrollTo()
+        rule.onNodeWithText("Code list not read (stored: adapter reported BUS INIT: ...ERROR)").performScrollTo()
+        rule.onNodeWithText("Code list not read (pending: adapter reported BUS INIT: ...ERROR)").performScrollTo()
         rule.onNodeWithText("Supported-reading map not read: adapter reported BUS INIT: ...ERROR").performScrollTo()
         rule.onAllNodes(hasText("No generic emissions codes reported", substring = true)).assertCountEquals(0)
     }
@@ -211,7 +214,7 @@ class LiveReadTest {
         // ATE0 gets no prompt: the reader waits its deadline and the resync window, then stops.
         rule.waitUntil(40_000) {
             ShadowLooper.idleMainLooper(200, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Stopped by an error: partial results")).fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodes(hasText("Stopped by an error: nothing was read")).fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE — data read from a connected adapter")
         rule.onNodeWithText("Copy raw capture for review").performScrollTo()

@@ -57,9 +57,9 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         // Why a list or the supported-reading map wasn't read, as the reader recorded it.
         record.events.forEach { event ->
             val reason = when (event.kind) {
-                "codes_not_read" -> R.string.reason_codes_not_read
-                "codes_incomplete" -> R.string.reason_codes_incomplete
-                "supported_pids_unknown" -> R.string.reason_map_not_read
+                SessionController.CODES_NOT_READ -> R.string.reason_codes_not_read
+                SessionController.CODES_INCOMPLETE -> R.string.reason_codes_incomplete
+                ElmObdReader.SUPPORTED_PIDS_UNKNOWN -> R.string.reason_map_not_read
                 else -> null
             }
             reason?.let { Text(stringResource(it, event.detail), style = MaterialTheme.typography.bodyMedium) }
@@ -94,8 +94,19 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
 }
 
 @Composable
-fun statusText(record: SessionRecord): String =
-    if (record.outcome == SessionOutcome.COMPLETE && record.readNothing) stringResource(R.string.status_nothing_read) else statusText(record.outcome)
+fun statusText(record: SessionRecord): String {
+    if (!record.readNothing) return statusText(record.outcome)
+    // Never "Complete" or "partial results" when the car gave nothing.
+    return stringResource(
+        when (record.outcome) {
+            SessionOutcome.COMPLETE -> R.string.status_nothing_read
+            SessionOutcome.CANCELLED -> R.string.status_cancelled_nothing
+            SessionOutcome.FAILED -> R.string.status_failed_nothing
+            SessionOutcome.DISCONNECTED -> R.string.status_disconnected_nothing
+            null -> R.string.reading_progress
+        },
+    )
+}
 
 @Composable
 fun statusText(outcome: SessionOutcome?): String = stringResource(

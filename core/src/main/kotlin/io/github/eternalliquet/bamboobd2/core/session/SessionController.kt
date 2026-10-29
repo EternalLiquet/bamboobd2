@@ -93,11 +93,11 @@ class SessionController(
                         // Codes kept, list not marked read: an incomplete list never counts as complete.
                         is DtcRead.Incomplete -> record.copy(
                             dtcs = record.dtcs + read.codes,
-                            events = record.events + SessionEvent(clock.nowMillis(), "codes_incomplete", "${kind.name.lowercase()}: ${read.reason}"),
+                            events = record.events + SessionEvent(clock.nowMillis(), CODES_INCOMPLETE, "${kind.name.lowercase()}: ${read.reason}"),
                         )
                         // Not marked as read, so an empty list is never shown as "no codes".
                         is DtcRead.NotRead -> record.copy(
-                            events = record.events + SessionEvent(clock.nowMillis(), "codes_not_read", "${kind.name.lowercase()}: ${read.reason}"),
+                            events = record.events + SessionEvent(clock.nowMillis(), CODES_NOT_READ, "${kind.name.lowercase()}: ${read.reason}"),
                         )
                     }
                     record = withNotes(record)
@@ -169,5 +169,9 @@ class SessionController(
     companion object {
         /** Event kind recorded when a codes-only session skips the live readings. */
         const val READINGS_NOT_REQUESTED = "readings_not_requested"
+
+        /** Event kinds for a code list that was not read, or read only in part; detail "<kind>: <reason>". */
+        const val CODES_NOT_READ = "codes_not_read"
+        const val CODES_INCOMPLETE = "codes_incomplete"
     }
 }

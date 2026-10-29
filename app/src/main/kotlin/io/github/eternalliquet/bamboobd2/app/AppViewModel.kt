@@ -67,7 +67,12 @@ sealed interface LiveState {
     data class Connecting(val device: String) : LiveState
     data class Failed(val device: String, val reason: String) : LiveState
 
-    /** Connected and running: the session screen shows it from here. */
+    /**
+     * A live session started and its screen hasn't been shown yet. It stays set,
+     * even after the session finishes, until the live-read screen navigates to the
+     * session and calls [AppViewModel.acknowledgeLiveStarted]. So a read that ends
+     * while the app is in the background is still reachable on return.
+     */
     data object Started : LiveState
 }
 
@@ -76,7 +81,7 @@ class AppViewModel @JvmOverloads constructor(
     application: Application,
     private val store: SessionStore = FileSessionStore(File(application.filesDir, "sessions")),
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val bluetooth: BluetoothPlatform = AndroidBluetoothPlatform(application),
+    private val bluetooth: BluetoothPlatform = BluetoothPlatforms.create(application),
 ) : AndroidViewModel(application) {
 
     private val controller = SessionController(viewModelScope)
@@ -201,19 +206,28 @@ class AppViewModel @JvmOverloads constructor(
     val captures: StateFlow<Map<String, String>> = _captures.asStateFlow()
 
     fun refreshLive(permissionDenied: Boolean = false) {
-        if (_live.value is LiveState.Connecting) return
+        // Never drop a connection in progress or an unacknowledged result hand-off.
+        if (_live.value is LiveState.Connecting || _live.value == LiveState.Started) return
         _live.value = LiveState.Available(bluetooth.availability(), permissionDenied)
     }
 
-    /** On opening the live-read screen: keeps a connection failure on screen until the user moves on. */
+    /** On opening the live-read screen: keeps a connection failure or a pending hand-off until the user moves on. */
     fun refreshLiveIfIdle() {
-        if (_live.value is LiveState.Available || _live.value is LiveState.Started) refreshLive()
+        if (_live.value is LiveState.Available) refreshLive()
+    }
+
+    /** The live-read screen has navigated to the started session: the hand-off is consumed. */
+    fun acknowledgeLiveStarted() {
+        if (_live.value == LiveState.Started) _live.value = LiveState.Available(bluetooth.availability())
     }
 
     fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
 
     fun startLive(device: BondedDevice) {
-        if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running) return
+        // Also never while a finished result still waits to be shown: it may be unsaved.
+        if (liveJob?.isActive == true || benchJob?.isActive == true || session.value is SessionState.Running ||
+            _live.value == LiveState.Started
+        ) return
         _live.value = LiveState.Connecting(device.name)
         liveJob = viewModelScope.launch {
             val recorder = CaptureRecorder()
@@ -238,9 +252,9 @@ class AppViewModel @JvmOverloads constructor(
                     "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
                 _captures.update { it + (id to recorder.json(id, source)) }
             } finally {
-                // No reconnect: a new read is a new connection and a new session.
+                // No reconnect: a new read is a new connection and a new session. The Started
+                // hand-off stays until the screen acknowledges it.
                 transport.close()
-                if (_live.value == LiveState.Started) _live.value = LiveState.Available(bluetooth.availability())
             }
         }
     }
@@ -269,4 +283,10 @@ class AppViewModel @JvmOverloads constructor(
 /** Main-dispatcher delays are scheduled on uptime, so replay timing reads the same clock. */
 private object UptimeTimeSource : AbstractLongTimeSource(DurationUnit.MILLISECONDS) {
     override fun read(): Long = SystemClock.uptimeMillis()
+}
+
+/** Where the ViewModel gets its Bluetooth platform. Tests replace it before the activity starts. */
+internal object BluetoothPlatforms {
+    @Volatile
+    var create: (Application) -> BluetoothPlatform = ::AndroidBluetoothPlatform
 }

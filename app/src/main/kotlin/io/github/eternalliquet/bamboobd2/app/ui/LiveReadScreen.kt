@@ -33,7 +33,14 @@ fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onBack: () -> Unit) 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vm::onLivePermissionResult)
 
     LaunchedEffect(Unit) { vm.refreshLiveIfIdle() }
-    LaunchedEffect(state) { if (state == LiveState.Started) onStarted() }
+    // Consume the hand-off once, then show the session: a read that finished while the
+    // app was in the background is shown on return, and only once.
+    LaunchedEffect(state) {
+        if (state == LiveState.Started) {
+            vm.acknowledgeLiveStarted()
+            onStarted()
+        }
+    }
     BackHandler {
         vm.cancelLiveConnect()
         onBack()

@@ -11,6 +11,7 @@
 | Phone model within the series | S24 Ultra | Earlier conversation context; not re-confirmed |
 | Adapter | Veepeak OBDCheck BLE (model "BLE", **not** BLE+), Amazon ASIN B073XKQQQW | Owner, 2026-10-28 |
 | First connection mode | Bluetooth Classic | Owner decision, 2026-10-28 (issue #12 go) |
+| Test car | 2020 Subaru BRZ | Owner, 2026-10-29 |
 | Phone OS | Android 17 (API 37), above the API 26 baseline | Owner, 2026-10-28, from the app's bench screen |
 | Pairing | Paired with the phone over Classic long before this work; used for track days with other apps | Owner, 2026-10-28 (pre-existing observation) |
 | Earlier phone smoke test | Debug build of `afb8364` installed and ran offline (fake and replay scenarios); owner reported "this test looks good" | Owner, 2026-10-28. No adapter involved |
@@ -32,7 +33,7 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 | How reliably the unit connects over Classic (one session observed; it was already paired) | Observed during L2 and later use |
 | Timing and chunking of vehicle replies (adapter commands: about 30–37 ms, one chunk each) | L2 |
 | `ATRV` accuracy (11.3–11.4 V reported in accessory mode) | A multimeter check on the battery, if wanted |
-| What the adapter does on a vehicle (protocol search, ECUs answering) | L2 |
+| Which protocol the car uses and how many ECUs answer. Expected CAN, since US cars have used CAN diagnostics since the 2008 model year; not yet observed | The next codes-only read, with `ATSP0` (PR #26) |
 
 ## L1 readiness
 
@@ -42,14 +43,14 @@ No serial number, Bluetooth address, VIN or other identifier is recorded here, a
 | Adapter | Available (owner). Label details still to be recorded |
 | Bench 12 V supply and a correct adapter power fixture | **None, and none planned** (owner, 2026-10-28). The requirement was dropped: L1 is now an adapter-only check in the parked car |
 | Operator | The owner |
-| Software | The offline bench path from #12 (adapter-only, rejects every vehicle request), pending its review and the L1 go |
+| Software | The adapter-only bench check from #12 (merged with PR #25; rejects every vehicle request) |
 | Authorization | **L1 satisfied by owner decision, 2026-10-28**, on the strength of the owner-run check below. L2 is not authorized by this |
 
 ## Owner-run observation outside the L1 gate (2026-10-28)
 
 The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) with the real adapter. This happened before the L1 go and not on a bench supply, so it is recorded as an owner-run observation, **not** as an authorized L1 result.
 
-- **Setup:** adapter plugged into the car's OBD-II port, engine off, ignition in accessory mode. Already paired with the phone in system settings; the app did no pairing or scanning.
+- **Setup:** adapter plugged into the car's OBD-II port, engine off, ignition in accessory mode with accessories drawing power. Already paired with the phone in system settings; the app did no pairing or scanning.
 - **Commands sent:** only `ATI`, `AT@1` and `ATRV`, which are adapter-local. The app sent no vehicle request. Whether the adapter itself put anything on the bus while plugged in is unmeasured.
 - **Result, as reported by the app (owner's copied report):**
 
@@ -63,6 +64,7 @@ The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) w
   ```
 
   An earlier run the same day, seen in a screenshot, showed the same `ATI` and `AT@1` replies and `ATRV` 11.3V.
+- **Observed adapter responses only.** These are not proof of firmware authenticity, battery health or communication with any ECU.
 - **What it shows:** this unit connects over Bluetooth Classic (RFCOMM/SPP) from this phone through the app's transport, and answers adapter-local commands promptly (about 30–37 ms per command, one chunk each).
 - **What it does not show:**
   - Reliability over repeated connections.
@@ -70,3 +72,13 @@ The owner ran the app's adapter bench check (PR #25, debug build of `1d8d5f9`) w
   - The chip or firmware behind the "ELM327 v1.5" string.
   - Whether `ATRV` is accurate. It is the adapter's own measurement of its input. 11.3–11.4 V in accessory mode with loads on is plausible, but lower than a healthy battery at rest (typically about 12.4–12.7 V); checking with a meter would settle it.
 - **Owner decision (2026-10-28):** with no bench supply, L1 is redefined as this in-car adapter-only check, and **this run satisfies it**. The owner judged that further L1 runs would prove nothing that L2 won't show. The limits above stay recorded; they are not blockers for L2.
+
+## Owner-run codes-only reads (2026-10-29)
+
+The owner ran the app's **Read codes** screen (PR #26, debug build of `2e51c72`, before `ATSP0` was added) twice on the 2020 Subaru BRZ: first with ignition on and engine off, then with the engine running. Both raw captures are kept private, outside Git, and are summarized here.
+
+- **Adapter setup:** `ATE0`, `ATL0` and `ATH1` answered `OK` in 25–42 ms. Echo was already off before `ATE0`, so the adapter appears to keep settings from earlier apps.
+- **Vehicle requests:** `0100`, `03` and `07` each ended in `BUS INIT: ...ERROR` after about 2.9 s. The dots arrived about 0.6 s apart.
+- **Protocol:** `ATDPN` answered `3`, with no `A`: ISO 9141-2 (K-line, 5 baud init), fixed, with automatic search off. Per ELM327DSJ p26, a fixed non-zero protocol is the only one tried, and a failed init gives exactly this message.
+- **Interpretation:** the adapter had protocol 3 stored, and the car, expected to be CAN, never answered a K-line initialization. That the engine-running run failed the same way rules out the ignition position as the cause. No ECU communication took place and nothing was read; the app showed "Not read" without a reason, which PR #26 fixes.
+- **Owner decision (2026-10-29):** add `ATSP0` (automatic protocol detection) before `0100`. The owner accepts that a protocol found this way may become the adapter's saved default when its memory function is on. The next read is the owner's to run.

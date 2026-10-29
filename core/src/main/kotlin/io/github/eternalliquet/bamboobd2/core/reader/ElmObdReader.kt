@@ -134,7 +134,7 @@ class ElmObdReader(
         format = ResponseFormat(headers = true, form = form)
         val (result, unresolved) = decode(VehicleRequest.SUPPORTED_PIDS_01_20, raw)
         val supported = ReadPlan.supportedFrom(result)
-        if (supported == SupportedPids.Unknown) notes += ReaderNote("supported_pids_unknown", describe(result))
+        if (supported == SupportedPids.Unknown) notes += ReaderNote(SUPPORTED_PIDS_UNKNOWN, describe(result))
         if (unresolved.isNotEmpty()) notes += ReaderNote("supported_pids_incomplete", pendingReason(unresolved))
         // A responder that never reported its map leaves discovery incomplete.
         return if (supported is SupportedPids.Known && unresolved.isNotEmpty()) supported.copy(complete = false) else supported
@@ -293,6 +293,9 @@ class ElmObdReader(
     companion object {
         /** Session event kind holding the protocol `ATDPN` reported. */
         const val PROTOCOL_NOTE = "protocol"
+
+        /** Session event kind: the supported-PID map could not be read; detail is the reason. */
+        const val SUPPORTED_PIDS_UNKNOWN = "supported_pids_unknown"
 
         /** "A6" becomes "6: ISO 15765-4 CAN (11 bit ID, 500 kbaud), found by automatic search" (pp25-26). */
         fun describeProtocol(dpn: String): String {
