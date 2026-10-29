@@ -10,7 +10,7 @@
     <string name="live_open">Read codes from the car (Bluetooth)</string>
     <string name="live_title">Read codes</string>
     <string name="live_read_banner">LIVE READ — car codes only, no sensor readings or clearing</string>
-    <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07). It also sends the adapter setup commands ATE0, ATL0 and ATH1 first, and ATDPN after 0100 to learn the protocol. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>
+    <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07). It also sends the adapter setup commands ATE0, ATL0, ATH1 and ATSP0 (automatic protocol detection) first, and ATDPN after 0100 to report the protocol found. Detection can take up to about 30 seconds. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>
     <string name="live_pick">Paired devices. Pick the adapter to read codes:</string>
     <string name="live_connecting">Connecting to %1$s…</string>
     <string name="live_failed">Not connected to %1$s: %2$s</string>
@@ -59,6 +59,11 @@
     <string name="save_failed">Not saved: %1$s</string>
     <string name="done">Done</string>
     <string name="status_complete">Complete</string>
+    <string name="status_nothing_read">Finished, but nothing was read from the car</string>
+    <string name="protocol_line">Adapter protocol: %1$s</string>
+    <string name="reason_codes_not_read">Not read, %1$s</string>
+    <string name="reason_codes_incomplete">Incomplete, %1$s</string>
+    <string name="reason_map_not_read">Supported-reading map not read: %1$s</string>
     <string name="status_cancelled">Cancelled: partial results</string>
     <string name="status_failed">Stopped by an error: partial results</string>
     <string name="status_disconnected">Disconnected: partial results. Not reconnected.</string>

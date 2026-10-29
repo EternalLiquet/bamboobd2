@@ -3,6 +3,7 @@ package io.github.eternalliquet.bamboobd2.app
 import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothManager
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -141,6 +142,43 @@ class LiveReadTest {
         }
         assertTrue("connection closed after the session", socket.closed.await(5, TimeUnit.SECONDS))
         idleUntil(5) { vm.live.value is LiveState.Available }
+    }
+
+    @Test
+    fun busInitFailureIsShownWithReasonsAndNeverAsNoCodes() {
+        // Every vehicle request ends like the owner's BRZ captures, even after ATSP0.
+        val busInitError = "BUS INIT: ...ERROR\r\r>"
+        val socket = FakeElmSocket(
+            carReplies + mapOf("0100" to busInitError, "ATDPN" to "A3\r\r>", "03" to busInitError, "07" to busInitError),
+        )
+        val live = viewModel(socket)
+        live.startLive(device)
+        idleUntil(20) { live.session.value is SessionState.Finished }
+        val record = (live.session.value as SessionState.Finished).record
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writtenText())
+        assertTrue(record.readNothing)
+        assertTrue(!record.allCodesRead)
+
+        // Save it where the activity's ViewModel reads, then reopen it on screen.
+        val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
+        val dir = vm.getApplication<Application>().filesDir.resolve("sessions").also { it.deleteRecursively() }
+        FileSessionStore(dir).save(record)
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        val entry = "LIVE · bluetooth:classic · Finished, but nothing was read from the car"
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
+            rule.onAllNodes(hasText(entry)).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText(entry).performClick()
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
+            rule.onAllNodes(hasText("Adapter protocol: 3: ISO 9141-2 (5 baud init), found by automatic search")).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText("Finished, but nothing was read from the car").performScrollTo()
+        rule.onNodeWithText("Not read, stored: adapter reported BUS INIT: ...ERROR").performScrollTo()
+        rule.onNodeWithText("Not read, pending: adapter reported BUS INIT: ...ERROR").performScrollTo()
+        rule.onNodeWithText("Supported-reading map not read: adapter reported BUS INIT: ...ERROR").performScrollTo()
+        rule.onAllNodes(hasText("No generic emissions codes reported", substring = true)).assertCountEquals(0)
     }
 
     @Test

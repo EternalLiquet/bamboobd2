@@ -47,7 +47,7 @@ Record these in the evidence note. They are measured during L1, never assumed be
 
 L2 is lighter than L1 was planned to be, by owner decision (2026-10-28). It is one run of the app's **Read codes** screen in the parked car:
 - **Car:** parked, ignition on, engine off. No other diagnostic app connected to the adapter at the same time.
-- **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup, `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
+- **What runs:** the codes-only sequence in [BLUETOOTH_TRANSPORT.md](BLUETOOTH_TRANSPORT.md): adapter setup including `ATSP0` (automatic protocol detection, owner-approved 2026-10-29), `0100`, `ATDPN`, `03`, `07`. Nothing else is possible from that screen.
 - **Stop and unplug if:** a new warning light comes on, the car does anything unexpected, or the adapter gets hot.
 - **Afterwards:** save the session, copy the raw capture, and send both for review. The capture stays out of Git until it has been reviewed and sanitized.
 - **Running it is the owner's decision**, recorded in issue #14. This document doesn't authorize it.

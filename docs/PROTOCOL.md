@@ -17,7 +17,7 @@ Page numbers below refer to ELM327DSJ.
 ## Request policy (F9)
 
 - Only `RequestPolicy` creates a `Request`. Its constructor is internal to `:core`, so Kotlin code in other modules (the Android shell) cannot call it; `internal` is not enforced against Java callers or deliberate compiler-suppression tricks. `AdapterTransport.write` takes only a `Request`.
-- Deny by default. Accepted vehicle requests are exactly `0100`, `0104`, `0105`, `010C`, `010D`, `03`, `07`. Accepted adapter commands are exactly the seven approved below. The SHA-256 of the combined allowlist is pinned in `RequestPolicyTest`.
+- Deny by default. Accepted vehicle requests are exactly `0100`, `0104`, `0105`, `010C`, `010D`, `03`, `07`. Accepted adapter commands are exactly the eight approved below. The SHA-256 of the combined allowlist is pinned in `RequestPolicyTest`.
 - Only the exact canonical text is accepted. The ELM327 ignores spaces and control characters and is case-insensitive (p9), so `0 4` would reach a vehicle as mode 04. Variants are rejected, not normalized.
 - Empty and whitespace-only lines are rejected: a single carriage return repeats the last command (p9, p12).
 - Every AT command outside the approved list is rejected.
@@ -52,7 +52,7 @@ Page numbers below refer to ELM327DSJ.
 
 ## Approved adapter command list
 
-The owner approved exactly these seven on 2026-10-28 (`AdapterCommand` in code). **The approval covers code and fake/replay tests only, not sending them to an adapter or vehicle.** Every hardware gate in [LIVE_TEST_GATE.md](LIVE_TEST_GATE.md) still applies. All seven configure or query the adapter itself; none of them sends a message to a vehicle.
+The owner approved the first seven on 2026-10-28 and `ATSP0` on 2026-10-29 (`AdapterCommand` in code). Every hardware gate in [LIVE_TEST_GATE.md](LIVE_TEST_GATE.md) still applies. All eight configure or query the adapter itself. `ATSP0` sends nothing to the vehicle on its own, but it makes the adapter search protocols on the next vehicle request (see below).
 
 | Command | Kind | What it does (page) | Limits |
 | --- | --- | --- | --- |
@@ -63,17 +63,18 @@ The owner approved exactly these seven on 2026-10-28 (`AdapterCommand` in code).
 | `ATI` | Information | Print the version ID (p18) | Self-reported text, **not** an authenticated or unique device identity |
 | `AT@1` | Information | Display the device description (p28) | Self-reported text, **not** an authenticated or unique device identity |
 | `ATRV` | Information | Read the input voltage (p24) | The adapter's own input voltage measurement, not a vehicle sensor value |
+| `ATSP0` | Configuration | Set the protocol to automatic (p26) | Sent before `0100` in live reads. Replaces a fixed protocol stored by another app, which makes a car on any other protocol fail with `BUS INIT: ...ERROR` (seen on the owner's CAN car, adapter fixed to protocol 3). `SP 0` writes nothing to EEPROM itself, but with the adapter's memory function on, a protocol it finds becomes the saved default (owner accepted). The search is adapter-originated vehicle traffic |
 
 **Still denied (not approved):**
 - **Resets and defaults:** `ATZ`, `ATWS`, `ATD`.
-- **Protocol selection or search:** `ATSP`, `ATTP`, `ATSS`.
+- **Protocol selection or search:** every `ATSP` form other than `ATSP0` (including `ATSP 0`, `ATSP00` and `ATSPA0`), and `ATTP`, `ATSS`.
 - **Addressing and filters:** `ATSH`, `ATCRA`, `ATCF`, `ATCM`, `ATCP`, `ATTA`, `ATSR`, `ATRA`.
 - **Nonvolatile memory:** `ATPP`, `ATSD`.
 - **Bus initiation and wakeup:** `ATSI`, `ATFI`, `ATSW`, `ATWM`, `ATKW`.
 - **Monitoring:** `ATMA`, `ATMR`, `ATMT`, `ATMP`.
 - **Timeouts:** `ATST`. The session layer (#10) will decide whether a timeout command is needed.
 
-**Open point for L2:** the data sheet says ELM327 chips ship set to automatic protocol search (p20). Even without `ATSP0`, the first vehicle request may make the adapter search protocols. That is adapter-originated vehicle traffic and must be decided in the L2 plan ([LIVE_TEST_GATE.md](LIVE_TEST_GATE.md)).
+**Protocol search (decided 2026-10-29):** the owner approved `ATSP0` and the adapter-originated protocol search it causes on the first vehicle request. The first `0100` after it gets a bounded 30 s search budget (`AdapterProfile.PROVISIONAL.protocolSearchMillis`, unmeasured) instead of the normal 10 s, with the usual single retry. `ATDPN` then reports the protocol found, which is recorded on the session.
 
 ## Sessions over a transport (#10)
 
