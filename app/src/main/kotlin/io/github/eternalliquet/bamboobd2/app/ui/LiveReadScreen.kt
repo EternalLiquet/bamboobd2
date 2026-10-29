@@ -93,7 +93,7 @@ fun LiveReadScreen(vm: AppViewModel, onStarted: () -> Unit, onRecording: () -> U
                     permissionDenied = s.permissionDenied,
                     onRequest = { vm.bluetoothPermission?.let(permission::launch) },
                     onRefresh = { vm.refreshLive() },
-                    onPick = { device -> if (selectedMode == "recording") { vm.startRecording(device); onRecording() } else vm.startLive(device, selectedScope) },
+                    onPick = { device -> if (selectedMode == "recording") { if (vm.startRecording(device)) onRecording() } else vm.startLive(device, selectedScope) },
                     pickPrompt = R.string.live_pick,
                 )
                 is LiveState.Connecting -> Progress(stringResource(R.string.live_connecting, s.device), vm::cancelLiveConnect)

@@ -126,9 +126,9 @@ class AppViewModel @JvmOverloads constructor(
     private var recordingStartedAt = 0L
     fun recordingElapsedMillis(): Long = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceIn(0L, 600_000L)
 
-    fun startRecording(device: BondedDevice) {
+    fun startRecording(device: BondedDevice): Boolean {
         if (recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
-            session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return
+            session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
         _recordingPending.value = true
         _live.value = LiveState.Connecting(device.name)
         recordingJob = viewModelScope.launch {
@@ -154,6 +154,7 @@ class AppViewModel @JvmOverloads constructor(
                 liveController.state.first { it is LiveReadState.Finished }
             } finally { transport.close() }
         }
+        return true
     }
 
     fun startSelectedRecording(pids: List<String>) = liveController.start(pids)

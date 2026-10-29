@@ -86,6 +86,7 @@ class LiveRecordingFlowTest {
     @Test fun fourReadingControlsStopWritesAndSavePartial() {
         enter()
         rule.onNodeWithText("Start recording").performScrollTo().assertIsNotEnabled()
+        rule.onNodeWithTag("recording_pid_06").performScrollTo().assertIsNotEnabled()
         selectFour()
         rule.onNodeWithText("Start recording").performScrollTo().performClick()
         until(15) { (vm.recording.value as? LiveReadState.Recording)?.record?.recording?.samples.orEmpty().size >= 4 }

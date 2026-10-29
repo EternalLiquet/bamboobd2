@@ -9,7 +9,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.dp
+import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.app.live.RecordingSeries
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
+import androidx.compose.ui.res.stringResource
 import io.github.eternalliquet.bamboobd2.core.model.LiveSampleOutcome
 import java.text.DateFormat
 import java.util.Date
@@ -17,17 +20,20 @@ import java.util.Date
 /** Visual plot plus a complete textual inspection path; no interpolated readings. */
 @Composable
 fun RecordingTrends(series: List<RecordingSeries>, nowElapsed: Long, all: Boolean, onAll: (Boolean) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = !all, onClick = { onAll(false) }, label = { Text("Last 60 seconds") })
-        FilterChip(selected = all, onClick = { onAll(true) }, label = { Text("All recorded") })
+    Column {
+        FilterChip(selected = !all, onClick = { onAll(false) }, modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.recording_window_recent)) })
+        FilterChip(selected = all, onClick = { onAll(true) }, modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.recording_window_all)) })
     }
-    if (series.isEmpty()) Text("No observations in this window.")
+    if (series.isEmpty()) Text(stringResource(R.string.recording_no_observations))
     series.forEach { s ->
-        Text("PID ${s.key.pid} · ECU ${s.key.ecu ?: "unknown"} · ${s.key.unit}", style = MaterialTheme.typography.titleSmall)
+        val label = if (Mode01Catalog.lookup(s.key.pid) != null) stringResource(mode01LabelId(s.key.pid)) else "PID ${s.key.pid}"
+        Text("$label · PID ${s.key.pid} · ECU ${s.key.ecu ?: "unknown"} · ${s.key.unit}", style = MaterialTheme.typography.titleSmall)
         val min = s.minimum
         val max = s.maximum
         if (min != null && max != null) Text("Observed min $min, max $max ${s.key.unit}")
-        else Text("No numeric observation in this window.")
+        else Text(stringResource(R.string.recording_no_numeric))
         val values = s.segments.flatten()
         if (values.isNotEmpty()) {
             val low = min ?: 0.0
@@ -50,11 +56,19 @@ fun RecordingTrends(series: List<RecordingSeries>, nowElapsed: Long, all: Boolea
                         center = androidx.compose.ui.geometry.Offset(x(point.elapsedMillis), y(point.value!!))) }
                 }
             }
-            Text("Elapsed ${from / 1000}s–${nowElapsed / 1000}s; dots are recorded observations. Gaps are not connected.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.recording_axis, from / 1000, nowElapsed / 1000), style = MaterialTheme.typography.bodySmall)
         }
         var expanded by remember(s.key) { mutableStateOf(false) }
-        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide history" else "Inspect history (${s.history.size})") }
-        if (expanded) s.history.forEach { point ->
+        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) stringResource(R.string.recording_hide_history) else stringResource(R.string.recording_show_history, s.history.size)) }
+        var index by remember(s.key) { mutableIntStateOf(0) }
+        if (expanded && s.history.isNotEmpty()) {
+            val selected = index.coerceIn(0, s.history.lastIndex)
+            Text("${selected + 1} / ${s.history.size}")
+            TextButton(onClick = { index = selected - 1 }, enabled = selected > 0,
+                modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recording_previous)) }
+            TextButton(onClick = { index = selected + 1 }, enabled = selected < s.history.lastIndex,
+                modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recording_next)) }
+            val point = s.history[selected]
             val status = when (point.outcome) {
                 LiveSampleOutcome.VALUE -> "${point.value} ${point.unit}"
                 LiveSampleOutcome.MISSING -> "Missing: ${point.reason ?: "no response"}"

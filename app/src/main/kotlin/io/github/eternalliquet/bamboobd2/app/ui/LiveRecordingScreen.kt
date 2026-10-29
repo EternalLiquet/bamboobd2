@@ -41,7 +41,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
             delay(1000)
         }
     }
-    val record = if (live is LiveState.Connecting) null else when (val s = state) {
+    val record = if (live is LiveState.Connecting || live is LiveState.Failed) null else when (val s = state) {
         is LiveReadState.Preparing -> s.record
         is LiveReadState.Ready -> s.record
         is LiveReadState.Recording -> s.record
@@ -52,11 +52,14 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
     }
     val selection: SnapshotStateList<String> = remember(record?.id) { mutableStateListOf() }
     val finished = record != null && state is LiveReadState.Finished
+    val saving = record?.let { save[it.id] == SaveStatus.Saving } == true
     val saved = record?.let { (save[it.id] as? SaveStatus.Done)?.result is SaveResult.Saved } == true
     var discardPrompt by remember { mutableStateOf(false) }
     fun leave() {
         when {
+            saving -> Unit
             live is LiveState.Connecting -> { vm.cancelLiveConnect(); onDone() }
+            live is LiveState.Failed -> onDone()
             !finished && state !is LiveReadState.Idle -> vm.stopRecording()
             finished && !saved -> discardPrompt = true
             else -> { vm.finishRecording(); onDone() }
@@ -101,24 +104,18 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                         val capability = record.supportedPids.capability(pid).capability
                         val enabled = descriptor != null && capability == Capability.SUPPORTED_AND_DECODABLE
                         val label = descriptor?.let { stringResource(mode01LabelId(pid)) } ?: stringResource(R.string.sensor_pid_label, pid)
-                        val status = when (capability) {
-                            Capability.SUPPORTED_AND_DECODABLE -> R.string.sensor_support_supported
-                            Capability.SUPPORTED_NOT_DECODED -> R.string.sensor_support_not_decoded
-                            Capability.UNSUPPORTED -> R.string.sensor_support_unsupported
-                            Capability.UNKNOWN -> R.string.sensor_support_unknown
-                        }
                         val selectable = enabled && (pid in selection || selection.size < 4)
                         Row(Modifier.fillMaxWidth().testTag("recording_pid_$pid").toggleable(value = pid in selection, enabled = selectable,
                             role = Role.Checkbox, onValueChange = { checked ->
                                 if (checked) { if (selection.size < 4) selection.add(pid) } else selection.remove(pid)
                             }), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Checkbox(checked = pid in selection, enabled = selectable, onCheckedChange = null)
-                            Text("$label · PID $pid · ${descriptor?.unit ?: ""} · ${stringResource(status)}", modifier = Modifier.weight(1f))
+                            Text("$label · PID $pid · ${descriptor?.unit ?: ""} · ${stringResource(supportLabel(capability))}", modifier = Modifier.weight(1f))
                         }
                         known?.pages?.mapNotNull { it.ecu }?.distinct()?.forEach { ecu ->
                             Text(stringResource(R.string.sensor_support_ecu_row, label, ecu,
-                                stringResource(if (record.supportedPids.capability(pid, ecu).capability == Capability.SUPPORTED_AND_DECODABLE)
-                                    R.string.sensor_support_this_ecu else R.string.sensor_support_unknown)), style = MaterialTheme.typography.bodySmall)
+                                stringResource(supportLabel(record.supportedPids.capability(pid, ecu).capability, true))),
+                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Button(onClick = { vm.startSelectedRecording(selection.toList()) }, enabled = selection.size in 1..4,
@@ -134,7 +131,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                         val rows = r.samples.filter { it.pid == pid }
                         val responders = (record.supportedPids as? SupportedPids.Known)?.pages.orEmpty()
                             .mapNotNull { it.ecu }.distinct().filter { record.supportedPids.capability(pid, it).capability == Capability.SUPPORTED_AND_DECODABLE }
-                        Text("$label · PID $pid", style = MaterialTheme.typography.titleSmall)
+                        Text("$label · PID $pid · ${Mode01Catalog.lookup(pid)?.unit.orEmpty()}", style = MaterialTheme.typography.titleSmall)
                         (responders + rows.map { it.ecu }).distinct().forEach { ecu ->
                             val last = rows.lastOrNull { it.ecu == ecu }
                             val good = rows.lastOrNull { it.ecu == ecu && it.outcome == LiveSampleOutcome.VALUE }
@@ -146,7 +143,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                                 age != null && age > 5000 -> stringResource(R.string.recording_stale)
                                 else -> stringResource(R.string.recording_current)
                             }
-                            Text("ECU ${ecu ?: "unknown"} · $status" + (good?.let { " · ${it.value} ${it.unit} · ${stringResource(R.string.recording_age, (age ?: 0L).coerceAtLeast(0) / 1000)}" } ?: ""))
+                            Text("ECU ${ecu ?: "unknown"} · $status" + (if (age != null && age > 5000 && last?.outcome != LiveSampleOutcome.VALUE) " · ${stringResource(R.string.recording_stale)}" else "") + (good?.let { " · ${it.value} ${it.unit} · ${stringResource(R.string.recording_age, (age ?: 0L).coerceAtLeast(0) / 1000)}" } ?: ""))
                         }
                     }
                     Text(stringResource(R.string.recording_stale_explainer), style = MaterialTheme.typography.bodySmall)
@@ -155,12 +152,13 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                 if (finished) {
                     val status = save[record.id]
                     val result = (status as? SaveStatus.Done)?.result
+                    if (status == SaveStatus.Saving) Text(stringResource(R.string.recording_saving))
                     if (result is SaveResult.Saved) Text(stringResource(R.string.saved_ok))
                     if (result is SaveResult.Failed) Text(stringResource(R.string.save_failed, result.reason))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::saveRecording, enabled = status != SaveStatus.Saving && result !is SaveResult.Saved,
                             modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }
-                        OutlinedButton(onClick = { leave() }, modifier = Modifier.weight(1f)) { Text(stringResource(if (saved) R.string.done else R.string.recording_discard)) }
+                        OutlinedButton(onClick = { leave() }, enabled = !saving, modifier = Modifier.weight(1f)) { Text(stringResource(if (saved) R.string.done else R.string.recording_discard)) }
                     }
                 }
             }

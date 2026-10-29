@@ -161,7 +161,7 @@ fun statusText(outcome: SessionOutcome?): String = stringResource(
     },
 )
 
-private fun supportLabel(value: Capability, perEcu: Boolean = false) = when (value) {
+internal fun supportLabel(value: Capability, perEcu: Boolean = false) = when (value) {
     Capability.SUPPORTED_AND_DECODABLE -> if (perEcu) R.string.sensor_support_this_ecu else R.string.sensor_support_supported
     Capability.SUPPORTED_NOT_DECODED -> R.string.sensor_support_not_decoded
     Capability.UNSUPPORTED -> R.string.sensor_support_unsupported

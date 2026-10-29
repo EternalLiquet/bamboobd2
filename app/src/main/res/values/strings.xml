@@ -14,6 +14,16 @@
     <string name="pending_recording">A live recording is in progress or has an unsaved result. Open it to review and save, or discard it. Other sessions wait until it is finished.</string>
     <string name="pending_recording_open">Open live recording</string>
     <string name="pending_recording_discard">Discard live recording</string>
+    <string name="recording_window_recent">Last 60 seconds</string>
+    <string name="recording_window_all">All recorded</string>
+    <string name="recording_no_observations">No observations in this window.</string>
+    <string name="recording_no_numeric">No numeric observation in this window.</string>
+    <string name="recording_previous">Previous sample</string>
+    <string name="recording_next">Next sample</string>
+    <string name="recording_show_history">Inspect history (%1$d)</string>
+    <string name="recording_hide_history">Hide history</string>
+    <string name="recording_axis">Elapsed %1$ds–%2$ds; dots are recorded observations. Gaps are not connected.</string>
+    <string name="recording_saving">Saving recording…</string>
     <string name="recording_discard_title">Discard unsaved recording?</string>
     <string name="recording_discard_explainer">This recording has not been saved. Discarding removes the current result.</string>
     <string name="recording_discard">Discard</string>
