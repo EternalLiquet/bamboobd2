@@ -44,11 +44,14 @@ object RecordingReport {
     fun compare(first: SessionRecord, second: SessionRecord): List<RecordingComparisonRow> {
         val a = series(first).associateBy { it.key }
         val b = series(second).associateBy { it.key }
+        val firstIdentities = a.keys.map { it.pid to it.ecu }.toSet()
+        val secondIdentities = b.keys.map { it.pid to it.ecu }.toSet()
         return (a.keys + b.keys).distinct().sortedWith(compareBy<RecordingKey> { it.pid }.thenBy { it.ecu ?: "" }.thenBy { it.unit })
             .map { key ->
                 val left = a[key]
                 val right = b[key]
-                val otherUnit = (a.keys + b.keys).any { it.pid == key.pid && it.ecu == key.ecu && it.unit != key.unit }
+                val identity = key.pid to key.ecu
+                val otherUnit = if (left == null) identity in firstIdentities else identity in secondIdentities
                 RecordingComparisonRow(key, left, right, when {
                     key.ecu == null || !RESPONDER.matches(key.ecu) -> RecordingNotComparable.UNKNOWN_RESPONDER
                     left == null || right == null -> if (otherUnit) RecordingNotComparable.UNIT_MISMATCH else RecordingNotComparable.MISSING_SIDE

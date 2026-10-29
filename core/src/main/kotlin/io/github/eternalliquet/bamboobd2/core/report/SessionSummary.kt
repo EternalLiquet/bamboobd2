@@ -23,11 +23,7 @@ object SessionSummary {
             "FULL" -> "Codes and one sensor snapshot"
             else -> "Unknown (older record or missing scope)"
         }
-        val provenance = when (record.provenance) {
-            Provenance.SIMULATED -> "SIMULATED — synthetic data, not a vehicle scan"
-            Provenance.REPLAY -> "REPLAY — scripted data, not a live vehicle scan"
-            Provenance.LIVE -> "LIVE — adapter session"
-        }
+        val provenance = provenanceLabel(record.provenance)
         val outcome = when (record.outcome) {
             SessionOutcome.COMPLETE -> "Complete"
             SessionOutcome.CANCELLED -> "Cancelled"
@@ -85,7 +81,7 @@ object SessionSummary {
     private fun renderRecording(record: SessionRecord, appVersion: String, formatTime: (Long) -> String): String = buildString {
         val recording = requireNotNull(record.recording)
         appendLine("BambooBD2 $appVersion")
-        appendLine("Live recording · ${record.provenance}")
+        appendLine("Recording · ${provenanceLabel(record.provenance)}")
         appendLine("Started: ${formatTime(record.startedAt)}")
         appendLine("Ended: ${record.endedAt?.let(formatTime) ?: "Unknown"}")
         val duration = recording.events.lastOrNull()?.elapsedMillis ?: recording.samples.maxOfOrNull { it.elapsedMillis }
@@ -93,11 +89,12 @@ object SessionSummary {
         appendLine("Outcome: ${record.outcome ?: "Unknown"} (${if (record.complete) "complete" else "partial"})")
         appendLine("Stop reason: ${recording.stopReason ?: "Unknown"}")
         appendLine("Selected readings: ${recording.selectedPids.mapNotNull { Mode01Catalog.lookup(it)?.pid }.joinToString().ifEmpty { "None recorded" }}")
-        appendLine("Codes were collected during preparation; sensor samples continued afterward.")
+        appendLine("Code observations are from preparation, separate from continuing sensor sampling.")
         appendCodes(record, DtcKind.STORED, "Stored codes")
         appendCodes(record, DtcKind.PENDING, "Pending codes")
         appendLine("Recorded sensor series (observed outcomes only):")
         val series = RecordingReport.series(record)
+        if (series.isEmpty()) appendLine("No sensor outcomes recorded.")
         series.take(24).forEach { row ->
             val pid = Mode01Catalog.lookup(row.key.pid)
             val unit = row.key.unit.takeIf { it == pid?.unit } ?: "unrecognized unit"
@@ -115,7 +112,7 @@ object SessionSummary {
         val entries = record.dtcs.filter { it.kind == kind }
         val validated = entries.filter { codePattern.matches(it.code) }
         val incomplete = record.events.any {
-            it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':') == kind.name.lowercase()
+            it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':').equals(kind.name, ignoreCase = true)
         }
         val status = when {
             kind in record.dtcKindsRead -> "Read"
@@ -131,6 +128,12 @@ object SessionSummary {
     private fun responder(value: String?): String = if (value != null && responderPattern.matches(value)) {
         "responder $value"
     } else "unknown responder"
+
+    private fun provenanceLabel(provenance: Provenance): String = when (provenance) {
+        Provenance.SIMULATED -> "SIMULATED — synthetic data, not a vehicle scan"
+        Provenance.REPLAY -> "REPLAY — scripted data, not a live vehicle scan"
+        Provenance.LIVE -> "LIVE — adapter session"
+    }
 
     // toString and Kotlin rounding avoid locale dependence and java.* in pure core.
     private fun formatValue(value: Double): String {

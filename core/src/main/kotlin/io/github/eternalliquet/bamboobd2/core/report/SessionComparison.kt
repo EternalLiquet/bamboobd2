@@ -58,7 +58,7 @@ object SessionComparison {
             val codes = record.dtcs.filter { it.kind == kind }.map { CodeKey(kind, it.code, it.ecu) }
                 .distinct().sortedWith(compareBy<CodeKey> { it.code }.thenBy { it.ecu ?: "" })
             val incompleteEvent = record.events.any {
-                it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':') == kind.name.lowercase()
+                it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':').equals(kind.name, ignoreCase = true)
             }
             val coverage = when {
                 kind in record.dtcKindsRead -> CodeCoverage.READ
