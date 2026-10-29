@@ -126,6 +126,30 @@ class SessionControllerTest {
     }
 
     @Test
+    fun selectedScopeIsRecordedBeforeAnyReadAndSurvivesImmediateCancellation() = runTest {
+        val c = controller()
+        assertTrue(c.start(FakeReader(FakeScenario.NO_CODES, 100), ReadScope.CODES_ONLY))
+        val running = (c.state.value as SessionState.Running).record
+        assertEquals(listOf("read_scope" to "CODES_ONLY"), running.events.map { it.kind to it.detail })
+        c.cancel()
+        advanceUntilIdle()
+        val cancelled = (c.state.value as SessionState.Finished).record
+        assertEquals(SessionOutcome.CANCELLED, cancelled.outcome)
+        assertEquals("CODES_ONLY", cancelled.events.first { it.kind == "read_scope" }.detail)
+    }
+
+    @Test
+    fun fullScopeRecordsItsChoiceBeforeTheFirstSensorRequest() = runTest {
+        val c = controller()
+        assertTrue(c.start(FakeReader(FakeScenario.NO_CODES, 100), ReadScope.FULL))
+        assertEquals("FULL", (c.state.value as SessionState.Running).record.events.first { it.kind == "read_scope" }.detail)
+        advanceUntilIdle()
+        val finished = (c.state.value as SessionState.Finished).record
+        assertEquals(4, finished.readings.size)
+        assertEquals("FULL", finished.events.first { it.kind == "read_scope" }.detail)
+    }
+
+    @Test
     fun readerErrorFinishesAsFailedWithPartialData() = runTest {
         val reader = object : DiagnosticReader by FakeReader(FakeScenario.TWO_CODES, 100) {
             override suspend fun readDtcs(kind: DtcKind): DtcRead =
