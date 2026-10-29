@@ -172,7 +172,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
     }
 }
 
-private fun recordingStopReasonLabel(reason: LiveStopReason?) = when (reason) {
+internal fun recordingStopReasonLabel(reason: LiveStopReason?) = when (reason) {
     LiveStopReason.USER -> R.string.recording_stop_user
     LiveStopReason.DURATION_LIMIT -> R.string.recording_stop_duration
     LiveStopReason.WRITE_LIMIT -> R.string.recording_stop_writes

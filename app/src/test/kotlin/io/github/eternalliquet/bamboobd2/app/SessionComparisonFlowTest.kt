@@ -22,6 +22,13 @@ import io.github.eternalliquet.bamboobd2.core.model.Reading
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
+import io.github.eternalliquet.bamboobd2.core.model.LiveRecording
+import io.github.eternalliquet.bamboobd2.core.model.LiveSample
+import io.github.eternalliquet.bamboobd2.core.model.LiveSampleOutcome
+import io.github.eternalliquet.bamboobd2.core.model.LiveEvent
+import io.github.eternalliquet.bamboobd2.core.model.LiveEventKind
+import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
+import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
 import java.text.DateFormat
 import java.util.Date
@@ -63,6 +70,46 @@ class SessionComparisonFlowTest {
         dtcs = if (id == "first") listOf(Dtc("P0133", DtcKind.STORED, "7E8")) else emptyList(),
         readings = listOf(Reading("04", ReadingResult.Value(load, "%", "7E8"), start + 5)),
     )
+
+    @Test
+    fun savedRecordingHistoryAndMixedKindComparisonRemainOffline() {
+        val directory = sessionsDir().also { it.deleteRecursively() }
+        val snapshot = record("snapshot", 1_700_000_000_000, 50.0)
+        val recording = SessionRecord(2, "history", 1_700_086_400_000, 1_700_086_400_700,
+            Provenance.REPLAY, "synthetic", false, SessionOutcome.DISCONNECTED,
+            supportedPids = SupportedPids.Known(listOf("05")),
+            recording = LiveRecording(selectedPids = listOf("05"), writeCount = 2,
+                samples = listOf(
+                    LiveSample(1, 1_700_086_400_100, 100, "05", "7E8", "°C", LiveSampleOutcome.VALUE, 80.0),
+                    LiveSample(2, 1_700_086_400_200, 200, "05", "7E8", "°C", LiveSampleOutcome.MISSING, reason = "silent"),
+                ), events = listOf(LiveEvent(400, LiveEventKind.PAUSE), LiveEvent(600, LiveEventKind.END, LiveStopReason.DISCONNECTED)),
+                stopReason = LiveStopReason.DISCONNECTED))
+        FileSessionStore(directory).apply { save(snapshot); save(recording) }
+        val snapshotDate = DateFormat.getDateTimeInstance().format(Date(snapshot.startedAt))
+        val recordingDate = DateFormat.getDateTimeInstance().format(Date(recording.startedAt))
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        waitForSavedRow(recordingDate)
+        rule.onNodeWithText(recordingDate).performClick()
+        waitFor("Saved recording · elapsed")
+        rule.onNodeWithText("Observed min 80.0, max 80.0 °C").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Inspect history", substring = true).performScrollTo().performClick()
+        rule.onNodeWithText("Value: 80.0", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Next sample").performScrollTo().performClick()
+        rule.onNodeWithText("Missing: silent", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithContentDescription("Back").performClick()
+        savedTop()
+        rule.onNodeWithText("Choose two sessions").performClick()
+        waitForSavedRow(snapshotDate)
+        rule.onNodeWithText(snapshotDate).performClick()
+        waitForSavedRow(recordingDate)
+        rule.onNodeWithText(recordingDate).performClick()
+        savedTop()
+        rule.onNodeWithText("Compare").performClick()
+        waitFor("One session is a snapshot")
+        rule.onNodeWithText("One session is a snapshot", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onAllNodes(hasText("Second minus first", substring = true)).assertCountEquals(0)
+        rule.onAllNodes(hasText("Read codes", substring = true)).assertCountEquals(0)
+    }
 
     @Test
     fun fewerThanTwoReadableEntriesExplainsWhyComparisonIsUnavailable() {

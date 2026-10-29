@@ -11,7 +11,8 @@ import io.github.eternalliquet.bamboobd2.core.session.SessionController
 
 sealed interface ComparisonResult {
     data class Blocked(val reason: ComparisonBlock) : ComparisonResult
-    data class Ready(val codeKinds: List<CodeKindComparison>, val readings: List<ReadingComparison>) : ComparisonResult
+    data class Ready(val codeKinds: List<CodeKindComparison>, val readings: List<ReadingComparison>,
+        val recordingRows: List<RecordingComparisonRow> = emptyList(), val kindMismatch: Boolean = false) : ComparisonResult
 }
 
 enum class ComparisonBlock { SAME_SESSION, DIFFERENT_PROVENANCE }
@@ -46,7 +47,9 @@ object SessionComparison {
         if (first.provenance != second.provenance) return ComparisonResult.Blocked(ComparisonBlock.DIFFERENT_PROVENANCE)
         return ComparisonResult.Ready(
             DtcKind.entries.map { kind -> compareCodes(kind, first, second) },
-            Mode01Catalog.readings.flatMap { pid -> compareReadings(pid, first, second) },
+            if (first.recording == null && second.recording == null) Mode01Catalog.readings.flatMap { pid -> compareReadings(pid, first, second) } else emptyList(),
+            if (first.recording != null && second.recording != null) RecordingReport.compare(first, second) else emptyList(),
+            (first.recording == null) != (second.recording == null),
         )
     }
 
@@ -55,7 +58,7 @@ object SessionComparison {
             val codes = record.dtcs.filter { it.kind == kind }.map { CodeKey(kind, it.code, it.ecu) }
                 .distinct().sortedWith(compareBy<CodeKey> { it.code }.thenBy { it.ecu ?: "" })
             val incompleteEvent = record.events.any {
-                it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':') == kind.name.lowercase()
+                it.kind == SessionController.CODES_INCOMPLETE && it.detail.substringBefore(':').equals(kind.name, ignoreCase = true)
             }
             val coverage = when {
                 kind in record.dtcKindsRead -> CodeCoverage.READ

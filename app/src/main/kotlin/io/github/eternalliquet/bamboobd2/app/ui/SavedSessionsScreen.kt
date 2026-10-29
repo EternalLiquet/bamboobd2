@@ -136,7 +136,14 @@ fun SavedSessionsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onCompare: (
                 when (entry) {
                     is StoredSession.Readable -> {
                         val r = entry.record
-                        val status = statusText(r)
+                        val recording = r.recording
+                        val status = if (recording == null) statusText(r) else {
+                            val elapsed = recording.events.lastOrNull()?.elapsedMillis
+                                ?: recording.samples.maxOfOrNull { it.elapsedMillis } ?: 0L
+                            stringResource(R.string.saved_recording_row, elapsed / 1000,
+                                stringResource(recordingStopReasonLabel(recording.stopReason)),
+                                if (r.complete) stringResource(R.string.saved_recording_complete) else stringResource(R.string.saved_recording_partial))
+                        }
                         ListItem(
                             headlineContent = { Text(DateFormat.getDateTimeInstance().format(Date(r.startedAt))) },
                             supportingContent = {

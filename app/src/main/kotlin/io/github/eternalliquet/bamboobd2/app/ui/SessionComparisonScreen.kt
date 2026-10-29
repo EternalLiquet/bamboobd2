@@ -30,6 +30,9 @@ import io.github.eternalliquet.bamboobd2.core.report.ReadingComparison
 import io.github.eternalliquet.bamboobd2.core.report.ReadingObservation
 import io.github.eternalliquet.bamboobd2.core.report.ReadingStatus
 import io.github.eternalliquet.bamboobd2.core.report.SessionComparison
+import io.github.eternalliquet.bamboobd2.core.report.RecordingComparisonRow
+import io.github.eternalliquet.bamboobd2.core.report.RecordingNotComparable
+import io.github.eternalliquet.bamboobd2.core.report.RecordingSeriesReport
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.CancellationException
@@ -77,8 +80,18 @@ fun SessionComparisonScreen(vm: AppViewModel, firstId: String, secondId: String,
                                     Text(stringResource(R.string.compare_reported_second, codes(differences.onlySecond)))
                                 }
                             }
-                            Text(stringResource(R.string.compare_readings), style = MaterialTheme.typography.titleMedium)
-                            result.readings.forEach { row -> ReadingRow(row) }
+                            when {
+                                result.kindMismatch -> Text(stringResource(R.string.compare_kind_mismatch))
+                                first.recording != null -> {
+                                    Text(stringResource(R.string.compare_recording_heading), style = MaterialTheme.typography.titleMedium)
+                                    result.recordingRows.forEach { row -> RecordingRow(row) }
+                                    Text(stringResource(R.string.compare_recording_limit))
+                                }
+                                else -> {
+                                    Text(stringResource(R.string.compare_readings), style = MaterialTheme.typography.titleMedium)
+                                    result.readings.forEach { row -> ReadingRow(row) }
+                                }
+                            }
                             Text(stringResource(R.string.compare_limitations))
                         }
                     }
@@ -87,6 +100,28 @@ fun SessionComparisonScreen(vm: AppViewModel, firstId: String, secondId: String,
         }
     }
 }
+
+@Composable
+private fun RecordingRow(row: RecordingComparisonRow) {
+    val pid = Mode01Catalog.lookup(row.key.pid)
+    val unit = row.key.unit.takeIf { it == pid?.unit } ?: stringResource(R.string.compare_unrecognized_unit)
+    val label = pid?.let { stringResource(mode01LabelId(it.pid)) } ?: stringResource(R.string.compare_unrecognized_pid)
+    Text(stringResource(R.string.compare_recording_label, label, pid?.pid ?: "?", responder(row.key.ecu), unit),
+        style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_first_short), recordingObservation(row.first)))
+    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_second_short), recordingObservation(row.second)))
+    row.reason?.let { reason -> Text(stringResource(R.string.compare_not_comparable, stringResource(when (reason) {
+        RecordingNotComparable.MISSING_SIDE -> R.string.compare_recording_missing
+        RecordingNotComparable.UNIT_MISMATCH -> R.string.compare_recording_units
+        RecordingNotComparable.UNKNOWN_RESPONDER -> R.string.compare_reason_unknown_responder
+    }))) }
+}
+
+@Composable
+private fun recordingObservation(row: RecordingSeriesReport?): String = if (row == null) stringResource(R.string.compare_not_read)
+    else stringResource(R.string.compare_recording_observation, row.observedCount, row.missingCount, row.failureCount,
+        row.firstAtMillis?.let(::time) ?: "—", row.lastAtMillis?.let(::time) ?: "—",
+        row.minimum?.toString() ?: "—", row.maximum?.toString() ?: "—")
 
 @Composable
 private fun Metadata(record: SessionRecord) {

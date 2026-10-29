@@ -31,7 +31,7 @@ import java.util.Date
 
 /** Read-only rendering of a session record, used live and when reopening. */
 @Composable
-fun SessionResults(record: SessionRecord, showStatus: Boolean) {
+fun SessionResults(record: SessionRecord, showStatus: Boolean, showReadings: Boolean = true) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showStatus) {
             Text(statusText(record), style = MaterialTheme.typography.titleMedium)
@@ -70,6 +70,7 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
             reason?.let { Text(stringResource(it, event.detail), style = MaterialTheme.typography.bodyMedium) }
         }
 
+        if (!showReadings) return@Column
         HorizontalDivider()
         Text(stringResource(R.string.sensor_support_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(stringResource(R.string.sensor_support_explainer), style = MaterialTheme.typography.bodySmall)
