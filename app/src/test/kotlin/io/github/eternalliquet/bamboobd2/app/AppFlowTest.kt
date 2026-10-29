@@ -71,7 +71,7 @@ class AppFlowTest {
         rule.onNodeWithText("Start").performScrollTo().performClick()
         runSessionToEnd()
         rule.onNodeWithText("No generic emissions codes reported. This doesn't mean the car has no faults.")
-            .assertIsDisplayed()
+            .performScrollTo().assertIsDisplayed()
     }
 
     @Test

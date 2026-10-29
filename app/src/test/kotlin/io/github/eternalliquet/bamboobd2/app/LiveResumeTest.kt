@@ -14,6 +14,8 @@ import io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothPlatform
 import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.app.bluetooth.RfcommSocket
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
+import io.github.eternalliquet.bamboobd2.core.session.ReadScope
+import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -55,6 +57,10 @@ class LiveResumeTest {
             "ATDPN" to "A6\r\r>",
             "03" to "7E8 04 43 01 01 33\r\r>",
             "07" to "7E8 02 47 00\r\r>",
+            "0104" to "7E8 03 41 04 80\r\r>",
+            "0105" to "7E8 03 41 05 7B\r\r>",
+            "010C" to "7E8 04 41 0C 1A F8\r\r>",
+            "010D" to "7E8 03 41 0D 00\r\r>",
         )
 
         override fun connect() {
@@ -123,7 +129,7 @@ class LiveResumeTest {
 
     /** Starts a read, backgrounds the app while connecting, and lets the read finish while stopped. */
     private fun readFinishesWhileStopped(): AppViewModel {
-        rule.onNodeWithText("Read codes from the car (Bluetooth)").performScrollTo().performClick()
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
         waitForText("Paired devices.")
         rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
         waitForText("Connecting to VEEPEAK")
@@ -169,6 +175,30 @@ class LiveResumeTest {
         repeat(10) { ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS) }
         assertEquals(0, rule.onAllNodes(hasText("Copy raw capture for review")).fetchSemanticsNodes().size)
         assertTrue(vm.session.value is SessionState.Idle)
+    }
+
+    @Test
+    fun selectedSnapshotCannotChangeWhileConnectingOrBeReplacedWhilePending() {
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
+        waitForText("Paired devices.")
+        rule.onNodeWithText("Codes + sensor snapshot").performScrollTo().performClick()
+        rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
+        waitForText("Connecting to VEEPEAK")
+        rule.onNodeWithText("Codes only").assertIsNotEnabled()
+        val model = vm
+        rule.runOnUiThread { model.startLive(BondedDevice("VEEPEAK", "00:11:22:33:44:55"), ReadScope.CODES_ONLY) }
+        rule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        socket.release.countDown()
+        idleUntil(20) { model.session.value is SessionState.Finished }
+        val record = (model.session.value as SessionState.Finished).record
+        assertEquals("FULL", record.events.first { it.kind == SessionController.READ_SCOPE }.detail)
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r0105\r010C\r010D\r", socket.writtenText())
+        assertEquals(LiveState.Started, model.live.value)
+        assertFalse(model.start(FakeScenario.NO_CODES))
+        assertFalse(model.startReplay("can-complete"))
+        rule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        waitForText("Copy raw capture for review")
+        assertEquals(record.id, (model.session.value as SessionState.Finished).record.id)
     }
 
     /** Home showing with an unacknowledged live result: the state Back leaves in the frame before navigation. */

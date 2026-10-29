@@ -4,10 +4,12 @@ import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothManager
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -20,7 +22,10 @@ import io.github.eternalliquet.bamboobd2.app.bluetooth.RfcommSocket
 import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
+import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.session.ReadScope
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
@@ -35,6 +40,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,7 +51,7 @@ import org.robolectric.shadows.ShadowBluetoothDevice
 import org.robolectric.shadows.ShadowLooper
 
 /**
- * The codes-only (L2) live read, without a car or adapter: a scripted fake ELM socket,
+ * The one-shot LIVE scopes, without a car or adapter: a scripted fake ELM socket,
  * and Robolectric's shadow socket for the real Android path. JVM, not a device.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -95,6 +101,12 @@ class LiveReadTest {
             "03" to "7E8 04 43 01 01 33\r\r>",
             "07" to "7E8 02 47 00\r\r>",
         )
+        val sensorReplies = carReplies + mapOf(
+            "0104" to "7E8 03 41 04 80\r\r>",
+            "0105" to "7E8 03 41 05 7B\r\r>",
+            "010C" to "7E8 04 41 0C 1A F8\r\r>",
+            "010D" to "7E8 03 41 0D 00\r\r>",
+        )
     }
 
     private fun viewModel(socket: RfcommSocket): AppViewModel {
@@ -128,12 +140,14 @@ class LiveReadTest {
         assertTrue(record.allCodesRead)
         assertTrue(record.readings.isEmpty())
         assertTrue(record.events.any { it.kind == SessionController.READINGS_NOT_REQUESTED })
+        assertEquals("CODES_ONLY", record.events.first { it.kind == SessionController.READ_SCOPE }.detail)
 
         idleUntil(5) { record.id in vm.captures.value }
         val capture = vm.captures.value.getValue(record.id)
         assertTrue(capture, "\"provenance\": \"${CaptureRecorder.RAW_CAPTURE}\"" in capture)
         val requests = Regex(""""request": "([^"]+)"""").findAll(capture).map { it.groupValues[1] }.toList()
         assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), requests)
+        assertTrue(capture.contains("codes-only (L2) session"))
         // No device identifiers in what is kept or shared.
         val saved = io.github.eternalliquet.bamboobd2.core.storage.SessionCodec.encode(record)
         for (identifier in listOf(device.address, device.name)) {
@@ -145,6 +159,86 @@ class LiveReadTest {
         assertEquals(LiveState.Started, vm.live.value)
         vm.acknowledgeLiveStarted()
         assertTrue(vm.live.value is LiveState.Available)
+    }
+
+    @Test
+    fun selectedSnapshotRequestsFourConfirmedPidsOnceAndSavesAllValues() {
+        val socket = FakeElmSocket(sensorReplies)
+        val vm = viewModel(socket)
+        vm.startLive(device, ReadScope.FULL)
+        idleUntil(20) { vm.session.value is SessionState.Finished }
+        val record = (vm.session.value as SessionState.Finished).record
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r0105\r010C\r010D\r", socket.writtenText())
+        assertEquals("FULL", record.events.first { it.kind == SessionController.READ_SCOPE }.detail)
+        assertEquals(Provenance.LIVE, record.provenance)
+        assertEquals(SessionOutcome.COMPLETE, record.outcome)
+        assertEquals(4, record.readings.size)
+        val byPid = record.readings.associateBy { it.pid }
+        val load = byPid.getValue("04").result as ReadingResult.Value
+        assertEquals(50.19607843137255, load.value, 0.000001) // raw 0x80; UI rounds to 50.2 %
+        assertEquals("%", load.unit)
+        assertEquals("7E8", load.ecu)
+        assertEquals(ReadingResult.Value(83.0, "°C", "7E8"), byPid.getValue("05").result)
+        assertEquals(ReadingResult.Value(1726.0, "rpm", "7E8"), byPid.getValue("0C").result)
+        assertEquals(ReadingResult.Value(0.0, "km/h", "7E8"), byPid.getValue("0D").result)
+        assertTrue(record.readings.all { it.atMillis >= record.startedAt && it.atMillis <= record.endedAt!! })
+        idleUntil(5) { record.id in vm.captures.value }
+        assertTrue(vm.captures.value.getValue(record.id).contains("sensor snapshot"))
+        assertTrue(socket.closed.await(5, TimeUnit.SECONDS))
+
+        val store = FileSessionStore(Files.createTempDirectory("snapshot-reopen").toFile())
+        store.save(record)
+        assertEquals(record, store.load(record.id))
+
+        val activityVm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
+        val dir = activityVm.getApplication<Application>().filesDir.resolve("sessions").also { it.deleteRecursively() }
+        FileSessionStore(dir).save(record)
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        val entry = "LIVE · bluetooth:classic · Complete"
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
+            rule.onAllNodes(hasText(entry)).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText(entry).performClick()
+        rule.onNodeWithText("Sensor snapshot (one pass)").performScrollTo()
+        rule.onNodeWithText("50.2 % (7E8)").performScrollTo()
+        rule.onAllNodes(hasText("Captured", substring = true)).assertCountEquals(4)
+    }
+
+    @Test
+    fun partialAndUnknownMapsNeverCauseUnconfirmedSensorRequests() {
+        val partial = FakeElmSocket(sensorReplies + ("0100" to "7E8 06 41 00 10 10 00 00\r\r>"))
+        val partialVm = viewModel(partial)
+        partialVm.startLive(device, ReadScope.FULL)
+        idleUntil(20) { partialVm.session.value is SessionState.Finished }
+        val partialRecord = (partialVm.session.value as SessionState.Finished).record
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r010C\r", partial.writtenText())
+        assertEquals(ReadingResult.Unsupported, partialRecord.readings.single { it.pid == "05" }.result)
+        assertEquals(ReadingResult.Unsupported, partialRecord.readings.single { it.pid == "0D" }.result)
+
+        val unknown = FakeElmSocket(sensorReplies + ("0100" to "NO DATA\r\r>"))
+        val unknownVm = viewModel(unknown)
+        unknownVm.startLive(device, ReadScope.FULL)
+        idleUntil(20) { unknownVm.session.value is SessionState.Finished }
+        val unknownRecord = (unknownVm.session.value as SessionState.Finished).record
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", unknown.writtenText())
+        assertEquals(SupportedPids.Unknown, unknownRecord.supportedPids)
+        assertTrue(unknownRecord.readings.all { it.result == ReadingResult.UnknownCapability })
+        assertFalse(unknownRecord.readings.any { it.result is ReadingResult.Value })
+    }
+
+    @Test
+    fun liveChoiceStartsCodesOnlyAndExplainsThatSnapshotHasNoVehicleTest() {
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
+        rule.onNodeWithText("Codes only").assertIsSelected()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
+        rule.onNodeWithText("Codes + sensor snapshot").performScrollTo().performClick()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — codes + one sensor snapshot; no clearing")
+        rule.onNodeWithText("Not yet tested on a vehicle", substring = true).assertExists()
+        rule.onNodeWithContentDescription("Back").performClick()
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
+        rule.onNodeWithText("Codes only").assertIsSelected()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
     }
 
     @Test
@@ -204,7 +298,7 @@ class LiveReadTest {
         val paired = ShadowBluetoothDevice.newInstance("00:11:22:33:44:55").also { shadowOf(it).setName("VEEPEAK") }
         shadowOf(adapter).setBondedDevices(setOf(paired))
 
-        rule.onNodeWithText("Read codes from the car (Bluetooth)").performScrollTo().performClick()
+        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
         rule.waitUntil(5_000) {
             ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
             rule.onAllNodes(hasText("Paired devices.", substring = true)).fetchSemanticsNodes().isNotEmpty()

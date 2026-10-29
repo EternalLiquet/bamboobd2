@@ -59,13 +59,15 @@ class SessionController(
     /** Starts a session. Returns false if one is already running. */
     fun start(reader: DiagnosticReader, readScope: ReadScope = ReadScope.FULL): Boolean {
         if (_state.value is SessionState.Running) return false
+        val startedAt = clock.nowMillis()
         val initial = SessionRecord(
             schemaVersion = SessionRecord.SCHEMA_VERSION,
             id = ids.newId(),
-            startedAt = clock.nowMillis(),
+            startedAt = startedAt,
             provenance = reader.provenance,
             sourceLabel = reader.sourceLabel,
             complete = false,
+            events = listOf(SessionEvent(startedAt, READ_SCOPE, readScope.name)),
         )
         _state.value = SessionState.Running(initial, Step.CONNECTING)
         // ATOMIC: even if cancel() runs before the coroutine starts, it still
@@ -167,6 +169,9 @@ class SessionController(
     }
 
     companion object {
+        /** Selected read scope, recorded before even the first adapter operation. */
+        const val READ_SCOPE = "read_scope"
+
         /** Event kind recorded when a codes-only session skips the live readings. */
         const val READINGS_NOT_REQUESTED = "readings_not_requested"
 

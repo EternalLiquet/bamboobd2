@@ -17,12 +17,15 @@ import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.ObdPid
+import io.github.eternalliquet.bamboobd2.core.model.Reading
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
 import io.github.eternalliquet.bamboobd2.core.reader.ElmObdReader
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
+import java.text.DateFormat
+import java.util.Date
 
 /** Read-only rendering of a session record, used live and when reopening. */
 @Composable
@@ -66,7 +69,9 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         }
 
         HorizontalDivider()
-        Text(stringResource(R.string.readings_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+        val isSnapshot = record.readings.isNotEmpty() ||
+            record.events.any { it.kind == SessionController.READ_SCOPE && it.detail == "FULL" }
+        Text(stringResource(if (isSnapshot) R.string.snapshot_heading else R.string.readings_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         if ((record.supportedPids as? SupportedPids.Known)?.complete == false) {
             Text(stringResource(R.string.discovery_incomplete), style = MaterialTheme.typography.bodySmall)
         }
@@ -74,9 +79,10 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
             Text(stringResource(R.string.readings_not_requested), style = MaterialTheme.typography.bodyLarge)
         } else ObdPid.entries.forEach { pid ->
             // One row per responder; a PID never read shows once as "Not read".
-            val results = record.readings.filter { it.pid == pid.code }.map { it.result }.ifEmpty { listOf(null) }
-            results.forEach { result ->
-                val value = when (result) {
+            val forPid = record.readings.filter { it.pid == pid.code }
+            val readings: List<Reading?> = if (forPid.isEmpty()) listOf(null) else forPid
+            readings.forEach { reading ->
+                val value = when (val result = reading?.result) {
                     is ReadingResult.Value -> "${formatValue(result.value)} ${result.unit}" + (result.ecu?.let { " ($it)" } ?: "")
                     ReadingResult.Unsupported -> stringResource(R.string.unsupported)
                     ReadingResult.UnknownCapability -> stringResource(R.string.unknown_capability)
@@ -87,6 +93,12 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(pidLabel(pid)))
                     Text(value, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
+                reading?.let {
+                    Text(
+                        stringResource(R.string.reading_captured_at, DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it.atMillis))),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
