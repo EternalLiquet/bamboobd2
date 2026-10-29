@@ -1,13 +1,13 @@
 package io.github.eternalliquet.bamboobd2.core.session
 
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
-import io.github.eternalliquet.bamboobd2.core.model.ObdPid
 import io.github.eternalliquet.bamboobd2.core.model.Reading
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionEvent
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.protocol.ReadPlan
 import io.github.eternalliquet.bamboobd2.core.reader.DiagnosticReader
 import io.github.eternalliquet.bamboobd2.core.reader.DtcRead
 import io.github.eternalliquet.bamboobd2.core.reader.ReaderStoppedException
@@ -111,20 +111,13 @@ class SessionController(
                         events = record.events + SessionEvent(clock.nowMillis(), READINGS_NOT_REQUESTED, "codes-only session"),
                     )
                 }
-                for (pid in ObdPid.entries.takeIf { readScope == ReadScope.FULL }.orEmpty()) {
-                    val results = when (val supported = record.supportedPids) {
-                        // Never request a PID the vehicle says it lacks, or one we
-                        // could not confirm.
-                        is SupportedPids.Known -> when {
-                            pid.code in supported.pids -> reader.readPid(pid.code)
-                            // Only a complete discovery can say a PID is not supported.
-                            supported.complete -> listOf(ReadingResult.Unsupported)
-                            else -> listOf(ReadingResult.UnknownCapability)
-                        }
-                        SupportedPids.Unknown -> listOf(ReadingResult.UnknownCapability)
-                    }
+                val eligible = if (readScope == ReadScope.FULL) ReadPlan.readingRequests(record.supportedPids) else emptyList()
+                for (request in eligible) {
+                    // One functional request can yield independent values from several responders.
+                    val pid = request.text.substring(2)
+                    val results = reader.readPid(pid)
                     val at = clock.nowMillis()
-                    record = withNotes(record.copy(readings = record.readings + results.map { Reading(pid.code, it, at) }))
+                    record = withNotes(record.copy(readings = record.readings + results.map { Reading(pid, it, at) }))
                     emitRunning(record, Step.READINGS)
                 }
                 finish(record, SessionOutcome.COMPLETE)

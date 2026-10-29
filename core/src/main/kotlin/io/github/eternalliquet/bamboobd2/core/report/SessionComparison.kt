@@ -2,6 +2,8 @@ package io.github.eternalliquet.bamboobd2.core.report
 
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.ObdPid
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Reading
 import io.github.eternalliquet.bamboobd2.core.model.Reading
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
@@ -21,13 +23,15 @@ data class CodeKindComparison(val kind: DtcKind, val first: CodeList, val second
 
 enum class ReadingStatus { VALUE, INVALID_VALUE, UNSUPPORTED, UNKNOWN_CAPABILITY, NO_DATA, FAILED, NOT_REQUESTED, NOT_READ }
 data class ReadingObservation(val status: ReadingStatus, val value: Double? = null, val atMillis: Long? = null)
-data class ReadingKey(val pid: ObdPid, val ecu: String?)
+data class ReadingKey(val pid: String, val ecu: String?) {
+    constructor(pid: ObdPid, ecu: String?) : this(pid.code, ecu)
+}
 enum class NotComparable { MISSING_SIDE, UNKNOWN_RESPONDER, DUPLICATE, NON_VALUE, INVALID_VALUE, NON_FINITE_DELTA }
 data class ReadingComparison(
     val key: ReadingKey,
     val first: List<ReadingObservation>,
     val second: List<ReadingObservation>,
-    /** Second minus first, in [ReadingKey.pid]'s canonical unit. */
+    /** Second minus first, in the catalog PID's canonical unit. */
     val delta: Double?,
     val reason: NotComparable?,
 )
@@ -42,7 +46,7 @@ object SessionComparison {
         if (first.provenance != second.provenance) return ComparisonResult.Blocked(ComparisonBlock.DIFFERENT_PROVENANCE)
         return ComparisonResult.Ready(
             DtcKind.entries.map { kind -> compareCodes(kind, first, second) },
-            ObdPid.entries.flatMap { pid -> compareReadings(pid, first, second) },
+            Mode01Catalog.readings.flatMap { pid -> compareReadings(pid, first, second) },
         )
     }
 
@@ -71,10 +75,10 @@ object SessionComparison {
         return CodeKindComparison(kind, a, b, differences)
     }
 
-    private fun compareReadings(pid: ObdPid, first: SessionRecord, second: SessionRecord): List<ReadingComparison> {
+    private fun compareReadings(pid: Mode01Reading, first: SessionRecord, second: SessionRecord): List<ReadingComparison> {
         fun Reading.key(): String? = (result as? ReadingResult.Value)?.ecu
-        val firstRows = first.readings.filter { it.pid == pid.code }
-        val secondRows = second.readings.filter { it.pid == pid.code }
+        val firstRows = first.readings.filter { it.pid == pid.pid }
+        val secondRows = second.readings.filter { it.pid == pid.pid }
         val ecus = (firstRows.map { it.key() } + secondRows.map { it.key() }).distinct()
             .sortedWith(compareBy<String?> { it == null }.thenBy { it ?: "" })
             .ifEmpty { listOf(null) }
@@ -95,14 +99,14 @@ object SessionComparison {
                 else -> null
             }
             ReadingComparison(
-                key = ReadingKey(pid, ecu), first = aObserved, second = bObserved,
+                key = ReadingKey(pid.pid, ecu), first = aObserved, second = bObserved,
                 delta = if (reason == null) bValue!!.value - aValue!!.value else null,
                 reason = reason,
             )
         }
     }
 
-    private fun observe(pid: ObdPid, record: SessionRecord, rows: List<Reading>): List<ReadingObservation> {
+    private fun observe(pid: Mode01Reading, record: SessionRecord, rows: List<Reading>): List<ReadingObservation> {
         if (rows.isEmpty()) {
             val notRequested = record.events.any {
                 (it.kind == SessionController.READ_SCOPE && it.detail == "CODES_ONLY") || it.kind == SessionController.READINGS_NOT_REQUESTED
@@ -115,8 +119,8 @@ object SessionComparison {
                     if (result.value.isFinite() && result.unit == pid.unit) ReadingStatus.VALUE else ReadingStatus.INVALID_VALUE,
                     result.value.takeIf { it.isFinite() }, row.atMillis,
                 )
-                ReadingResult.Unsupported -> ReadingObservation(ReadingStatus.UNSUPPORTED, atMillis = row.atMillis)
-                ReadingResult.UnknownCapability -> ReadingObservation(ReadingStatus.UNKNOWN_CAPABILITY, atMillis = row.atMillis)
+                ReadingResult.Unsupported -> ReadingObservation(ReadingStatus.UNSUPPORTED)
+                ReadingResult.UnknownCapability -> ReadingObservation(ReadingStatus.UNKNOWN_CAPABILITY)
                 ReadingResult.NoData -> ReadingObservation(ReadingStatus.NO_DATA, atMillis = row.atMillis)
                 is ReadingResult.Failed -> ReadingObservation(ReadingStatus.FAILED, atMillis = row.atMillis)
             }

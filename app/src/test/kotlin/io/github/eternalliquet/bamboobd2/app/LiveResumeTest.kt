@@ -16,6 +16,8 @@ import io.github.eternalliquet.bamboobd2.app.bluetooth.RfcommSocket
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import io.github.eternalliquet.bamboobd2.core.session.ReadScope
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
+import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
+import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -53,7 +55,8 @@ class LiveResumeTest {
             "ATL0" to "OK\r\r>",
             "ATH1" to "OK\r\r>",
             "ATSP0" to "OK\r\r>",
-            "0100" to "SEARCHING...\r7E8 06 41 00 BE 1F B8 10\r\r>",
+            // This lifecycle fixture implements exactly the four replies below.
+            "0100" to "SEARCHING...\r7E8 06 41 00 18 18 00 00\r\r>",
             "ATDPN" to "A6\r\r>",
             "03" to "7E8 04 43 01 01 33\r\r>",
             "07" to "7E8 02 47 00\r\r>",
@@ -193,6 +196,9 @@ class LiveResumeTest {
         val record = (model.session.value as SessionState.Finished).record
         assertEquals("FULL", record.events.first { it.kind == SessionController.READ_SCOPE }.detail)
         assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r0105\r010C\r010D\r", socket.writtenText())
+        assertEquals(SessionOutcome.COMPLETE, record.outcome)
+        assertEquals(listOf("04", "05", "0C", "0D"), record.readings.map { it.pid })
+        assertTrue(record.readings.all { it.result is ReadingResult.Value })
         assertEquals(LiveState.Started, model.live.value)
         assertFalse(model.start(FakeScenario.NO_CODES))
         assertFalse(model.startReplay("can-complete"))

@@ -3,7 +3,7 @@
   "label": "J1850 VPW, no codes",
   "provenance": "SYNTHETIC",
   "sourceTier": "constructed",
-  "source": "Constructed from ELM327DSJ: headers-on non-CAN layout and the 0100 reply '48 6B 10 41 00 BE 3E B8 11 FA' (p42), ATSP0 'OK' and DPN 'A2' after an automatic search (pp25-26), non-CAN DTC replies without a count byte (p34), coolant and RPM examples (pp31-32). Existing check bytes are computed with the CRC that reproduces the p42 example; the new synthetic 0120 all-zero map uses a placeholder check byte. The parser drops check bytes and does not verify them. Load and speed bytes are invented. Timing is invented, not measured.",
+  "source": "Constructed from ELM327DSJ: headers-on non-CAN layout and the 0100 reply '48 6B 10 41 00 BE 3E B8 11 FA' (p42), ATSP0 'OK' and DPN 'A2' after an automatic search (pp25-26), non-CAN DTC replies without a count byte (p34), coolant and RPM examples (pp31-32). Existing check bytes are computed with the CRC that reproduces the p42 example; the new synthetic 0120 all-zero map uses a placeholder check byte. The parser drops check bytes and does not verify them. Load and speed bytes are invented. Timing is invented, not measured. Added Mode 01 scalar replies are constructed for the broader one-pass snapshot; bytes and timing are synthetic.",
   "steps": [
     {
       "request": "ATE0",
@@ -65,7 +65,12 @@
     },
     {
       "request": "0120",
-      "chunks": [{"atMillis": 60, "text": "48 6B 10 41 20 00 00 00 00 00\r\r>"}]
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 20 00 00 00 00 00\r\r>"
+        }
+      ]
     },
     {
       "request": "03",
@@ -104,6 +109,33 @@
       ]
     },
     {
+      "request": "0106",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 06 80 00\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "0107",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 07 80 00\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "010B",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 0B 64 00\r\r>"
+        }
+      ]
+    },
+    {
       "request": "010C",
       "chunks": [
         {
@@ -118,6 +150,33 @@
         {
           "atMillis": 60,
           "text": "48 6B 10 41 0D 00 CA\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "010E",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 0E 80 00\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "010F",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 0F 7B 00\r\r>"
+        }
+      ]
+    },
+    {
+      "request": "0111",
+      "chunks": [
+        {
+          "atMillis": 60,
+          "text": "48 6B 10 41 11 80 00\r\r>"
         }
       ]
     }

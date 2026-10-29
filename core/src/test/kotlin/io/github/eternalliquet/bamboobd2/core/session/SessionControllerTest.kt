@@ -7,11 +7,14 @@ import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.model.SupportedPids
+import io.github.eternalliquet.bamboobd2.core.model.PageEvidence
+import io.github.eternalliquet.bamboobd2.core.model.PageStatus
 import io.github.eternalliquet.bamboobd2.core.reader.DiagnosticReader
 import io.github.eternalliquet.bamboobd2.core.reader.DtcRead
 import io.github.eternalliquet.bamboobd2.core.reader.FakeReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -22,6 +25,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionControllerTest {
+
+    @Test
+    fun broadSnapshotRequestsOnlyPositiveCatalogIntersectionOnceAndKeepsResponderSamples() = runTest {
+        val requested = mutableListOf<String>()
+        val reader = object : DiagnosticReader by FakeReader(FakeScenario.NO_CODES, 0) {
+            override suspend fun readSupportedPids() = SupportedPids.Known(
+                listOf("04", "05", "0B", "0C", "11", "12", "42", "45"), complete = false,
+                pages = listOf(
+                    PageEvidence("7E8", "00", PageStatus.VALID, listOf("04", "05", "0B", "0C", "11", "12"), true),
+                    PageEvidence("7E9", "00", PageStatus.VALID, listOf("04", "05", "0B", "0C", "11", "12"), true),
+                    PageEvidence("7E8", "20", PageStatus.VALID, emptyList(), true),
+                    PageEvidence("7E9", "20", PageStatus.MISSING),
+                    PageEvidence("7E8", "40", PageStatus.VALID, listOf("42", "45")),
+                ),
+            )
+            override suspend fun readPid(pid: String): List<ReadingResult> {
+                requested += pid
+                delay(10)
+                return if (pid == "04") listOf(ReadingResult.Value(50.0, "%", "7E8"), ReadingResult.Value(60.0, "%", "7E9"))
+                else if (pid == "45") listOf(ReadingResult.NoData)
+                else listOf(ReadingResult.Value(1.0, "kPa", "7E8"))
+            }
+        }
+        val c = controller()
+        c.start(reader)
+        advanceUntilIdle()
+        val record = (c.state.value as SessionState.Finished).record
+        assertEquals(listOf("04", "05", "0B", "0C", "11", "42", "45"), requested)
+        assertEquals(listOf("7E8", "7E9"), record.readings.filter { it.pid == "04" }.map { (it.result as ReadingResult.Value).ecu })
+        assertEquals(listOf(10L, 10L), record.readings.filter { it.pid == "04" }.map { it.atMillis })
+        assertEquals(ReadingResult.NoData, record.readings.single { it.pid == "45" }.result)
+        assertFalse(record.readings.any { it.pid == "12" })
+    }
+
+    @Test
+    fun broadSnapshotStopsAfterFailureAndCodesOnlyNeverRequestsSensors() = runTest {
+        val requested = mutableListOf<String>()
+        val reader = object : DiagnosticReader by FakeReader(FakeScenario.NO_CODES, 0) {
+            override suspend fun readSupportedPids() = SupportedPids.Known(listOf("04", "05", "0B", "42"))
+            override suspend fun readPid(pid: String): List<ReadingResult> {
+                requested += pid
+                if (pid == "0B") throw IllegalStateException("later request failed")
+                return listOf(ReadingResult.Value(1.0, "%", "7E8"))
+            }
+        }
+        val c = controller()
+        c.start(reader)
+        advanceUntilIdle()
+        val failed = (c.state.value as SessionState.Finished).record
+        assertEquals(listOf("04", "05", "0B"), requested)
+        assertEquals(listOf("04", "05"), failed.readings.filter { it.result is ReadingResult.Value }.map { it.pid })
+        assertEquals(SessionOutcome.FAILED, failed.outcome)
+        assertFalse(failed.complete)
+        c.reset()
+        c.start(reader, ReadScope.CODES_ONLY)
+        advanceUntilIdle()
+        assertEquals(listOf("04", "05", "0B"), requested)
+        assertTrue((c.state.value as SessionState.Finished).record.readings.isEmpty())
+    }
 
     private fun TestScope.controller() = SessionController(
         scope = this,
@@ -69,7 +131,7 @@ class SessionControllerTest {
         c.start(reader)
         advanceUntilIdle()
         val r = (c.state.value as SessionState.Finished).record
-        assertEquals(ReadingResult.Unsupported, r.readings.single { it.pid == "0D" }.result)
+        assertFalse(r.readings.any { it.pid == "0D" })
         assertFalse("0D" in requested)
         assertEquals(listOf("04", "05", "0C"), requested)
     }

@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
-import io.github.eternalliquet.bamboobd2.core.model.ObdPid
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
 import io.github.eternalliquet.bamboobd2.core.report.CodeCoverage
 import io.github.eternalliquet.bamboobd2.core.report.CodeKey
@@ -98,34 +98,30 @@ private fun Metadata(record: SessionRecord) {
 
 @Composable
 private fun ReadingRow(row: ReadingComparison) {
-    val label = when (row.key.pid) {
-        ObdPid.ENGINE_LOAD -> stringResource(R.string.pid_04)
-        ObdPid.COOLANT_TEMP -> stringResource(R.string.pid_05)
-        ObdPid.ENGINE_RPM -> stringResource(R.string.pid_0c)
-        ObdPid.VEHICLE_SPEED -> stringResource(R.string.pid_0d)
-    }
-    Text(stringResource(R.string.compare_reading_label, label, row.key.pid.code, responder(row.key.ecu)), style = MaterialTheme.typography.titleSmall)
-    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_first_short), observations(row.first, row.key.pid)))
-    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_second_short), observations(row.second, row.key.pid)))
+    val reading = checkNotNull(Mode01Catalog.lookup(row.key.pid))
+    val label = stringResource(mode01LabelId(row.key.pid))
+    Text(stringResource(R.string.compare_reading_label, label, row.key.pid, responder(row.key.ecu)), style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_first_short), observations(row.first, reading.unit)))
+    Text(stringResource(R.string.compare_side_readings, stringResource(R.string.compare_second_short), observations(row.second, reading.unit)))
     val delta = row.delta
     if (delta != null) {
         val signed = if (delta == 0.0) "+0.0" else if (delta > 0) "+$delta" else delta.toString()
-        Text(stringResource(R.string.compare_delta, signed, row.key.pid.unit))
+        Text(stringResource(R.string.compare_delta, signed, reading.unit))
     }
     else Text(stringResource(R.string.compare_not_comparable, stringResource(reasonLabel(row.reason))))
 }
 
 @Composable
-private fun observations(items: List<ReadingObservation>, pid: ObdPid): String {
+private fun observations(items: List<ReadingObservation>, unit: String): String {
     val parts = mutableListOf<String>()
-    for (item in items) parts += observation(item, pid)
+    for (item in items) parts += observation(item, unit)
     return parts.joinToString(" | ")
 }
 
 @Composable
-private fun observation(item: ReadingObservation, pid: ObdPid): String {
+private fun observation(item: ReadingObservation, unit: String): String {
     val state = when (item.status) {
-        ReadingStatus.VALUE -> stringResource(R.string.compare_value, item.value.toString(), pid.unit)
+        ReadingStatus.VALUE -> stringResource(R.string.compare_value, item.value.toString(), unit)
         ReadingStatus.INVALID_VALUE -> stringResource(R.string.compare_invalid_value,
             item.value?.toString() ?: stringResource(R.string.compare_no_finite_value))
         ReadingStatus.UNSUPPORTED -> stringResource(R.string.compare_unsupported)

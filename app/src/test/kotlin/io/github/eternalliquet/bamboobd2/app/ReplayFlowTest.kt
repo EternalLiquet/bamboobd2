@@ -8,6 +8,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -18,6 +21,8 @@ import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import io.github.eternalliquet.bamboobd2.core.model.Dtc
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.PageEvidence
+import io.github.eternalliquet.bamboobd2.core.model.PageStatus
 import io.github.eternalliquet.bamboobd2.core.model.SessionEvent
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.model.Reading
@@ -58,13 +63,49 @@ class ReplayFlowTest {
     }
 
     @Test
+    fun reopenedBroadSyntheticSnapshotExplainsResponderCapabilityAndMissingMeasurement() {
+        val record = SessionRecord(
+            schemaVersion = SessionRecord.SCHEMA_VERSION, id = "broad", startedAt = 1, endedAt = 20,
+            provenance = Provenance.REPLAY, sourceLabel = "replay:synthetic-broad", complete = false,
+            outcome = SessionOutcome.FAILED,
+            supportedPids = SupportedPids.Known(listOf("04", "11", "12", "42"), complete = false, pages = listOf(
+                PageEvidence("7E8", "00", PageStatus.VALID, listOf("04", "11", "12"), true),
+                PageEvidence("7E9", "00", PageStatus.VALID, listOf("04"), false),
+                PageEvidence("7E8", "20", PageStatus.VALID, emptyList(), true),
+                PageEvidence("7E8", "40", PageStatus.VALID, listOf("42")),
+            )),
+            dtcKindsRead = DtcKind.entries,
+            readings = listOf(
+                Reading("04", ReadingResult.Value(50.0, "%", "7E8"), 10),
+                Reading("11", ReadingResult.Value(40.0, "%", "7E8"), 11),
+                Reading("42", ReadingResult.Failed("malformed"), 12),
+            ),
+            events = listOf(SessionEvent(1, "read_scope", "FULL"), SessionEvent(20, "failed", "synthetic stop")),
+        )
+        FileSessionStore(viewModelSessionsDir()).save(record)
+        rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
+        val entry = "REPLAY · replay:synthetic-broad · Stopped by an error: partial results"
+        waitForSavedRow(entry)
+        rule.onNodeWithText(entry).performClick()
+        waitForText("REPLAY · replay:synthetic-broad")
+        rule.onNodeWithText("Absolute throttle position A: Supported by at least one responder").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("PID 12: Supported; decoder unavailable").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E9: Unsupported").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Absolute throttle position A · 7E9: Unsupported").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E8: Supported by this responder").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Control module voltage · 7E8: Requested, but no value arrived").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("40 % (7E8)").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Reason: synthetic stop").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun replaySessionCompletesSavesAndReopensAsReplay() {
         banner("OFFLINE — no adapter or vehicle connection")
         startReplay("CAN, one stored code")
         banner("REPLAY — scripted adapter data, not a live scan")
         rule.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("P0133 (stored)").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("83 °C (7E8)").performScrollTo().assertIsDisplayed()
+        assertBroadReplayTemperatures()
 
         rule.onNodeWithText("Save").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Saved")).fetchSemanticsNodes().isNotEmpty() }
@@ -74,6 +115,16 @@ class ReplayFlowTest {
         rule.onNodeWithText("REPLAY · replay:can-complete · Complete").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("REPLAY · replay:can-complete")).fetchSemanticsNodes().isNotEmpty() }
         banner("REPLAY — scripted adapter data, not a live scan")
+        assertBroadReplayTemperatures()
+    }
+
+    private fun assertBroadReplayTemperatures() {
+        // These distinct catalog readings intentionally have the same synthetic value.
+        rule.onNodeWithText("Coolant temperature").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Intake air temperature").performScrollTo().assertIsDisplayed()
+        val values = rule.onAllNodesWithText("83 °C (7E8)").assertCountEquals(2)
+        values.onFirst().performScrollTo().assertIsDisplayed()
+        values.onLast().performScrollTo().assertIsDisplayed()
     }
 
     @Test

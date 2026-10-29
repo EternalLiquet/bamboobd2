@@ -36,6 +36,30 @@ import java.nio.file.Files
 class ElmObdReaderTest {
 
     @Test
+    fun broadReplayKeepsTwoResponderValuesBeforeLaterAdapterStop() = runTest {
+        val run = session(script(init + listOf(
+            step("0100", 10L to "7E8 06 41 00 18 30 80 00\r7E9 06 41 00 18 30 80 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>"),
+        ) + noCodes + listOf(
+            step("0104", 10L to "7E8 03 41 04 80\r7E9 03 41 04 40\r\r>"),
+            step("0105", 10L to "7E8 03 41 05 7B\r\r>"),
+            step("010B", 10L to "7E8 03 41 0B 64\r\r>"),
+            step("010C", 10L to "7E8 04 41 0C 1A F8\r\r>"),
+            step("0111", 10L to "LV RESET\r\r>"),
+        )))
+        assertEquals(listOf("0104", "0105", "010B", "010C", "0111"),
+            run.transport.writes.filter { it.startsWith("01") && it != "0100" })
+        val rows = run.record.readings.filter { it.pid == "04" }
+        assertEquals(listOf("7E8", "7E9"), rows.map { (it.result as ReadingResult.Value).ecu })
+        assertEquals(listOf("%", "%"), rows.map { (it.result as ReadingResult.Value).unit })
+        assertEquals(rows[0].atMillis, rows[1].atMillis)
+        assertTrue(rows[0].atMillis < run.record.readings.first { it.pid == "0B" }.atMillis)
+        assertEquals(SessionOutcome.FAILED, run.record.outcome)
+        assertFalse(run.record.complete)
+        assertEquals(listOf("04", "04", "05", "0B", "0C"), run.record.readings.map { it.pid })
+    }
+
+    @Test
     fun noDataMixedWithPayloadCannotSupplySupportOrNumericValues() = runTest {
         val transport = ReplayTransport(script(init + listOf(
             step("0100", 10L to "NO DATA\r7E8 06 41 00 08 00 00 00\r\r>"),
@@ -501,8 +525,8 @@ class ElmObdReaderTest {
         assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E9")), r.reading("05"))
         assertEquals(listOf(ReadingResult.Value(1726.0, "rpm", "7E9")), r.reading("0C"))
         // 7E8 never reported its map, so absence from 7E9's map is not "unsupported".
-        assertEquals(listOf(ReadingResult.UnknownCapability), r.reading("04"))
-        assertEquals(listOf(ReadingResult.UnknownCapability), r.reading("0D"))
+        assertTrue(r.reading("04").isEmpty())
+        assertTrue(r.reading("0D").isEmpty())
         assertFalse("0104" in run.transport.writes)
         assertFalse("010D" in run.transport.writes)
         assertTrue(r.allCodesRead)
@@ -516,7 +540,7 @@ class ElmObdReaderTest {
             assertTrue(store.save(r) is SaveResult.Saved)
             val reopened = store.load(r.id)!!
             assertEquals(r, reopened)
-            assertEquals(listOf(ReadingResult.UnknownCapability), reopened.reading("04"))
+            assertTrue(reopened.reading("04").isEmpty())
             assertEquals(false, (reopened.supportedPids as SupportedPids.Known).complete)
             // A file saved before the flag existed reads as a complete discovery, as it was.
             val older = SessionCodec.encode(r).replace(",\n        \"complete\": false", "")
@@ -533,8 +557,8 @@ class ElmObdReaderTest {
         val r = session(discovery("7E8 06 41 00 08 10 00 00\r7E9 06 41 00 00 00 00 00\r\r>",
             step("0105", 10L to "7E8 03 41 05 7B\r\r>"), step("010C", 10L to "7E8 04 41 0C 1A F8\r\r>"))).record
         assertEquals(SessionOutcome.COMPLETE, r.outcome)
-        assertEquals(listOf(ReadingResult.Unsupported), r.reading("04"))
-        assertEquals(listOf(ReadingResult.Unsupported), r.reading("0D"))
+        assertTrue(r.reading("04").isEmpty())
+        assertTrue(r.reading("0D").isEmpty())
         assertEquals(listOf(ReadingResult.Value(83.0, "°C", "7E8")), r.reading("05"))
         assertEquals(listOf("05", "0C"), (r.supportedPids as SupportedPids.Known).pids)
         assertTrue((r.supportedPids as SupportedPids.Known).complete)
@@ -659,7 +683,8 @@ class ElmObdReaderTest {
 
     @Test
     fun noDataAndNegativeRepliesAreRecordedNotGuessed() = runTest {
-        val steps = init + protocol + listOf(
+        val steps = init + listOf(step("0100", 20L to "7E8 06 41 00 18 18 00 00\r\r>"),
+            step("ATDPN", 10L to "A6\r\r>")) + listOf(
             step("03", 10L to "NO DATA\r\r>"),
             step("07", 10L to "7E8 03 7F 07 11\r\r>"),
             step("0104", 10L to "NO DATA\r\r>"),

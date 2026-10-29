@@ -10,8 +10,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.lifecycle.ViewModelProvider
 import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
+import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import java.util.concurrent.TimeUnit
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -88,11 +91,14 @@ class AppFlowTest {
     }
 
     @Test
-    fun unsupportedPidIsShownAsNotReported() {
+    fun unsupportedPidIsExplainedWithoutInventingAMeasurement() {
         rule.onNodeWithText("Unsupported reading").performScrollTo().performClick()
         rule.onNodeWithText("Start").performScrollTo().performClick()
         runSessionToEnd()
-        rule.onNodeWithText("Not reported by this vehicle").assertIsDisplayed()
+        rule.onNodeWithText("Vehicle speed: Unsupported").performScrollTo().assertIsDisplayed()
+        val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
+        val record = (vm.session.value as SessionState.Finished).record
+        assertFalse(record.readings.any { it.pid == "0D" })
     }
 
     @Test

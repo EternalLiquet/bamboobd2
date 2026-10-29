@@ -27,6 +27,18 @@ class SessionSummaryTest {
     )
 
     @Test
+    fun broaderCatalogUsesDistinctCanonicalLabelUnitAndCaptureTime() {
+        val report = render(record().copy(readings = listOf(
+            Reading("11", ReadingResult.Value(50.0, "%", "7E8"), 11),
+            Reading("42", ReadingResult.Value(13.8, "V", "7E9"), 12),
+            Reading("42", ReadingResult.NoData, 13),
+        )))
+        assertTrue(report.contains("Absolute throttle position A (PID 11): 50.0 % (responder 7E8); captured T11"))
+        assertTrue(report.contains("Control module voltage (PID 42): 13.8 V (responder 7E9); captured T12"))
+        assertTrue(report.contains("Control module voltage (PID 42): No data; captured T13"))
+    }
+
+    @Test
     fun renderedScopeCodesAndSnapshotUseOnlyRecognizedValues() {
         val report = render(record().copy(
             dtcs = listOf(Dtc("P0133", DtcKind.STORED, "7E8")),

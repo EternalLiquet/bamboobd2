@@ -16,7 +16,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
-import io.github.eternalliquet.bamboobd2.core.model.ObdPid
+import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import io.github.eternalliquet.bamboobd2.core.model.Reading
 import io.github.eternalliquet.bamboobd2.core.model.ReadingResult
 import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
@@ -73,13 +73,21 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         HorizontalDivider()
         Text(stringResource(R.string.sensor_support_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(stringResource(R.string.sensor_support_explainer), style = MaterialTheme.typography.bodySmall)
-        ObdPid.entries.forEach { pid ->
-            val support = when (record.supportedPids.capability(pid.code).capability) {
-                Capability.SUPPORTED_AND_DECODABLE, Capability.SUPPORTED_NOT_DECODED -> R.string.sensor_support_supported
-                Capability.UNSUPPORTED -> R.string.sensor_support_unsupported
-                Capability.UNKNOWN -> R.string.sensor_support_unknown
+        val known = record.supportedPids as? SupportedPids.Known
+        val responders = known?.pages?.mapNotNull { it.ecu }?.distinct()?.sorted().orEmpty()
+        val advertised = (known?.pids.orEmpty() + known?.pages.orEmpty().flatMap { it.supportedIds })
+            .filter { it.matches(Regex("[0-9A-F]{2}")) && it !in Mode01Catalog.pageIds }
+        val candidates = (Mode01Catalog.readings.map { it.pid } + advertised).distinct().sorted()
+        candidates.forEach { pid ->
+            val label = Mode01Catalog.lookup(pid)?.let { stringResource(mode01LabelId(pid)) }
+                ?: stringResource(R.string.sensor_pid_label, pid)
+            val support = record.supportedPids.capability(pid).capability
+            Text(stringResource(R.string.sensor_support_row, label, stringResource(supportLabel(support))))
+            responders.forEach { ecu ->
+                val state = record.supportedPids.capability(pid, ecu).capability
+                Text(stringResource(R.string.sensor_support_ecu_row, label, ecu, stringResource(supportLabel(state, true))),
+                    style = MaterialTheme.typography.bodySmall)
             }
-            Text(stringResource(R.string.sensor_support_row, stringResource(pidLabel(pid)), stringResource(support)))
         }
         HorizontalDivider()
         val isSnapshot = record.readings.isNotEmpty() ||
@@ -90,9 +98,9 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
         }
         if (record.events.any { it.kind == SessionController.READINGS_NOT_REQUESTED }) {
             Text(stringResource(R.string.readings_not_requested), style = MaterialTheme.typography.bodyLarge)
-        } else ObdPid.entries.forEach { pid ->
+        } else Mode01Catalog.readings.forEach { pid ->
             // One row per responder; a PID never read shows once as "Not read".
-            val forPid = record.readings.filter { it.pid == pid.code }
+            val forPid = record.readings.filter { it.pid == pid.pid }
             val readings: List<Reading?> = if (forPid.isEmpty()) listOf(null) else forPid
             readings.forEach { reading ->
                 val value = when (val result = reading?.result) {
@@ -104,15 +112,24 @@ fun SessionResults(record: SessionRecord, showStatus: Boolean) {
                     null -> stringResource(R.string.not_read)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(pidLabel(pid)))
+                    Text(stringResource(mode01LabelId(pid.pid)))
                     Text(value, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                 }
-                reading?.let {
+                reading?.takeIf { it.result !is ReadingResult.Unsupported && it.result !is ReadingResult.UnknownCapability }?.let {
                     Text(
                         stringResource(R.string.reading_captured_at, DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it.atMillis))),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+            }
+            // A functional request may get a value from one ECU and silence from another.
+            // Only show a missing responder when its own map positively advertised this PID.
+            if (forPid.isNotEmpty()) responders.filter { ecu ->
+                record.supportedPids.capability(pid.pid, ecu).capability == Capability.SUPPORTED_AND_DECODABLE &&
+                    forPid.none { (it.result as? ReadingResult.Value)?.ecu == ecu }
+            }.forEach { ecu ->
+                Text(stringResource(R.string.sensor_missing_ecu, stringResource(mode01LabelId(pid.pid)), ecu),
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -144,11 +161,43 @@ fun statusText(outcome: SessionOutcome?): String = stringResource(
     },
 )
 
-private fun pidLabel(pid: ObdPid) = when (pid) {
-    ObdPid.ENGINE_LOAD -> R.string.pid_04
-    ObdPid.COOLANT_TEMP -> R.string.pid_05
-    ObdPid.ENGINE_RPM -> R.string.pid_0c
-    ObdPid.VEHICLE_SPEED -> R.string.pid_0d
+private fun supportLabel(value: Capability, perEcu: Boolean = false) = when (value) {
+    Capability.SUPPORTED_AND_DECODABLE -> if (perEcu) R.string.sensor_support_this_ecu else R.string.sensor_support_supported
+    Capability.SUPPORTED_NOT_DECODED -> R.string.sensor_support_not_decoded
+    Capability.UNSUPPORTED -> R.string.sensor_support_unsupported
+    Capability.UNKNOWN -> R.string.sensor_support_unknown
+}
+
+/** The catalog is the source of enabled PIDs; these are presentation resources only. */
+internal fun mode01LabelId(pid: String): Int = when (pid) {
+    "04" -> R.string.pid_04
+    "05" -> R.string.pid_05
+    "06" -> R.string.pid_06
+    "07" -> R.string.pid_07
+    "08" -> R.string.pid_08
+    "09" -> R.string.pid_09
+    "0B" -> R.string.pid_0b
+    "0C" -> R.string.pid_0c
+    "0D" -> R.string.pid_0d
+    "0E" -> R.string.pid_0e
+    "0F" -> R.string.pid_0f
+    "10" -> R.string.pid_10
+    "11" -> R.string.pid_11
+    "1F" -> R.string.pid_1f
+    "2F" -> R.string.pid_2f
+    "33" -> R.string.pid_33
+    "42" -> R.string.pid_42
+    "45" -> R.string.pid_45
+    "46" -> R.string.pid_46
+    "47" -> R.string.pid_47
+    "48" -> R.string.pid_48
+    "49" -> R.string.pid_49
+    "4A" -> R.string.pid_4a
+    "4B" -> R.string.pid_4b
+    "4C" -> R.string.pid_4c
+    "5A" -> R.string.pid_5a
+    "5C" -> R.string.pid_5c
+    else -> error("No presentation label for catalog PID")
 }
 
 private fun formatValue(v: Double): String = if (v == Math.floor(v)) v.toLong().toString() else "%.1f".format(v)

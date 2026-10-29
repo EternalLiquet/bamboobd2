@@ -115,6 +115,8 @@ class LiveReadTest {
             "07" to "7E8 02 47 00\r\r>",
         )
         val sensorReplies = carReplies + mapOf(
+            // This existing four-reading socket advertises exactly those four PIDs.
+            "0100" to "7E8 06 41 00 18 18 00 00\r\r>",
             "0104" to "7E8 03 41 04 80\r\r>",
             "0105" to "7E8 03 41 05 7B\r\r>",
             "010C" to "7E8 04 41 0C 1A F8\r\r>",
@@ -223,8 +225,7 @@ class LiveReadTest {
         idleUntil(20) { partialVm.session.value is SessionState.Finished }
         val partialRecord = (partialVm.session.value as SessionState.Finished).record
         assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r010C\r", partial.writtenText())
-        assertEquals(ReadingResult.Unsupported, partialRecord.readings.single { it.pid == "05" }.result)
-        assertEquals(ReadingResult.Unsupported, partialRecord.readings.single { it.pid == "0D" }.result)
+        assertFalse(partialRecord.readings.any { it.pid == "05" || it.pid == "0D" })
 
         val unknown = FakeElmSocket(sensorReplies + ("0100" to "NO DATA\r\r>"))
         val unknownVm = viewModel(unknown)
@@ -233,7 +234,7 @@ class LiveReadTest {
         val unknownRecord = (unknownVm.session.value as SessionState.Finished).record
         assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", unknown.writtenText())
         assertEquals(SupportedPids.Unknown, unknownRecord.supportedPids)
-        assertTrue(unknownRecord.readings.all { it.result == ReadingResult.UnknownCapability })
+        assertTrue(unknownRecord.readings.isEmpty())
         assertFalse(unknownRecord.readings.any { it.result is ReadingResult.Value })
     }
 
