@@ -9,6 +9,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
 import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
@@ -24,12 +26,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 val vm: AppViewModel = viewModel()
                 val nav = rememberNavController()
+                val live by vm.live.collectAsStateWithLifecycle()
                 NavHost(navController = nav, startDestination = "home") {
                     composable("home") {
                         HomeScreen(
                             replays = vm.replays,
-                            onStart = { scenario -> vm.start(scenario); nav.navigate("session") },
-                            onStartReplay = { id -> vm.startReplay(id); nav.navigate("session") },
+                            liveResultPending = live == LiveState.Started,
+                            // Navigate only when a session actually started.
+                            onStart = { scenario -> if (vm.start(scenario)) nav.navigate("session") },
+                            onStartReplay = { id -> if (vm.startReplay(id)) nav.navigate("session") },
+                            onOpenPendingLive = { vm.acknowledgeLiveStarted(); nav.navigate("session") },
+                            onDiscardPendingLive = vm::discardPendingLive,
                             onOpenSaved = { nav.navigate("saved") },
                             onOpenBench = { nav.navigate("bench") },
                             onOpenLive = { nav.navigate("live") },

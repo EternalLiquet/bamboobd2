@@ -99,15 +99,19 @@ class AppViewModel @JvmOverloads constructor(
     /** The synthetic replay scripts bundled with `:core`. */
     val replays: List<ReplayScript> by lazy { ReplayTransport.bundledIds.map(ReplayTransport::bundled) }
 
-    fun start(scenario: FakeScenario) {
-        controller.start(FakeReader(scenario))
-    }
+    /** Starts a simulated session. False (nothing started) while a live result waits to be opened. */
+    fun start(scenario: FakeScenario): Boolean =
+        !liveResultPending() && controller.start(FakeReader(scenario))
 
     /** Runs a bundled script through the real protocol path; the session is REPLAY, never live. */
-    fun startReplay(id: String) {
+    fun startReplay(id: String): Boolean {
+        if (liveResultPending()) return false
         val script = replays.first { it.id == id }
-        controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
+        return controller.start(ElmObdReader(ReplayTransport(script, UptimeTimeSource), "replay:$id"))
     }
+
+    // An unacknowledged live session may be unsaved: no other session may replace it.
+    private fun liveResultPending() = _live.value == LiveState.Started
 
     fun cancel() = controller.cancel()
 
@@ -214,6 +218,20 @@ class AppViewModel @JvmOverloads constructor(
     /** On opening the live-read screen: keeps a connection failure or a pending hand-off until the user moves on. */
     fun refreshLiveIfIdle() {
         if (_live.value is LiveState.Available) refreshLive()
+    }
+
+    /**
+     * Explicitly drops a pending live result: a read still running is cancelled (its
+     * connection closes), then the session is cleared. Nothing reconnects.
+     */
+    fun discardPendingLive() {
+        if (!liveResultPending()) return
+        _live.value = LiveState.Available(bluetooth.availability())
+        controller.cancel()
+        viewModelScope.launch {
+            controller.state.first { it !is SessionState.Running }
+            finishSession()
+        }
     }
 
     /** The live-read screen has navigated to the started session: the hand-off is consumed. */

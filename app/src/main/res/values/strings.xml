@@ -8,6 +8,9 @@
     <string name="bench_banner">ADAPTER BENCH — adapter-only commands, never vehicle requests</string>
     <string name="bench_open">Adapter bench check (Bluetooth)</string>
     <string name="live_open">Read codes from the car (Bluetooth)</string>
+    <string name="pending_live">A live read hasn\'t been opened yet. Open it to see, save or copy it, or discard it. Other sessions can\'t start until then.</string>
+    <string name="pending_live_open">Open live result</string>
+    <string name="pending_live_discard">Discard live result</string>
     <string name="live_title">Read codes</string>
     <string name="live_read_banner">LIVE READ — car codes only, no sensor readings or clearing</string>
     <string name="live_explainer">Reads the supported-reading map and stored and pending trouble codes from the car (0100, 03 and 07). It also sends the adapter setup commands ATE0, ATL0, ATH1 and ATSP0 (automatic protocol detection) first, and ATDPN after 0100 to report the protocol found. Detection usually takes a few seconds and is stopped after about a minute at most. It never requests live sensor readings or clears codes. Car parked, ignition on, engine off.</string>

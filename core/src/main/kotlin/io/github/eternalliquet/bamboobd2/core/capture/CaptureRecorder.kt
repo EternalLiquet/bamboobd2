@@ -13,6 +13,9 @@ import kotlinx.serialization.json.Json
  * A transport calls [onWrite] before sending and [onRead] when bytes arrive; both
  * may come from different threads.
  *
+ * The end of the stream (a disconnect) is not recorded, so a capture of a session
+ * that ended DISCONNECTED replays as silence and ends as a timeout instead.
+ *
  * The output is marked `RAW_CAPTURE`, which [ReplayScript.parse] rejects. It becomes
  * a fixture only through docs/CAPTURE_IMPORT.md: kept outside Git, hashed, reviewed,
  * sanitized and relabelled `SANITIZED_CAPTURE`.

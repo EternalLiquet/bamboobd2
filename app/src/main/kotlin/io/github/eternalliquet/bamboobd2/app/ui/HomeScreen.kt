@@ -33,11 +33,14 @@ import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 @Composable
 fun HomeScreen(
     replays: List<ReplayScript>,
+    liveResultPending: Boolean,
     onStart: (FakeScenario) -> Unit,
     onStartReplay: (String) -> Unit,
     onOpenSaved: () -> Unit,
     onOpenBench: () -> Unit,
     onOpenLive: () -> Unit,
+    onOpenPendingLive: () -> Unit,
+    onDiscardPendingLive: () -> Unit,
 ) {
     // "fake:<scenario>" or "replay:<script id>", so the choice survives recreation.
     var selected by rememberSaveable { mutableStateOf("fake:${FakeScenario.NO_CODES.name}") }
@@ -46,6 +49,12 @@ fun HomeScreen(
             modifier = Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // A live read that was never opened: keep it reachable, and let only the user drop it.
+            if (liveResultPending) {
+                Text(stringResource(R.string.pending_live), style = MaterialTheme.typography.bodyLarge)
+                Button(onClick = onOpenPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pending_live_open)) }
+                OutlinedButton(onClick = onDiscardPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pending_live_discard)) }
+            }
             Text(stringResource(R.string.home_title), style = MaterialTheme.typography.titleLarge)
             Text(stringResource(R.string.home_explainer), style = MaterialTheme.typography.bodyMedium)
             Column(Modifier.selectableGroup()) {
@@ -60,6 +69,7 @@ fun HomeScreen(
                     val (kind, name) = selected.split(":", limit = 2)
                     if (kind == "replay") onStartReplay(name) else onStart(FakeScenario.valueOf(name))
                 },
+                enabled = !liveResultPending,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.start))

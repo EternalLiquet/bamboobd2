@@ -1,5 +1,7 @@
 package io.github.eternalliquet.bamboobd2.app
 
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -20,7 +22,9 @@ import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -165,5 +169,48 @@ class LiveResumeTest {
         repeat(10) { ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS) }
         assertEquals(0, rule.onAllNodes(hasText("Copy raw capture for review")).fetchSemanticsNodes().size)
         assertTrue(vm.session.value is SessionState.Idle)
+    }
+
+    /** Home showing with an unacknowledged live result: the state Back leaves in the frame before navigation. */
+    private fun pendingLiveResultOnHome(): Pair<AppViewModel, String> {
+        val model = vm
+        socket.release.countDown()
+        rule.runOnUiThread { model.startLive(BondedDevice("VEEPEAK", "00:11:22:33:44:55")) }
+        idleUntil(20) { model.session.value is SessionState.Finished }
+        idleUntil(5) { model.captures.value.isNotEmpty() }
+        assertEquals(LiveState.Started, model.live.value)
+        waitForText("A live read hasn't been opened yet")
+        return model to (model.session.value as SessionState.Finished).record.id
+    }
+
+    @Test
+    fun otherStartsCannotOverwriteAPendingLiveResultAndItStaysOpenable() {
+        val (model, liveId) = pendingLiveResultOnHome()
+
+        // Every other session entry point refuses, and nothing navigates.
+        assertFalse(model.start(FakeScenario.NO_CODES))
+        assertFalse(model.startReplay("can-complete"))
+        rule.onNodeWithText("No codes").performScrollTo().performClick()
+        rule.onNodeWithText("Start").performScrollTo().assertIsNotEnabled()
+        rule.onNodeWithText("Start an offline session").assertExists()
+        assertEquals(liveId, (model.session.value as SessionState.Finished).record.id)
+
+        // The original result opens, and can be saved and its capture copied.
+        rule.onNodeWithText("Open live result").performScrollTo().performClick()
+        waitForText("Copy raw capture for review")
+        assertEquals(liveId, (model.session.value as SessionState.Finished).record.id)
+        rule.onNodeWithText("Save").performScrollTo().performClick()
+        waitForText("Saved")
+        assertTrue(model.live.value is LiveState.Available)
+    }
+
+    @Test
+    fun discardingAPendingLiveResultClearsItAndAllowsOtherSessions() {
+        val (model, _) = pendingLiveResultOnHome()
+        rule.onNodeWithText("Discard live result").performScrollTo().performClick()
+        idleUntil(5) { model.session.value is SessionState.Idle }
+        assertTrue(model.live.value is LiveState.Available)
+        assertEquals(0, rule.onAllNodes(hasText("A live read hasn't been opened yet")).fetchSemanticsNodes().size)
+        rule.onNodeWithText("Start").performScrollTo().assertIsEnabled()
     }
 }
