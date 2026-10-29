@@ -2,7 +2,7 @@
 
 An evidence-led, AI-assisted diagnostic research project. The first target is the owner's 2014 Porsche Cayenne S, but the research scope includes European and VAG diagnostic stacks. No protocol, ECU address, service-reset procedure, or vehicle compatibility has been verified for this car.
 
-This repository contains a Kotlin/JVM diagnostic core and Android app. Fake and sanitized replay paths, a read-only generic OBD-II decoder, saved sessions, and a Bluetooth Classic path with bounded LIVE codes reads have been implemented. The repository has no verified target-car integration, reset recipe, ECU flashing support, proprietary dataset, credentials, or raw VIN. Software checks are documented in [BUILD.md](docs/BUILD.md); no phone or vehicle test is established by those checks.
+This repository contains a Kotlin/JVM diagnostic core and Android app. Fake and sanitized replay paths, a read-only generic OBD-II decoder, and saved sessions are implemented. The bounded Bluetooth Classic LIVE path defaults to codes only; an explicit choice adds one pass of up to four confirmed generic sensor readings. Finished saved sessions can be reviewed as a privacy-limited text summary and compared as two distinct records of the same source type, with incomplete coverage and missing readings kept separate from numeric differences. Sensor support labels explain the existing capability map without claiming all responders. The repository has no verified target-car integration, reset recipe, ECU flashing support, proprietary dataset, credentials, or raw VIN. Software checks are documented in [BUILD.md](docs/BUILD.md); they do not validate this APK on a phone or vehicle.
 
 ## Read first
 
@@ -16,4 +16,4 @@ For current scope and evidence, start with [project status](PROJECT_STATUS.md). 
 
 ## Current engineering work
 
-The Android foundation and codes-only software path are merged; [overnight epic #27](https://github.com/EternalLiquet/bamboobd2/issues/27) tracks the next offline-tested features and APK. The [live-test gate](docs/LIVE_TEST_GATE.md) keeps any owner-operated hardware checks separate. See [workflow](docs/WORKFLOW.md) for review and evidence requirements.
+The bounded software features in [overnight epic #27](https://github.com/EternalLiquet/bamboobd2/issues/27) are merged; [integrated delivery #33](https://github.com/EternalLiquet/bamboobd2/issues/33) tracks the debug APK and exact-source handoff. This is a diagnostic research build, not a vehicle-validated release. Earlier owner-reported phone and adapter observations are recorded in [public evidence](docs/evidence/2026-10-28-hardware-readiness.md); [live-test gate](docs/LIVE_TEST_GATE.md) retains separate owner authorization for further hardware work. See [workflow](docs/WORKFLOW.md) for review and evidence requirements.
