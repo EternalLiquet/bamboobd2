@@ -1,6 +1,7 @@
 package io.github.eternalliquet.bamboobd2.core.model
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 
@@ -116,7 +117,7 @@ sealed interface ReadingResult {
     /** The request was sent but gave no usable value (adapter error, malformed or negative reply). */
     @Serializable
     @SerialName("failed")
-    data class Failed(val reason: String) : ReadingResult
+    data class Failed(val reason: String, @EncodeDefault(EncodeDefault.Mode.NEVER) val ecu: String? = null) : ReadingResult
 
     /** The supported-PID map says the vehicle does not report this PID. */
     @Serializable
@@ -168,6 +169,8 @@ data class SessionRecord(
     val dtcKindsRead: List<DtcKind> = emptyList(),
     val readings: List<Reading> = emptyList(),
     val events: List<SessionEvent> = emptyList(),
+    /** Absent for every snapshot, including older schema-2 snapshots. */
+    val recording: LiveRecording? = null,
 ) {
     /**
      * True when the car gave nothing usable: no supported-PID map, no code list
@@ -176,7 +179,8 @@ data class SessionRecord(
      */
     val readNothing: Boolean
         get() = supportedPids == SupportedPids.Unknown && dtcKindsRead.isEmpty() && dtcs.isEmpty() &&
-            readings.none { it.result is ReadingResult.Value }
+            readings.none { it.result is ReadingResult.Value } &&
+            recording?.samples.orEmpty().none { it.outcome == LiveSampleOutcome.VALUE }
 
     /** True when both stored and pending codes were read, so an empty list means none were reported. */
     val allCodesRead: Boolean

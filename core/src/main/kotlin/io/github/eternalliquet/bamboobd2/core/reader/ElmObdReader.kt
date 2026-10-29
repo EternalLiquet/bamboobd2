@@ -1,5 +1,6 @@
 package io.github.eternalliquet.bamboobd2.core.reader
 
+import io.github.eternalliquet.bamboobd2.core.live.RequestGate
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
 import io.github.eternalliquet.bamboobd2.core.model.Provenance
 import io.github.eternalliquet.bamboobd2.core.model.PageEvidence
@@ -84,6 +85,7 @@ class ElmObdReader(
     override val sourceLabel: String,
     private val profile: AdapterProfile = AdapterProfile.PROVISIONAL,
     private val discoveryClockMillis: (() -> Long)? = null,
+    private val requestGate: RequestGate? = null,
 ) : DiagnosticReader {
 
     override val provenance: Provenance = when (transport.kind) {
@@ -234,7 +236,11 @@ class ElmObdReader(
         }
     }
 
-    override suspend fun readPid(pid: String): List<ReadingResult> {
+    override suspend fun readPid(pid: String): List<ReadingResult> = readPidObservations(pid).map {
+        if (it is ReadingResult.Failed) it.copy(ecu = null) else it
+    }
+
+    override suspend fun readPidObservations(pid: String): List<ReadingResult> {
         discoveryStop?.let { throw it }
         val request = VehicleRequest.entries.firstOrNull { it.text == "01$pid" }
             ?: return listOf(ReadingResult.Failed("PID $pid is not allowlisted"))
@@ -242,10 +248,12 @@ class ElmObdReader(
         val (result, unresolved) = query(request)
         return when (result) {
             is ObdResult.Reading -> result.perEcu.map { ReadingResult.Value(it.value, result.unit, it.ecu) } +
-                (result.failures + lastMalformedEcus.map { "${it ?: "responder"}: malformed frame" }).map { ReadingResult.Failed(it) } +
-                unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply") }
+                (result.failures + lastMalformedEcus.map { "${it ?: "responder"}: malformed frame" }).map { failure ->
+                    ReadingResult.Failed(failure, failure.substringBefore(": ").takeIf { it.matches(Regex("[0-9A-F]{2,3}")) })
+                } + unresolved.map { ReadingResult.Failed("${it ?: "responder"}: response pending, no final reply", it) }
             ObdResult.NoData -> listOf(ReadingResult.NoData)
-            else -> listOf(ReadingResult.Failed(describe(result)))
+            else -> listOf(ReadingResult.Failed(describe(result),
+                (result as? ObdResult.Negative)?.ecu ?: lastResponderIssues.keys.singleOrNull()))
         }
     }
 
@@ -341,7 +349,7 @@ class ElmObdReader(
     /** One request and its prompt-terminated reply, retried at most once after a passive resync. */
     private suspend fun exchange(request: Request, deadlineMillis: Long): String {
         awaitIdle()
-        attempt(request, deadlineMillis)?.let { return it }
+        attempt(request, deadlineMillis, false)?.let { return it }
         // Sending anything now would interrupt the adapter (p9); wait for its prompt instead.
         if (awaitPrompt(profile.resyncMillis) == null) {
             throw ReaderStoppedException(StopReason.NO_RESPONSE, "no prompt after '${request.text}' ($phase)")
@@ -349,15 +357,21 @@ class ElmObdReader(
         notes += ReaderNote("late_reply_discarded", request.text)
         notes += ReaderNote("retry", request.text)
         awaitIdle()
-        return attempt(request, deadlineMillis)
+        return attempt(request, deadlineMillis, true)
             ?: throw ReaderStoppedException(StopReason.NO_RESPONSE, "no reply to '${request.text}' after one retry ($phase)")
     }
 
-    private suspend fun attempt(request: Request, deadlineMillis: Long): String? {
+    private suspend fun attempt(request: Request, deadlineMillis: Long, retry: Boolean): String? {
+        requestGate?.beforeWrite(retry)
+        var written = false
         try {
             transport.write(request)
+            written = true
+            requestGate?.wrote(retry)
         } catch (e: TransportClosedException) {
             throw ReaderStoppedException(StopReason.DISCONNECTED, "before '${request.text}' ($phase)")
+        } finally {
+            if (!written) requestGate?.rejectedWrite()
         }
         awaitPrompt(deadlineMillis)?.let { return it }
         if (!pendingLine.containsMatchIn(compact(assembler.pending()))) return null
