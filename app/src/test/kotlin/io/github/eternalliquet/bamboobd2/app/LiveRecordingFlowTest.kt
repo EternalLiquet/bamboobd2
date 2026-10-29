@@ -1,8 +1,10 @@
 package io.github.eternalliquet.bamboobd2.app
 
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -94,6 +96,7 @@ class LiveRecordingFlowTest {
         enter()
         rule.onNodeWithText("Start recording").performScrollTo().assertIsNotEnabled()
         rule.onNodeWithTag("recording_pid_06").performScrollTo().assertIsNotEnabled()
+        rule.onNodeWithTag("recording_pid_0E").performScrollTo().assertIsEnabled()
         selectFour()
         rule.onNodeWithTag("recording_pid_0E").performScrollTo().assertIsNotEnabled()
         rule.onNodeWithText("Start recording").performScrollTo().performClick()
@@ -135,6 +138,11 @@ class LiveRecordingFlowTest {
             until(5) { socket.closed.count == 0L }
             assertEquals(oldId, (vm.recording.value as LiveReadState.Finished).record.id)
         }
+        rule.onNodeWithText("Recording setup ended.", substring = true).assertExists()
+        rule.onNodeWithText("Recording ended").assertDoesNotExist()
+        rule.onNodeWithText("Connecting and preparing…").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Back").performClick()
+        rule.onNodeWithText("Start an offline session").assertExists()
         rule.runOnUiThread { assertTrue(vm.start(io.github.eternalliquet.bamboobd2.core.reader.FakeScenario.NO_CODES)) }
     }
 

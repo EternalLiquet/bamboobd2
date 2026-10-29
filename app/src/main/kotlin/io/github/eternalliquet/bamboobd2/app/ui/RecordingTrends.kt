@@ -13,6 +13,8 @@ import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.app.live.RecordingSeries
 import io.github.eternalliquet.bamboobd2.core.protocol.Mode01Catalog
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import io.github.eternalliquet.bamboobd2.core.model.LiveSampleOutcome
 import java.text.DateFormat
 import java.util.Date
@@ -28,11 +30,13 @@ fun RecordingTrends(series: List<RecordingSeries>, nowElapsed: Long, all: Boolea
     }
     if (series.isEmpty()) Text(stringResource(R.string.recording_no_observations))
     series.forEach { s ->
-        val label = if (Mode01Catalog.lookup(s.key.pid) != null) stringResource(mode01LabelId(s.key.pid)) else "PID ${s.key.pid}"
-        Text("$label · PID ${s.key.pid} · ECU ${s.key.ecu ?: "unknown"} · ${s.key.unit}", style = MaterialTheme.typography.titleSmall)
+        val label = if (Mode01Catalog.lookup(s.key.pid) != null) stringResource(mode01LabelId(s.key.pid)) else stringResource(R.string.sensor_pid_label, s.key.pid)
+        Text(stringResource(R.string.recording_series_label, label, s.key.pid,
+            s.key.ecu ?: stringResource(R.string.recording_unknown_responder), s.key.unit),
+            style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
         val min = s.minimum
         val max = s.maximum
-        if (min != null && max != null) Text("Observed min $min, max $max ${s.key.unit}")
+        if (min != null && max != null) Text(stringResource(R.string.recording_observed_range, min.toString(), max.toString(), s.key.unit))
         else Text(stringResource(R.string.recording_no_numeric))
         val values = s.segments.flatten()
         if (values.isNotEmpty()) {
@@ -63,18 +67,19 @@ fun RecordingTrends(series: List<RecordingSeries>, nowElapsed: Long, all: Boolea
         var index by remember(s.key) { mutableIntStateOf(0) }
         if (expanded && s.history.isNotEmpty()) {
             val selected = index.coerceIn(0, s.history.lastIndex)
-            Text("${selected + 1} / ${s.history.size}")
+            Text(stringResource(R.string.recording_history_position, selected + 1, s.history.size))
             TextButton(onClick = { index = selected - 1 }, enabled = selected > 0,
                 modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recording_previous)) }
             TextButton(onClick = { index = selected + 1 }, enabled = selected < s.history.lastIndex,
                 modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recording_next)) }
             val point = s.history[selected]
             val status = when (point.outcome) {
-                LiveSampleOutcome.VALUE -> "${point.value} ${point.unit}"
-                LiveSampleOutcome.MISSING -> "Missing: ${point.reason ?: "no response"}"
-                LiveSampleOutcome.FAILURE -> "Failed: ${point.reason ?: "read failed"}"
+                LiveSampleOutcome.VALUE -> stringResource(R.string.recording_sample_value, point.value.toString())
+                LiveSampleOutcome.MISSING -> stringResource(R.string.recording_sample_missing, point.reason ?: stringResource(R.string.recording_no_response))
+                LiveSampleOutcome.FAILURE -> stringResource(R.string.recording_failed, point.reason ?: stringResource(R.string.recording_read_failed))
             }
-            Text("${DateFormat.getDateTimeInstance().format(Date(point.atMillis))} · +${point.elapsedMillis / 1000}s · ECU ${point.ecu ?: "unknown"} · $status",
+            Text(stringResource(R.string.recording_history_sample, DateFormat.getDateTimeInstance().format(Date(point.atMillis)),
+                point.elapsedMillis / 1000, point.ecu ?: stringResource(R.string.recording_unknown_responder), status, point.unit),
                 style = MaterialTheme.typography.bodySmall)
         }
     }
