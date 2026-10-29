@@ -8,6 +8,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -102,7 +105,7 @@ class ReplayFlowTest {
         banner("REPLAY — scripted adapter data, not a live scan")
         rule.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("P0133 (stored)").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("83 °C (7E8)").performScrollTo().assertIsDisplayed()
+        assertBroadReplayTemperatures()
 
         rule.onNodeWithText("Save").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Saved")).fetchSemanticsNodes().isNotEmpty() }
@@ -112,6 +115,16 @@ class ReplayFlowTest {
         rule.onNodeWithText("REPLAY · replay:can-complete · Complete").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("REPLAY · replay:can-complete")).fetchSemanticsNodes().isNotEmpty() }
         banner("REPLAY — scripted adapter data, not a live scan")
+        assertBroadReplayTemperatures()
+    }
+
+    private fun assertBroadReplayTemperatures() {
+        // These distinct catalog readings intentionally have the same synthetic value.
+        rule.onNodeWithText("Coolant temperature").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Intake air temperature").performScrollTo().assertIsDisplayed()
+        val values = rule.onAllNodesWithText("83 °C (7E8)").assertCountEquals(2)
+        values.onFirst().performScrollTo().assertIsDisplayed()
+        values.onLast().performScrollTo().assertIsDisplayed()
     }
 
     @Test
