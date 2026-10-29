@@ -372,6 +372,7 @@ class AppViewModel @JvmOverloads constructor(
         when (_live.value) {
             is LiveState.Connecting -> {
                 recordingJob?.cancel()
+                if (recording.value is LiveReadState.Idle) _recordingPending.value = false
                 liveJob?.cancel()
                 _live.value = LiveState.Available(bluetooth.availability())
             }

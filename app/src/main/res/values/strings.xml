@@ -11,6 +11,12 @@
     <string name="pending_live">A live read hasn\'t been opened yet. Open it to see, save or copy it, or discard it. Other sessions can\'t start until then.</string>
     <string name="pending_live_open">Open live result</string>
     <string name="pending_live_discard">Discard live result</string>
+    <string name="pending_recording">A live recording is in progress or has an unsaved result. Open it to review and save, or discard it. Other sessions wait until it is finished.</string>
+    <string name="pending_recording_open">Open live recording</string>
+    <string name="pending_recording_discard">Discard live recording</string>
+    <string name="recording_discard_title">Discard unsaved recording?</string>
+    <string name="recording_discard_explainer">This recording has not been saved. Discarding removes the current result.</string>
+    <string name="recording_discard">Discard</string>
     <string name="recording_title">Live recording</string>
     <string name="recording_option">Live recording (up to four readings)</string>
     <string name="recording_banner">LIVE — generic emissions readings; no clearing</string>

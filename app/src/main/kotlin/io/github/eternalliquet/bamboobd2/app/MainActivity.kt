@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
                 val recordingPending by vm.recordingPending.collectAsStateWithLifecycle()
                 DisposableEffect(vm) {
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_STOP) vm.onAppBackgrounded()
+                        if (event == Lifecycle.Event.ON_STOP && !isChangingConfigurations) vm.onAppBackgrounded()
                     }
                     lifecycle.addObserver(observer)
                     onDispose { lifecycle.removeObserver(observer) }
@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             replays = vm.replays,
                             liveResultPending = live == LiveState.Started || recordingPending,
+                            pendingRecording = recordingPending,
                             // Navigate only when a session actually started.
                             onStart = { scenario -> if (vm.start(scenario)) nav.navigate("session") },
                             onStartReplay = { id -> if (vm.startReplay(id)) nav.navigate("session") },

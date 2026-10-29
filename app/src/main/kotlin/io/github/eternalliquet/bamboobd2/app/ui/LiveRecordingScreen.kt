@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -38,7 +41,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
             delay(1000)
         }
     }
-    val record = when (val s = state) {
+    val record = if (live is LiveState.Connecting) null else when (val s = state) {
         is LiveReadState.Preparing -> s.record
         is LiveReadState.Ready -> s.record
         is LiveReadState.Recording -> s.record
@@ -48,13 +51,26 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
         LiveReadState.Idle -> null
     }
     val selection: SnapshotStateList<String> = remember(record?.id) { mutableStateListOf() }
-    val finished = state is LiveReadState.Finished
-    BackHandler {
-        if (!finished && state !is LiveReadState.Idle) vm.stopRecording() else { vm.finishRecording(); onDone() }
+    val finished = record != null && state is LiveReadState.Finished
+    val saved = record?.let { (save[it.id] as? SaveStatus.Done)?.result is SaveResult.Saved } == true
+    var discardPrompt by remember { mutableStateOf(false) }
+    fun leave() {
+        when {
+            live is LiveState.Connecting -> { vm.cancelLiveConnect(); onDone() }
+            !finished && state !is LiveReadState.Idle -> vm.stopRecording()
+            finished && !saved -> discardPrompt = true
+            else -> { vm.finishRecording(); onDone() }
+        }
     }
+    BackHandler { leave() }
+    if (discardPrompt) AlertDialog(onDismissRequest = { discardPrompt = false },
+        title = { Text(stringResource(R.string.recording_discard_title)) },
+        text = { Text(stringResource(R.string.recording_discard_explainer)) },
+        confirmButton = { TextButton(onClick = { discardPrompt = false; vm.discardPendingRecording(); onDone() }) { Text(stringResource(R.string.recording_discard)) } },
+        dismissButton = { TextButton(onClick = { discardPrompt = false }) { Text(stringResource(R.string.cancel)) } })
     DiagnosticScaffold(title = stringResource(R.string.recording_title), provenance = record?.provenance,
         banner = R.string.recording_banner,
-        navigationIcon = { BackButton { if (!finished && state !is LiveReadState.Idle) vm.stopRecording() else { vm.finishRecording(); onDone() } } }
+        navigationIcon = { BackButton { leave() } }
     ) { padding ->
         Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,12 +107,15 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                             Capability.UNSUPPORTED -> R.string.sensor_support_unsupported
                             Capability.UNKNOWN -> R.string.sensor_support_unknown
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Checkbox(checked = pid in selection, enabled = enabled && (pid in selection || selection.size < 4),
-                                onCheckedChange = { checked -> if (checked) { if (selection.size < 4) selection.add(pid) } else selection.remove(pid) })
+                        val selectable = enabled && (pid in selection || selection.size < 4)
+                        Row(Modifier.fillMaxWidth().testTag("recording_pid_$pid").toggleable(value = pid in selection, enabled = selectable,
+                            role = Role.Checkbox, onValueChange = { checked ->
+                                if (checked) { if (selection.size < 4) selection.add(pid) } else selection.remove(pid)
+                            }), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Checkbox(checked = pid in selection, enabled = selectable, onCheckedChange = null)
                             Text("$label · PID $pid · ${descriptor?.unit ?: ""} · ${stringResource(status)}", modifier = Modifier.weight(1f))
                         }
-                        known?.pages?.map { it.ecu }?.distinct()?.forEach { ecu ->
+                        known?.pages?.mapNotNull { it.ecu }?.distinct()?.forEach { ecu ->
                             Text(stringResource(R.string.sensor_support_ecu_row, label, ecu,
                                 stringResource(if (record.supportedPids.capability(pid, ecu).capability == Capability.SUPPORTED_AND_DECODABLE)
                                     R.string.sensor_support_this_ecu else R.string.sensor_support_unknown)), style = MaterialTheme.typography.bodySmall)
@@ -114,9 +133,9 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                         val label = stringResource(mode01LabelId(pid))
                         val rows = r.samples.filter { it.pid == pid }
                         val responders = (record.supportedPids as? SupportedPids.Known)?.pages.orEmpty()
-                            .map { it.ecu }.distinct().filter { record.supportedPids.capability(pid, it).capability == Capability.SUPPORTED_AND_DECODABLE }
+                            .mapNotNull { it.ecu }.distinct().filter { record.supportedPids.capability(pid, it).capability == Capability.SUPPORTED_AND_DECODABLE }
                         Text("$label · PID $pid", style = MaterialTheme.typography.titleSmall)
-                        (responders + rows.mapNotNull { it.ecu }).distinct().forEach { ecu ->
+                        (responders + rows.map { it.ecu }).distinct().forEach { ecu ->
                             val last = rows.lastOrNull { it.ecu == ecu }
                             val good = rows.lastOrNull { it.ecu == ecu && it.outcome == LiveSampleOutcome.VALUE }
                             val age = good?.let { currentElapsed - it.elapsedMillis }
@@ -127,7 +146,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                                 age != null && age > 5000 -> stringResource(R.string.recording_stale)
                                 else -> stringResource(R.string.recording_current)
                             }
-                            Text("ECU $ecu · $status" + (good?.let { " · ${it.value} ${it.unit} · ${stringResource(R.string.recording_age, (age ?: 0L).coerceAtLeast(0) / 1000)}" } ?: ""))
+                            Text("ECU ${ecu ?: "unknown"} · $status" + (good?.let { " · ${it.value} ${it.unit} · ${stringResource(R.string.recording_age, (age ?: 0L).coerceAtLeast(0) / 1000)}" } ?: ""))
                         }
                     }
                     Text(stringResource(R.string.recording_stale_explainer), style = MaterialTheme.typography.bodySmall)
@@ -141,7 +160,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::saveRecording, enabled = status != SaveStatus.Saving && result !is SaveResult.Saved,
                             modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }
-                        OutlinedButton(onClick = { vm.finishRecording(); onDone() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.done)) }
+                        OutlinedButton(onClick = { leave() }, modifier = Modifier.weight(1f)) { Text(stringResource(if (saved) R.string.done else R.string.recording_discard)) }
                     }
                 }
             }

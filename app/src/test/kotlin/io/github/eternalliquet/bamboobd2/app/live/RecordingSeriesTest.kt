@@ -25,8 +25,8 @@ class RecordingSeriesTest {
     }
 
     @Test fun windowAndAllMissingHaveNoInventedPoints() {
-        val samples = listOf(sample(1, 0, outcome = LiveSampleOutcome.MISSING), sample(2, 1000, value = -3.0), sample(3, 61001, value = 4.0))
-        val recent = recordingSeries(samples, emptyList(), 61001, 60000).single()
+        val samples = listOf(sample(1, 0, outcome = LiveSampleOutcome.MISSING), sample(2, 1000, value = -3.0), sample(3, 61000, value = 4.0))
+        val recent = recordingSeries(samples, emptyList(), 61000, 60000).single()
         assertEquals(listOf(2L, 3L), recent.history.map { it.sequence })
         assertEquals(listOf(1, 1), recent.segments.map { it.size })
         assertEquals(-3.0, recent.minimum)
