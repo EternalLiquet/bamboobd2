@@ -2,12 +2,14 @@ package io.github.eternalliquet.bamboobd2.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import java.util.concurrent.TimeUnit
 import org.junit.Before
@@ -33,6 +35,17 @@ class AppFlowTest {
 
     private fun bannerShown() = rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertIsDisplayed()
 
+    private fun waitForSavedRow(text: String) {
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper()
+            try {
+                rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+                true
+            } catch (_: AssertionError) { false }
+        }
+        rule.onNodeWithText(text).assertExists()
+    }
+
     private fun runSessionToEnd() {
         // FakeReader steps use main-looper delays; advance Robolectric's clock past all of them.
         ShadowLooper.idleMainLooper(10, TimeUnit.SECONDS)
@@ -56,7 +69,7 @@ class AppFlowTest {
 
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         bannerShown()
-        rule.waitUntil(5_000) { rule.onAllNodes(hasText("SIMULATED · fake:two_codes · Complete")).fetchSemanticsNodes().isNotEmpty() }
+        waitForSavedRow("SIMULATED · fake:two_codes · Complete")
         rule.onNodeWithText("SIMULATED · fake:two_codes · Complete").performClick()
         bannerShown()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("P0133 (stored)")).fetchSemanticsNodes().isNotEmpty() }

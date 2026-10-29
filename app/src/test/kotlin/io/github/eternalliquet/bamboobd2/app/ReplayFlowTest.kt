@@ -3,12 +3,14 @@ package io.github.eternalliquet.bamboobd2.app
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import android.app.Application
 import androidx.compose.ui.test.assertCountEquals
 import androidx.lifecycle.ViewModelProvider
@@ -107,6 +109,17 @@ class ReplayFlowTest {
         rule.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
     }
 
+    private fun waitForSavedRow(text: String) {
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper()
+            try {
+                rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+                true
+            } catch (_: AssertionError) { false }
+        }
+        rule.onNodeWithText(text).assertExists()
+    }
+
     @Test
     fun reopenedSessionWithAnUnresolvedPendingReplyNeverClaimsNoCodes() {
         // As ElmObdReader records 03 answered "7E8 7F 03 78" then "7E9 43 00", and 07 read completely.
@@ -123,7 +136,7 @@ class ReplayFlowTest {
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
         for ((id, code) in listOf("mixed" to null, "earlier" to "P0133 (stored)")) {
             val entry = "REPLAY · replay:$id · Complete"
-            waitForText(entry)
+            waitForSavedRow(entry)
             rule.onNodeWithText(entry).performClick()
             waitForText("REPLAY · replay:$id")
             rule.onNodeWithText("Not every code list was read completely, so codes may be missing.").performScrollTo().assertIsDisplayed()
@@ -151,7 +164,7 @@ class ReplayFlowTest {
         FileSessionStore(viewModelSessionsDir()).save(record)
 
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
-        waitForText("REPLAY · replay:discovery · Complete")
+        waitForSavedRow("REPLAY · replay:discovery · Complete")
         rule.onNodeWithText("REPLAY · replay:discovery · Complete").performClick()
         waitForText("REPLAY · replay:discovery")
         rule.onNodeWithText("Not every responder reported which readings it supports. Only confirmed readings were requested.")
@@ -181,7 +194,7 @@ class ReplayFlowTest {
         val labels = listOf("Engine load", "Coolant temperature", "Engine speed", "Vehicle speed")
         for ((id, _, statuses) in cases) {
             val entry = "REPLAY · replay:$id · Complete"
-            waitForText(entry)
+            waitForSavedRow(entry)
             rule.onNodeWithText(entry).performClick()
             waitForText("REPLAY · replay:$id")
             rule.onNodeWithText("Sensor support").performScrollTo().assertIsDisplayed()

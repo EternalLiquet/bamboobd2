@@ -5,11 +5,15 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.lifecycle.ViewModelProvider
 import io.github.eternalliquet.bamboobd2.core.model.Dtc
 import io.github.eternalliquet.bamboobd2.core.model.DtcKind
@@ -40,6 +44,18 @@ class SessionComparisonFlowTest {
         rule.onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
     }
 
+    private fun waitForSavedRow(text: String) {
+        rule.waitUntil(5_000) {
+            ShadowLooper.idleMainLooper()
+            try {
+                rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+                true
+            } catch (_: AssertionError) { false }
+        }
+        rule.onNodeWithText(text).assertExists()
+    }
+    private fun savedTop() { rule.onNode(hasScrollToIndexAction()).performScrollToIndex(0) }
+
     private fun record(id: String, start: Long, load: Double) = SessionRecord(
         schemaVersion = 1, id = id, startedAt = start, endedAt = start + 10,
         provenance = Provenance.REPLAY, sourceLabel = "replay:$id", complete = true, outcome = SessionOutcome.COMPLETE,
@@ -66,11 +82,15 @@ class SessionComparisonFlowTest {
         val secondDate = DateFormat.getDateTimeInstance().format(Date(second.startedAt))
 
         rule.onNodeWithText("Saved sessions").performScrollTo().performClick()
-        waitFor(firstDate)
+        waitForSavedRow(firstDate)
+        savedTop()
         rule.onNodeWithText("Choose two sessions").performClick()
         rule.onNodeWithText("Choose sessions from the same vehicle. The app cannot verify that they are.").assertIsDisplayed()
+        waitForSavedRow(firstDate)
         rule.onNodeWithText(firstDate).performClick()
+        waitForSavedRow(secondDate)
         rule.onNodeWithText(secondDate).performClick()
+        savedTop()
         rule.onNodeWithText("Compare").performClick()
         waitFor("Reported only in first")
         rule.onNodeWithText("First session").performScrollTo().assertIsDisplayed()
@@ -80,20 +100,27 @@ class SessionComparisonFlowTest {
         rule.onAllNodes(hasText("Read codes")).assertCountEquals(0)
         rule.onNodeWithContentDescription("Back").performClick()
 
+        savedTop()
         rule.onNodeWithText("Choose two sessions").performClick()
         rule.onNodeWithText("First: —", substring = true).assertIsDisplayed()
+        waitForSavedRow(firstDate)
         rule.onNodeWithText(firstDate).performClick()
+        savedTop()
         rule.onNodeWithText("Cancel").performClick()
         rule.onNodeWithText("Choose two sessions").assertIsDisplayed()
 
         rule.onNodeWithText("Choose two sessions").performClick()
+        waitForSavedRow(firstDate)
         rule.onNodeWithText(firstDate).performClick()
+        waitForSavedRow(secondDate)
         rule.onNodeWithText(secondDate).performClick()
         assertTrue(directory.resolve("second.1.json").delete())
+        savedTop()
         rule.onNodeWithText("Compare").performClick()
         waitFor("no longer readable")
         rule.onNodeWithText("One or both selected sessions are no longer readable. Go back and choose again.").assertIsDisplayed()
         rule.onNodeWithContentDescription("Back").performClick()
+        savedTop()
         rule.onNodeWithText("Choose two sessions").assertIsDisplayed()
     }
 }
