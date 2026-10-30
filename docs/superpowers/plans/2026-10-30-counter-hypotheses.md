@@ -16,7 +16,7 @@
 - All inputs are newly constructed and labelled synthetic; no public-source fixture or code import.
 - No main-source, Android, permission, dependency, build, CI, allowlist or protocol-fixture changes.
 - Unknown or related-platform-only applicability is preserved even when only one mathematical fit remains.
-- Public issues, pushes and PRs remain blocked; this plan authorizes none. The parent manages local checkpoint/review scope. No commit is part of this implementation task.
+- During implementation, publication was blocked and no commit was part of the implementation worker task. The owner later approved scoped research/code publication and status updates under [#62](https://github.com/EternalLiquet/bamboobd2/issues/62). The parent manages checkpoint/publication scope; no merge or vehicle operation is authorized.
 - Bound this experiment to exactly two-byte fields, scales of 1 or 100 units per count, at most 16 observations and at most 32 explicitly supplied candidates. These are research limits, not vehicle facts.
 
 ## Review Focus
@@ -86,7 +86,7 @@ If either observation contains `[255,255]`, UNSPECIFIED rejects that candidate w
 
 - [x] **Step 5: Run the focused class and then the established core gate.** Require focused PASS, then `./gradlew -p core check --console=plain` exit0. Record source HEAD, commands, test counts and actual output. In this selected cloud environment the parent has a verified local helper, `python3 /workspace/scratch/run-bamboobd2-gradle.py`, which supplies the existing Temurin JDK21, writable Gradle cache and inherited proxy without repository edits; append the same Gradle task/flags. If it is unavailable, use the standard command and report the concrete blocker. No Android build is necessary for test-source-only changes.
 
-- [x] **Step 6: Inspect the full diff and hand off.** Confirm only the two test-source files plus the parent's authorized research documentation changed; no existing protocol fixture was modified. Confirm the files contain no transport/request construction or external dataset. Report that all test observations are constructed and that no Cayenne read definition was validated. Leave commit/publication decisions to the parent and preserve the existing public-action block.
+- [x] **Step 6: Inspect the full diff and hand off.** Confirm only the two test-source files plus the parent's authorized research documentation changed; no existing protocol fixture was modified. Confirm the files contain no transport/request construction or external dataset. Report that all test observations are constructed and that no Cayenne read definition was validated. Leave commit/publication decisions to the parent; the later scoped publication approval does not authorize merging or vehicle operation.
 
 ## Self-review and handoff boundary
 
