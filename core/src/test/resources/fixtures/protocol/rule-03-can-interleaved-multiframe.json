@@ -1,0 +1,11 @@
+{
+  "id": "rule-03-can-interleaved-multiframe",
+  "provenance": "SYNTHETIC",
+  "sourceTier": "constructed",
+  "source": "Constructed from ELM327DSL printed pp43-45 CAN first/consecutive framing and interleaved responders; generic Mode 03 DTC convention in existing rule-03 fixtures. IDs and codes are illustrative, not Porsche module definitions",
+  "request": "03",
+  "headers": true,
+  "form": "CAN_11BIT",
+  "reply": "7E8 10 12 43 08 01 33 01 71\r7E9 10 0C 43 05 03 00 04 42\r7E8 21 04 20 C1 23 40 34 03\r7E9 21 92 34 45 67 D0 00 00\r7E8 22 00 04 42 92 34 00 00\r\r>",
+  "expected": "dtcs:7E9/P0300/STORED;7E9/P0442/STORED;7E9/B1234/STORED;7E9/C0567/STORED;7E9/U1000/STORED;7E8/P0133/STORED;7E8/P0171/STORED;7E8/P0420/STORED;7E8/U0123/STORED;7E8/C0034/STORED;7E8/P0300/STORED;7E8/P0442/STORED;7E8/B1234/STORED"
+}
