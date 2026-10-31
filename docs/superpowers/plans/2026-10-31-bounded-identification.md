@@ -50,3 +50,9 @@ Shared interface: core keeps `preview()` and `ExperimentResult`; adds `suspend r
 - [x] Android: home entry, exact-plan review, synthetic rehearsal, stop/back/background cancellation and visible live lock. No redesign or extra tooling.
 - [ ] Integration: run full core checks and required Android unit/lint/permission/build checks; independent review of separation, malformed input, provenance and false success. Fix substantive findings.
 - [ ] Publish coherent checkpoints to existing draft PR65; no merge. Deliver build and exact remaining activation gap.
+
+## Revision 3: corrected address evidence
+
+Owner supplied updated route-research and bounded-experiment documents and requested implementation. Replace B with `714→77E` everywhere executable, in response matching, synthetic fixtures and preview. Remove PCM attribution from A; retain module identity as unknown. Version the plan ID to v3 so old recordings are distinguishable. Preserve all request/flow-control/stop bounds and the locked LIVE gate. No additional offline framework or vehicle run.
+
+Files: `IdentificationExperiment.kt`, its existing focused test, `docs/IDENTIFICATION_EXPERIMENT.md`, this plan and `PROJECT_STATUS.md`. Android renders the core preview, so no UI rewrite is required. Verify the exact sequence and attribution regression, full core check/demo, independent diff review and hosted Android checks; deliver replacement review APK in draft PR65.

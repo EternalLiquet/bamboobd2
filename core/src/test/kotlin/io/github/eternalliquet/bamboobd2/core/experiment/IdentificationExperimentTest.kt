@@ -16,12 +16,22 @@ class IdentificationExperimentTest {
         assertEquals(listOf("ATPC", "ATD", "ATM0", "ATI", "ATE0", "ATL0", "ATS1", "ATH1", "ATD0",
             "ATR1", "ATAT0", "ATST7D", "ATTP6", "ATCAF0", "ATCFC0", "ATCEA", "ATAL",
             "ATSH729", "ATCRA793", "ATBI", "0322F18700000000", "ATPC", "ATCAF0", "ATCFC0", "ATCEA", "ATAL",
-            "ATSH717", "ATCRA781", "ATBI", "0322F18700000000"), t.writes)
+            "ATSH714", "ATCRA77E", "ATBI", "0322F18700000000"), t.writes)
         assertFalse(t.writes.any { it.startsWith("ATFC") || it == "ATCFC1" })
         assertEquals(1000L, testScheduler.currentTime)
         assertEquals("SYNTHETIC", r.recording.provenance)
         assertTrue(r.explanation.contains("unknown", true))
         assertTrue(RequestPolicy.evaluate("0322F18700000000") is PolicyDecision.Rejected)
+    }
+    @Test fun revisedPreviewKeepsBothModuleIdentitiesUnverified() {
+        val preview = IdentificationExperiment.preview()
+        assertTrue(preview.contains("714 -> 77E"))
+        assertTrue(preview.contains("module identity unknown"))
+        assertTrue(preview.contains("Golf"))
+        assertFalse(preview.contains("reported PCM"))
+        assertFalse(preview.contains("717"))
+        assertFalse(preview.contains("781"))
+        assertEquals("two-endpoint-f187-no-flow-control-v3", IdentificationExperiment.PLAN_ID)
     }
     @Test fun firstFrameIsIncompleteAndNoFlowControlFollows() = runTest {
         val t = ExperimentScript("793 10 0A 62 F1 87 41 42 43\r>")
@@ -42,7 +52,7 @@ class IdentificationExperimentTest {
         for (reply in listOf("793 04 62 F1 89 41 00 00 00\r>", "792 04 62 F1 87 41 00 00 00\r>", "793 03 7F 22 33 00 00 00 00\r>", "793 03 7F 22 22 00 00 00 00\r>", "793 21 41 42 43 44 45 46 47\r>", "793 10 07 62 F1 87 41 42 43\r>", "SEARCHING...\r>", "CAN ERROR\r>", "793 09 62 F1 87 41 00 00 00\r>")) {
             val t = ExperimentScript(reply)
             assertEquals(reply, ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
-            assertFalse(t.writes.contains("ATSH717"))
+            assertFalse(t.writes.contains("ATSH714"))
             assertEquals("0322F18700000000", t.writes.last())
         }
     }
@@ -75,7 +85,7 @@ class IdentificationExperimentTest {
             val t = ExperimentScript(reply, stallAfter = true)
             assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
             assertEquals(deadline, testScheduler.currentTime - start)
-            assertFalse(t.writes.contains("ATSH717"))
+            assertFalse(t.writes.contains("ATSH714"))
         }
     }
     @Test fun repeatedPendingDoesNotRestartDeadlineAndFinalCanComplete() = runTest {
@@ -97,7 +107,7 @@ class IdentificationExperimentTest {
         assertEquals(1, t.writes.count { !it.startsWith("AT") })
         job.cancelAndJoin()
         assertEquals(ExperimentOutcome.CANCELLED, result!!.outcome)
-        assertFalse(t.writes.contains("ATSH717"))
+        assertFalse(t.writes.contains("ATSH714"))
     }
     @Test fun totalDeadlineIncludesSetupAndSettling() = runTest {
         val t = ExperimentScript(latencyMs = 1999L)
@@ -151,7 +161,7 @@ private class ExperimentScript(
             request.text == "ATI" -> "ELM327 simulated\r>"
             request.kind == Request.Kind.ADAPTER -> setupReply
             reads++ == 0 -> replyA
-            else -> "781 04 62 F1 87 42 00 00 00\r>"
+            else -> "77E 04 62 F1 87 42 00 00 00\r>"
         }
         val text = (if (echo) request.text + "\r\n" else "") + body
         if (split && text.isNotEmpty()) text.forEach { queue.add(byteArrayOf(it.code.toByte())) }

@@ -18,18 +18,18 @@ data class ExperimentResult(
 
 /** Fixed software rehearsal. No activation flag, arbitrary commands, LIVE or imported REPLAY execution. */
 object IdentificationExperiment {
-    const val PLAN_ID = "two-endpoint-f187-no-flow-control-v2"
+    const val PLAN_ID = "two-endpoint-f187-no-flow-control-v3"
     const val RAW_REQUEST = "0322F18700000000"
     private val setup = listOf("ATPC", "ATD", "ATM0", "ATI", "ATE0", "ATL0", "ATS1", "ATH1", "ATD0",
         "ATR1", "ATAT0", "ATST7D", "ATTP6", "ATCAF0", "ATCFC0", "ATCEA", "ATAL")
     private val routeA = listOf("ATSH729", "ATCRA793", "ATBI")
-    private val routeB = listOf("ATPC", "ATCAF0", "ATCFC0", "ATCEA", "ATAL", "ATSH717", "ATCRA781", "ATBI")
+    private val routeB = listOf("ATPC", "ATCAF0", "ATCFC0", "ATCEA", "ATAL", "ATSH714", "ATCRA77E", "ATBI")
     val commands: List<String> get() = setup + routeA + RAW_REQUEST + routeB + RAW_REQUEST
     private const val UNKNOWN = "Diagnostic family, module identity and Porsche applicability remain unknown. No service fields or reset verified."
 
     fun preview(): String = buildString {
         appendLine("$PLAN_ID — LIVE locked; synthetic rehearsal only.")
-        appendLine("Assumption: normal ISO-TP, 11-bit CAN, 500 kbit/s. A 729 -> 793 is reported PCM; B 717 -> 781 is a low-confidence cluster hypothesis.")
+        appendLine("Assumption: normal ISO-TP, 11-bit CAN, 500 kbit/s. A 729 -> 793 is an unverified reported endpoint, module identity unknown; B 714 -> 77E is a low-confidence Golf/VAG-analogy cluster hypothesis, not verified for Cayenne.")
         commands.forEachIndexed { index, command ->
             if (index == setup.size + routeA.size + 1) appendLine("Wait at least 1 second after A's terminal prompt.")
             appendLine("${index + 1}. $command\\r")
@@ -147,7 +147,7 @@ object IdentificationExperiment {
                 observations += "A (729 -> 793): ${exchange(RAW_REQUEST, "793")}"
                 delay(1000L)
                 for (command in routeB) exchange(command)
-                observations += "B (717 -> 781): ${exchange(RAW_REQUEST, "781")}"
+                observations += "B (714 -> 77E): ${exchange(RAW_REQUEST, "77E")}"
                 currentEvidence = null
             }
         } catch (e: TimeoutCancellationException) {
@@ -227,12 +227,12 @@ internal class IdentificationRehearsalTransport : AdapterTransport {
     private var responder = "793"
     private val pending = ArrayDeque<ByteArray>()
     override suspend fun write(request: Request) {
-        if (request.text == "ATCRA781") responder = "781"
+        if (request.text == "ATCRA77E") responder = "77E"
         val reply = when {
             request.text == "ATI" -> "ELM327 simulated\r>"
             request.kind == Request.Kind.ADAPTER -> "OK\r>"
             responder == "793" -> "793 10 0A 62 F1 87 44 45 4D\r>"
-            else -> "781 04 62 F1 87 41 00 00 00\r>"
+            else -> "77E 04 62 F1 87 41 00 00 00\r>"
         }
         pending.add(reply.toByteArray(Charsets.US_ASCII))
     }
