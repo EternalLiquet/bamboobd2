@@ -1,85 +1,162 @@
 package io.github.eternalliquet.bamboobd2.app.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
-import io.github.eternalliquet.bamboobd2.core.experiment.ExperimentResult
+import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.core.experiment.IdentificationExperiment
-import io.github.eternalliquet.bamboobd2.core.model.Provenance
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Review-only: no Bluetooth dependency, transport selection, or live activation switch. */
+/** Owner-triggered fixed reads only; screen exit/background closes the owned connection. */
 @Composable
-fun IdentificationExperimentScreen(onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
+fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
+    val state by vm.experiment.collectAsStateWithLifecycle()
+    val availability by vm.experimentBluetooth.collectAsStateWithLifecycle()
+    val reuseRequired by vm.experimentReuseRequired.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var job by remember { mutableStateOf<Job?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<ExperimentResult?>(null) }
-    val leave = { job?.cancel(); onBack() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selected by remember { mutableStateOf<BondedDevice?>(null) }
+    var reviewed by rememberSaveable { mutableStateOf(false) }
+    var showPlan by rememberSaveable { mutableStateOf(false) }
+    var showTranscript by rememberSaveable { mutableStateOf(false) }
+    var permissionDenied by remember { mutableStateOf(false) }
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    var exportText by remember { mutableStateOf("") }
+    var reviewExport by remember { mutableStateOf(false) }
+    var identifiersReviewed by remember { mutableStateOf(false) }
+    var previousReport by remember { mutableStateOf<String?>(null) }
+    val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        permissionDenied = !it
+        vm.refreshExperimentBluetooth()
+    }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val reviewedReport = vm.takeExperimentExport()
+        if (uri != null && reviewedReport == null) {
+            exportMessage = "The reviewed report is no longer available. Reopen the private report and export again; no data was written."
+        } else if (uri != null && reviewedReport != null) scope.launch {
+            exportMessage = try {
+                withContext(Dispatchers.IO) {
+                    checkNotNull(context.contentResolver.openOutputStream(uri)).bufferedWriter().use { it.write(reviewedReport) }
+                }
+                "Report exported. Review unexpected identifiers before sharing."
+            } catch (_: Exception) { "Could not export the report. Your private copy is unchanged." }
+        }
+    }
+    LaunchedEffect(Unit) { vm.refreshExperimentBluetooth(); previousReport = vm.savedExperimentReport() }
+    val leave = { vm.stopExperiment(); onBack() }
     BackHandler(onBack = leave)
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) job?.cancel()
-        }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) vm.stopExperiment() }
         lifecycle.addObserver(observer)
-        onDispose { job?.cancel(); lifecycle.removeObserver(observer) }
+        onDispose { vm.stopExperiment(); lifecycle.removeObserver(observer) }
     }
-    DiagnosticScaffold(
-        title = stringResource(R.string.experiment_title),
-        provenance = Provenance.SIMULATED,
-        navigationIcon = { BackButton(onBack = leave) },
-    ) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.experiment_locked), style = MaterialTheme.typography.titleLarge)
-            Text(stringResource(R.string.experiment_explainer))
-            Button(onClick = {
-                busy = true
-                result = null
-                job = scope.launch {
-                    try { result = IdentificationExperiment.rehearse(onUpdate = { result = it }) }
-                    finally { busy = false }
+    MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF80CBC4), background = Color(0xFF111519), surface = Color(0xFF171D22))) {
+        if (reviewExport) AlertDialog(
+            onDismissRequest = { reviewExport = false },
+            title = { Text("Review before exporting") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Raw replies can contain unexpected identifiers. Export only to a destination you trust; this report is not automatically redacted.")
+                    SelectionContainer {
+                        Text(exportText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()))
+                    }
+                    Row {
+                        Checkbox(identifiersReviewed, onCheckedChange = { identifiersReviewed = it })
+                        Text("I reviewed this report for private identifiers.")
+                    }
                 }
-            }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.experiment_rehearse))
-            }
-            if (busy) OutlinedButton(onClick = { job?.cancel() }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.experiment_stop))
-            }
-            result?.let { current ->
-                Text("${current.outcome}: ${current.explanation}")
-                Text(stringResource(R.string.experiment_transcript), style = MaterialTheme.typography.titleMedium)
-                SelectionContainer {
-                    Text(buildString {
-                        current.recording.steps.forEachIndexed { index, step ->
-                            appendLine("${index + 1}. TX ${step.request}")
-                            step.chunks.forEach { appendLine("  +${it.atMillis}ms RX ${it.text.replace("\r", "\\r").replace("\n", "\\n")}") }
+            },
+            confirmButton = { Button(enabled = identifiersReviewed, onClick = {
+                if (vm.prepareExperimentExport(exportText)) {
+                    reviewExport = false
+                    export.launch("BambooBD2-identification.json")
+                } else exportMessage = "No report is available to export."
+            }) { Text("Choose export destination") } },
+            dismissButton = { TextButton(onClick = { reviewExport = false }) { Text("Cancel") } },
+        )
+        DiagnosticScaffold(
+            title = "Cayenne identification",
+            banner = R.string.experiment_live_banner,
+            navigationIcon = { BackButton(onBack = leave) },
+        ) { padding ->
+            Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Two identification reads", style = MaterialTheme.typography.headlineSmall)
+                Text("A 729 → 793 · identity unknown\nB 714 → 77E · unverified cluster hypothesis")
+                Text("One 22 F1 87 request per endpoint. No resets, writes, retries or flow control. Neither route is verified for your Cayenne.")
+                TextButton(onClick = { showPlan = !showPlan }) { Text(if (showPlan) "Hide exact requests and setup" else "Review exact requests and setup") }
+                if (showPlan) SelectionContainer {
+                    Text(IdentificationExperiment.preview(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(state.phase)
+                    Button(onClick = vm::stopExperiment, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop and disconnect") }
+                } else {
+                    if (reuseRequired) {
+                        Text("Unplug and reconnect the scanner before any further scan. Closing Bluetooth does not restore adapter settings.", color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(onClick = { vm.confirmExperimentAdapterPowerCycle(); reviewed = false }, modifier = Modifier.fillMaxWidth()) {
+                            Text("I unplugged and reconnected the scanner")
                         }
-                    }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Availability(availability, permissionDenied,
+                            onRequest = { vm.bluetoothPermission?.let(requestPermission::launch) },
+                            onRefresh = { selected = null; vm.refreshExperimentBluetooth() },
+                            onPick = { selected = it; reviewed = false }, pickPrompt = R.string.experiment_pick)
+                        selected?.let { device ->
+                            Text("Selected: ${device.name}", style = MaterialTheme.typography.titleMedium)
+                            Text("Park securely, parking brake applied, ignition on and engine off. Use stable power and close other diagnostic apps. Stop for warnings, display disturbance or abnormal sounds.")
+                            Row {
+                                Checkbox(checked = reviewed, onCheckedChange = { reviewed = it })
+                                Text("I reviewed the exact test and approve these two reads now. The car is parked and ready.", modifier = Modifier.padding(top = 8.dp))
+                            }
+                            Button(onClick = {
+                                if (vm.startExperiment(device, reviewed)) { reviewed = false; showTranscript = false; exportMessage = null }
+                                else exportMessage = "Another session is active, or the adapter needs a power cycle. Finish that before starting."
+                            }, enabled = reviewed, modifier = Modifier.fillMaxWidth()) { Text("Connect and run two reads") }
+                        }
+                    }
+                    if (state.result != null || state.phase != "Choose your paired scanner") {
+                        Text(state.result?.outcome?.name ?: "Connection result", style = MaterialTheme.typography.titleMedium)
+                        Text(state.phase)
+                        if (state.saved) Text("Report saved privately on this phone.")
+                        state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        OutlinedButton(onClick = { exportText = vm.experimentReport(); identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export private report") }
+                    } else if (previousReport != null) {
+                        OutlinedButton(onClick = { exportText = previousReport!!; identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export previous private report") }
+                    }
                 }
+                state.result?.let { result ->
+                    TextButton(onClick = { showTranscript = !showTranscript }) { Text(if (showTranscript) "Hide raw transcript" else "Show raw transcript") }
+                    if (showTranscript) SelectionContainer {
+                        Text(result.privateReport(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                exportMessage?.let { Text(it) }
+                Text("The app first waits for an idle adapter prompt. If none arrives, it disconnects without sending commands. A response still does not prove the module is the cluster.", style = MaterialTheme.typography.bodySmall)
             }
-            Text(stringResource(R.string.experiment_plan), style = MaterialTheme.typography.titleMedium)
-            SelectionContainer { Text(remember { IdentificationExperiment.preview() }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

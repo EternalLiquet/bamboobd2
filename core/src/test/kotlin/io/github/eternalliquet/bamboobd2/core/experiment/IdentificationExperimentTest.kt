@@ -120,6 +120,45 @@ class IdentificationExperimentTest {
             assertEquals(0, if (t is ExperimentLiveSentinel) t.writes else (t as ExperimentReplaySentinel).writes)
         }
     }
+    @Test fun liveRequiresPassivePromptBeforeExactFixedSequence() = runTest {
+        val script = ExperimentScript()
+        val transport = ExperimentLiveSentinel(script, listOf("ELM327 v1.4\r\n", ">"))
+        val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, result.outcome)
+        assertEquals(IdentificationExperiment.commands, script.writes)
+        assertEquals("RAW_CAPTURE", result.recording.provenance)
+        assertEquals("capture", result.recording.sourceTier)
+        assertEquals(listOf("ELM327 v1.4\r\n", ">"), result.preflightChunks.map { it.text })
+        assertEquals(result.recording.steps.size, result.requestAtMillis.size)
+        assertEquals(1000L, result.requestAtMillis.last())
+        assertTrue(result.privateReport().contains("RAW_CAPTURE"))
+        assertTrue(result.privateReport().contains("preflightChunks"))
+        assertFalse(result.explanation.contains("Synthetic"))
+    }
+    @Test fun liveMissingOrUnsettledPromptNeverWritesAndRetainsEvidence() = runTest {
+        for (initial in listOf(emptyList(), listOf("OK>"), listOf(">junk"), listOf("\r"))) {
+            val transport = ExperimentLiveSentinel(ExperimentScript(), initial, stall = true)
+            val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
+            assertEquals(ExperimentOutcome.STOPPED, result.outcome)
+            assertEquals(0, transport.writes)
+            assertTrue(result.recording.steps.isEmpty())
+            assertEquals(initial, result.preflightChunks.map { it.text })
+        }
+    }
+    @Test fun liveRefusesFakeAndReplayAndCancelsPassiveWaitWithoutWrite() = runTest {
+        for (transport in listOf(ExperimentScript(), ExperimentReplaySentinel())) {
+            try { IdentificationExperiment.runLive(transport); fail("must reject non-live") }
+            catch (_: IllegalArgumentException) { }
+        }
+        val transport = ExperimentLiveSentinel(ExperimentScript(), stall = true)
+        var last: ExperimentResult? = null
+        val job = launch { IdentificationExperiment.runLive(transport, testScheduler.timeSource) { last = it } }
+        testScheduler.runCurrent()
+        job.cancelAndJoin()
+        assertEquals(ExperimentOutcome.CANCELLED, last!!.outcome)
+        assertEquals("RAW_CAPTURE", last!!.recording.provenance)
+        assertEquals(0, transport.writes)
+    }
     @Test fun cancellationPublishesPartialWithoutMoreWrites() = runTest {
         var last: ExperimentResult? = null
         val t = ExperimentStall()
@@ -174,11 +213,20 @@ private class ExperimentScript(
         return if (stallAfter) awaitCancellation() else null
     }
 }
-private class ExperimentLiveSentinel : AdapterTransport {
+private class ExperimentLiveSentinel(
+    private val delegate: AdapterTransport? = null,
+    preflight: List<String> = emptyList(),
+    private val stall: Boolean = false,
+) : AdapterTransport {
     override val kind = TransportKind.LIVE
     var writes = 0
-    override suspend fun write(request: Request) { writes++ }
-    override suspend fun read(): ByteArray? = error("Must not read")
+    private val initial = ArrayDeque(preflight.map { it.toByteArray() })
+    override suspend fun write(request: Request) { writes++; delegate?.write(request) }
+    override suspend fun read(): ByteArray? {
+        check(delegate != null) { "Must not read" }
+        initial.removeFirstOrNull()?.let { return it }
+        return if (writes == 0 && stall) awaitCancellation() else delegate.read()
+    }
 }
 private class ExperimentStall : AdapterTransport {
     override val kind = TransportKind.FAKE

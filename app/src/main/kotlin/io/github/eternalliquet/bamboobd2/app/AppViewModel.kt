@@ -36,6 +36,14 @@ import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 import io.github.eternalliquet.bamboobd2.core.storage.SessionStore
 import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
 import java.io.File
+import io.github.eternalliquet.bamboobd2.core.experiment.IdentificationExperiment
+import io.github.eternalliquet.bamboobd2.core.experiment.ExperimentResult
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +86,14 @@ sealed interface LiveState {
      */
     data object Started : LiveState
 }
+
+data class ExperimentUiState(
+    val busy: Boolean = false,
+    val phase: String = "Choose your paired scanner",
+    val result: ExperimentResult? = null,
+    val saved: Boolean = false,
+    val saveError: String? = null,
+)
 
 /** Wiring only: connects the core controller, store, bench check and live read to the screens. */
 class AppViewModel @JvmOverloads constructor(
@@ -127,7 +143,11 @@ class AppViewModel @JvmOverloads constructor(
     fun recordingElapsedMillis(): Long = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceIn(0L, 600_000L)
 
     fun startRecording(device: BondedDevice): Boolean {
-        if (recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
+        if (experimentReuseRequired.value) {
+            _live.value = LiveState.Failed(device.name, EXPERIMENT_REUSE_MESSAGE)
+            return false
+        }
+        if (_experiment.value.busy || recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
             session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
         _recordingPending.value = true
         val connecting = LiveState.Connecting(device.name)
@@ -182,6 +202,7 @@ class AppViewModel @JvmOverloads constructor(
         recordingJob?.cancel()
     }
     fun onAppBackgrounded() {
+        stopExperiment()
         if (recording.value !is LiveReadState.Idle && recording.value !is LiveReadState.Finished)
             stopRecording(LiveStopReason.CANCELLED)
         // Codes/snapshot reads may finish while stopped; their Started hand-off remains
@@ -271,8 +292,12 @@ class AppViewModel @JvmOverloads constructor(
     fun onPermissionResult(granted: Boolean) = refreshBluetooth(permissionDenied = !granted)
 
     fun startBench(device: BondedDevice) {
+        if (experimentReuseRequired.value) {
+            _bench.value = BenchState.Failed(device.name, EXPERIMENT_REUSE_MESSAGE)
+            return
+        }
         // One Bluetooth use at a time: never alongside a live read.
-        if (benchJob?.isActive == true || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value) return
+        if (_experiment.value.busy || benchJob?.isActive == true || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value) return
         _bench.value = BenchState.Connecting(device.name)
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
@@ -341,8 +366,12 @@ class AppViewModel @JvmOverloads constructor(
     fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
 
     fun startLive(device: BondedDevice, readScope: ReadScope = ReadScope.CODES_ONLY) {
+        if (experimentReuseRequired.value) {
+            _live.value = LiveState.Failed(device.name, EXPERIMENT_REUSE_MESSAGE)
+            return
+        }
         // Also never while a finished result still waits to be shown: it may be unsaved.
-        if (liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value || benchJob?.isActive == true || session.value is SessionState.Running ||
+        if (_experiment.value.busy || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value || benchJob?.isActive == true || session.value is SessionState.Running ||
             _live.value == LiveState.Started
         ) return
         // This immutable value belongs to this connection attempt, even if UI state changes.
@@ -399,6 +428,135 @@ class AppViewModel @JvmOverloads constructor(
             LiveState.Started -> controller.cancel()
             else -> Unit
         }
+    }
+
+    private val _experiment = MutableStateFlow(ExperimentUiState())
+    val experiment: StateFlow<ExperimentUiState> = _experiment.asStateFlow()
+    private val _experimentBluetooth = MutableStateFlow<BluetoothAvailability>(BluetoothAvailability.PermissionNeeded)
+    val experimentBluetooth: StateFlow<BluetoothAvailability> = _experimentBluetooth.asStateFlow()
+    private val experimentPreferences = application.getSharedPreferences("identification-safety", 0)
+    private val _experimentReuseRequired = MutableStateFlow(experimentPreferences.getBoolean("power-cycle-required", false))
+    val experimentReuseRequired: StateFlow<Boolean> = _experimentReuseRequired.asStateFlow()
+    private var pendingExperimentExport: String? = null
+    private var experimentId = "not-started"
+    private var experimentStartedUtc = ""
+    private var experimentJob: Job? = null
+    private var experimentTransport: io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothClassicTransport? = null
+
+    fun refreshExperimentBluetooth() {
+        if (!_experiment.value.busy) _experimentBluetooth.value = bluetooth.availability()
+    }
+
+    /** All start gates run on the main dispatcher; busy stays set until the socket is closed. */
+    fun startExperiment(device: BondedDevice, reviewed: Boolean): Boolean {
+        if (!reviewed || experimentReuseRequired.value || _experiment.value.busy || listOf(benchJob, liveJob, recordingJob).any { it != null && !it.isCompleted } ||
+            session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
+        // Persist before opening the socket. A killed process cannot accidentally reuse experimental adapter settings.
+        if (!experimentPreferences.edit().putBoolean("power-cycle-required", true).commit()) {
+            _experiment.value = ExperimentUiState(phase = "Could not save the adapter reuse guard. No connection attempted.")
+            return false
+        }
+        _experimentReuseRequired.value = true
+        experimentId = java.util.UUID.randomUUID().toString()
+        experimentStartedUtc = java.time.Instant.now().toString()
+        _experiment.value = ExperimentUiState(busy = true, phase = "Connecting to scanner…")
+        experimentJob = viewModelScope.launch {
+            try {
+                withTimeout(60_000L) {
+                    val connection = withTimeout(10_000L) {
+                        connectClassic(bluetooth, device, io, receiveCapacity = 256).also {
+                            // Own the transport before withTimeout can discard its result at a deadline boundary.
+                            if (it is ClassicConnection.Connected) experimentTransport = it.transport
+                        }
+                    }
+                    if (connection is ClassicConnection.Failed) {
+                        _experiment.update { it.copy(phase = "Connection failed: " + connection.reason.replace(Regex("(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2}"), "[adapter]")) }
+                        return@withTimeout
+                    }
+                    val transport = (connection as ClassicConnection.Connected).transport
+                    experimentTransport = transport
+                    _experiment.update { it.copy(phase = "Connected. Waiting for an idle adapter prompt; no commands sent yet.") }
+                    IdentificationExperiment.runLive(transport, onUpdate = { result ->
+                        _experiment.update { it.copy(result = result, phase = result.explanation) }
+                    }).also { result -> _experiment.update { it.copy(result = result, phase = result.explanation) } }
+                }
+            } catch (e: TimeoutCancellationException) {
+                _experiment.update { it.copy(phase = "Deadline reached. Connection closed; no retry.") }
+                if (!currentCoroutineContext().isActive) throw e
+            } catch (e: CancellationException) {
+                _experiment.update { it.copy(phase = "Stopped. Connection closed; partial recording retained.") }
+                throw e
+            } catch (_: Exception) {
+                _experiment.update { it.copy(phase = "Connection failed. Partial recording retained; no retry.") }
+            } finally {
+                experimentTransport?.close()
+                experimentTransport = null
+                // Persist after closing, including cancellation. Never upload or include Bluetooth addresses.
+                val report = experimentReport()
+                withContext(NonCancellable + io) {
+                    try {
+                        val dir = File(getApplication<Application>().filesDir, "identification")
+                        check(dir.mkdirs() || dir.isDirectory)
+                        File(dir, "$experimentId.json").writeText(report)
+                        val target = File(dir, "latest-report.json")
+                        val temp = File(dir, "latest-report.tmp")
+                        temp.writeText(report)
+                        check(temp.renameTo(target))
+                        _experiment.update { it.copy(saved = true) }
+                    } catch (_: Exception) {
+                        _experiment.update { it.copy(saveError = "Could not save privately. Export the report before closing the app.") }
+                    }
+                }
+                _experiment.update { it.copy(busy = false) }
+            }
+        }
+        return true
+    }
+
+    fun stopExperiment() {
+        if (!_experiment.value.busy) return
+        // Close synchronously so leaving/backgrounding prevents the next write, even before cancellation dispatch.
+        experimentTransport?.close()
+        experimentJob?.cancel()
+    }
+
+    fun confirmExperimentAdapterPowerCycle() {
+        if (_experiment.value.busy) return
+        if (experimentPreferences.edit().putBoolean("power-cycle-required", false).commit())
+            _experimentReuseRequired.value = false
+    }
+
+    /** Keep the owner-reviewed snapshot across Activity recreation while the document picker is open. */
+    fun prepareExperimentExport(report: String): Boolean {
+        if (report.isBlank()) return false
+        pendingExperimentExport = report
+        return true
+    }
+
+    fun takeExperimentExport(): String? = pendingExperimentExport.also { pendingExperimentExport = null }
+
+    suspend fun savedExperimentReport(): String? = withContext(io) {
+        val file = File(getApplication<Application>().filesDir, "identification/latest-report.json")
+        if (!file.isFile || file.length() > 2_000_000) null else runCatching { file.readText() }.getOrNull()
+    }
+
+    fun experimentReport(): String = JSONObject().apply {
+        put("plan", IdentificationExperiment.PLAN_ID)
+        put("captureId", experimentId)
+        put("startedAtUtc", experimentStartedUtc)
+        put("appVersion", appVersion())
+        put("transport", "Bluetooth Classic RFCOMM")
+        put("connectionStatus", _experiment.value.phase)
+        val result = _experiment.value.result
+        if (result != null) put("experiment", JSONObject(result.privateReport()))
+        else {
+            put("outcome", "NOT_STARTED")
+            put("vehicleRequestsAttempted", 0)
+        }
+    }.toString()
+
+    private companion object {
+        const val EXPERIMENT_REUSE_MESSAGE = "Unplug and reconnect the scanner after the identification experiment, then confirm this on the Identification experiment screen."
     }
 
     private fun appVersion(): String {

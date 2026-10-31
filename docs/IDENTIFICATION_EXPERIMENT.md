@@ -1,6 +1,6 @@
 # Cayenne identification experiment: two requests
 
-2014 Cayenne S (958) · Revision 3, October 31, 2026 · Software rehearsal; no vehicle run
+2014 Cayenne S (958) · Live integration, October 31, 2026 · Software-tested; no vehicle run
 
 **Supersedes the v2 rehearsal: B is now `714→77E`; endpoint A has no verified module attribution. The former route is withdrawn, with no fallback.**
 
@@ -8,7 +8,7 @@
 
 Prepare a separate, user-triggered experimental mode that sends **one `22 F1 87` part-number read to each of two fixed endpoints**, with automatic flow control disabled and no manual flow control. Maximum: **two app-issued CAN data frames, no retries and no other ECU requests**. Capture a complete single-frame response or the first frame of a longer response; label the latter incomplete. Do not add these requests to ordinary polling or expose arbitrary address/payload entry.
 
-Endpoint A (`729→793`) is a reported but unverified endpoint used for comparison; its module identity is unknown. Endpoint B (`714→77E`) is a VAG-analogy cluster hypothesis supported by an original Golf exchange, not a verified Cayenne route. Neither is a verified route to this car's cluster. The owner authorized this software revision. LIVE and imported REPLAY remain rejected before any write. The Android screen reviews the exact plan and runs constructed responses only. A separately reviewed live integration and owner approval remain required before any parked-vehicle run.
+Endpoint A (`729→793`) is a reported but unverified endpoint used for comparison; its module identity is unknown. Endpoint B (`714→77E`) is a VAG-analogy cluster hypothesis supported by an original Golf exchange, not a verified Cayenne route. Neither is a verified route to this car's cluster. The owner requested a Bluetooth-connected experiment. The Android screen offers an explicit owner-triggered live attempt after review of the fixed plan and parked-vehicle conditions. Imported REPLAY remains prohibited. The ordinary rehearsal entry point remains FAKE-only; a separate fixed-plan live entry point accepts LIVE transport. No vehicle run was performed during development.
 
 ## What the experiment can teach us
 
@@ -23,7 +23,7 @@ Source: [PCM-Forge research note](https://github.com/dspl1236/PCM-Forge/blob/mai
 
 [LA Global Parts](https://www.laglobalparts.com/Catalog/Details/34574) and [Black Gold Premium Parts](https://www.blackgoldparts.com/products/2018-porsche-cayenne-s-e-hybrid-958-green-center-dash-analog-clock-7p5919204h) identify `7P5919204H` as a separate dashboard analog clock. This contradicts PCM-Forge's PCM label. The source's address-to-part association is itself unverified: no raw identification response supporting it was located. The parts evidence does not prove that `729→793` addresses the clock on this car.
 
-The experiment retains A to test whether the reported endpoint yields a coherent response, not as a known-positive control or confirmed PCM/clock route. B remains low confidence for this Cayenne despite stronger address evidence on a different VAG platform. The former `717→781` arithmetic candidate is withdrawn: a logical module number cannot simply be added to `0x700`. B changes to `714→77E` in this software rehearsal; A and the traffic limit remain unchanged. There is still no approved vehicle run.
+The experiment retains A to test whether the reported endpoint yields a coherent response, not as a known-positive control or confirmed PCM/clock route. B remains low confidence for this Cayenne despite stronger address evidence on a different VAG platform. The former `717→781` arithmetic candidate is withdrawn: a logical module number cannot simply be added to `0x700`. B uses `714→77E`; A and the traffic limit remain unchanged. Software availability does not establish vehicle compatibility; the owner decides whether to start a parked-vehicle attempt.
 
 The new route evidence is [MQB-sniffer's original work log](https://github.com/mrfixpl/MQB-sniffer/blob/main/README.md), inspected blob `bbc2672393eca05627824335e8da3e18ba2034e0`, and [PCM-Forge's target table](https://github.com/dspl1236/PCM-Forge/blob/main/tools/bench-dongle/pcm_slcan.py), inspected blob `d4f10c73b429a61fa340cea1735378043fed3ce5` (first 160 lines). The latter also assigns PCM to `773→7DD`, contradicting the project's earlier prose table; a source-code constant is not proof of a successful 958 read. No routines, sessions, security operations or scans from either project are adopted. The Golf exchange includes a session change; this proposal deliberately does not, so default-state rejection remains possible.
 
@@ -50,7 +50,9 @@ For a valid ISO-TP first frame, record the announced length and available payloa
 
 Obtain exclusive adapter ownership and stop all polling, discovery and reconnect jobs. Start only at an established idle command boundary with no outstanding or partial command. A Bluetooth connection alone does not establish that boundary. If it cannot be established locally, abort without a blank carriage return, guessed recovery command or ECU request.
 
-Proposed local setup, in order:
+After Bluetooth connects, the app first listens without writing for at most two seconds for a standalone terminal `>` prompt. Complete printable banner lines may precede it and are recorded. Missing prompt, partial line or trailing non-whitespace aborts before any command. Some adapters may not emit a prompt on a new Bluetooth connection; that produces an honest no-command stop, not an automatic recovery exchange. Connection success alone does not satisfy this check. The two-second preflight counts toward the 60-second protocol deadline.
+
+Local setup, in order:
 
 `ATPC`, `ATD`, `ATM0`, `ATI`, `ATE0`, `ATL0`, `ATS1`, `ATH1`, `ATD0`, `ATR1`, `ATAT0`, `ATST7D`, `ATTP6`, `ATCAF0`, `ATCFC0`, `ATCEA`, `ATAL`
 
@@ -111,15 +113,17 @@ Keep the fixed endpoints, request bytes and caps outside the ordinary polling al
 
 ## This build
 
-Open **Identification experiment** from the app home screen to review the fixed plan and run a synthetic rehearsal. No Bluetooth transport is supplied to this screen. Leaving it or backgrounding cancels the rehearsal. The results are constructed software checks, not observations from a vehicle.
+Open **Identification experiment**, review the two fixed routes and risks, select the already-paired scanner, acknowledge the parked/engine-off conditions, then explicitly choose **Connect and run two reads**. There is no automatic start, reconnect or retry. Bluetooth connect is limited to ten seconds; the entire connect-and-protocol attempt is also limited to 60 seconds. The core refuses imported recordings as live command plans.
 
-From the repository root, the existing JVM entry point remains available:
+The app reserves adapter ownership across connect, preflight, setup and reads. Competing bench, ordinary live and recording starts are blocked. Stop, Back, leaving the screen or backgrounding cancels the attempt and closes the socket; submitted bytes cannot be recalled. Completed and partial results retain raw preflight bytes, attempted writes, received chunks, monotonic timing, provenance and the stop reason. Reports are stored privately; sharing is an explicit owner action and requires checking unexpected contents for private identifiers.
+
+Because this experiment changes adapter settings without cleanup writes, the app retains a reuse restriction across restart. Unplug and reinsert the adapter before acknowledging its power cycle in the experiment screen and starting an ordinary session. Closing Bluetooth alone does not clear custom headers, filters or formatting. This explicit owner acknowledgment is not an electrical measurement. Ordinary scans retain their existing allowlist and initialization.
+
+The optional rehearsal and JVM demo remain hardware-free:
 
 ```sh
 ./gradlew -p core offlineDiagnostics -Pmode=plan
 ./gradlew -p core offlineDiagnostics -Pmode=demo
 ```
 
-The proposed live requirements above are not claims of an implemented live connection manager. Exclusive adapter ownership, proof of an idle command boundary, reconnect suppression and reinitialization before an ordinary session must be implemented and reviewed before the LIVE gate can be removed. The current build cannot establish any of those properties on hardware.
-
-The former one-route F187/F189 proposal is superseded. This revision has no generic `0100` baseline, software-version request, automatic flow control or cleanup writes. Normal scanning and its allowlist remain unchanged.
+There is no generic `0100` baseline, software-version request, automatic flow control or cleanup write in the experiment. Neither endpoint nor the adapter's handling of this sequence has been validated on the car. A failed passive preflight means the next research decision concerns establishing an idle adapter boundary; it does not show that either vehicle endpoint is absent.

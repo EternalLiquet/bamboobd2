@@ -56,10 +56,10 @@ class AppFlowTest {
     }
 
     @Test
-    fun identificationPreviewKeepsLiveExecutionLocked() {
+    fun identificationRequiresExplicitDeviceSelectionAndReview() {
         rule.onNodeWithText("Identification experiment").performScrollTo().performClick()
-        rule.onNodeWithText("Live execution locked").assertIsDisplayed()
-        rule.onNodeWithText("Run synthetic rehearsal").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Two identification reads").assertIsDisplayed()
+        rule.onNodeWithText("Connect and run two reads").assertDoesNotExist()
         rule.onNodeWithContentDescription("Back").performClick()
         rule.onNodeWithText("Identification experiment").performScrollTo().assertIsDisplayed()
     }

@@ -303,4 +303,6 @@
     <string name="experiment_stop">Stop rehearsal</string>
     <string name="experiment_transcript">Synthetic host transcript</string>
     <string name="experiment_plan">Exact proposed sequence</string>
+    <string name="experiment_live_banner">EXPERIMENTAL · real adapter connection · vehicle support unverified</string>
+    <string name="experiment_pick">Choose your paired scanner (selection does not connect)</string>
 </resources>

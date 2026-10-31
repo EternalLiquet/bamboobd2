@@ -115,11 +115,12 @@ class BluetoothClassicTransport internal constructor(
     private val io: CoroutineDispatcher,
     /** Records the raw conversation when set (L2 sessions); never changes what is sent. */
     private val recorder: CaptureRecorder? = null,
+    receiveCapacity: Int = Channel.UNLIMITED,
 ) : AdapterTransport {
     override val kind: TransportKind = TransportKind.LIVE
 
     private val returned = ConcurrentLinkedDeque<ByteArray>()
-    private val chunks = Channel<ByteArray>(Channel.UNLIMITED) { returned.addFirst(it) }
+    private val chunks = Channel<ByteArray>(receiveCapacity) { returned.addFirst(it) }
     private val pump = CoroutineScope(SupervisorJob() + io)
     private val disconnected = CompletableDeferred<Unit>()
     @Volatile private var closed = false
@@ -152,6 +153,8 @@ class BluetoothClassicTransport internal constructor(
         try {
             coroutineScope {
                 val writing = async(io) {
+                    currentCoroutineContext().ensureActive()
+                    if (closed) throw TransportClosedException("Bluetooth connection closed")
                     socket.output.write(request.encoded())
                     socket.output.flush()
                 }
@@ -202,6 +205,7 @@ internal suspend fun connectClassic(
     device: BondedDevice,
     io: CoroutineDispatcher,
     recorder: CaptureRecorder? = null,
+    receiveCapacity: Int = Channel.UNLIMITED,
 ): ClassicConnection {
     val socket = try {
         platform.openSocket(device.address)
@@ -233,7 +237,14 @@ internal suspend fun connectClassic(
         runCatching { socket.close() }
         return ClassicConnection.Failed("could not connect: ${e::class.simpleName}")
     }
-    return ClassicConnection.Connected(BluetoothClassicTransport(socket, io, recorder))
+    val transport = BluetoothClassicTransport(socket, io, recorder, receiveCapacity)
+    try {
+        currentCoroutineContext().ensureActive()
+        return ClassicConnection.Connected(transport)
+    } catch (e: CancellationException) {
+        transport.close()
+        throw e
+    }
 }
 
 sealed interface BenchRun {

@@ -4,19 +4,29 @@ import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
 import io.github.eternalliquet.bamboobd2.core.protocol.*
 import kotlin.time.TimeSource
 import kotlinx.coroutines.*
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
+@Serializable
 enum class ExperimentOutcome { RUNNING, OBSERVED, STOPPED, CANCELLED }
 
+@Serializable
 data class ExperimentResult(
     val outcome: ExperimentOutcome,
     val explanation: String,
     val recording: ReplayScript,
     val cleanupConfirmed: Boolean,
+    val preflightChunks: List<ReplayChunk> = emptyList(),
+    val requestAtMillis: List<Long> = emptyList(),
 ) {
     val requiresAdapterPowerCycle: Boolean get() = !cleanupConfirmed
+
+    /** Private evidence only: raw bytes may contain identifiers and must be reviewed before sharing. */
+    fun privateReport(): String = Json { prettyPrint = true; encodeDefaults = true }
+        .encodeToString(serializer(), this)
 }
 
-/** Fixed software rehearsal. No activation flag, arbitrary commands, LIVE or imported REPLAY execution. */
+/** Fixed experiment. Explicit LIVE entry point is separate from rehearsal and never accepts imported commands. */
 object IdentificationExperiment {
     const val PLAN_ID = "two-endpoint-f187-no-flow-control-v3"
     const val RAW_REQUEST = "0322F18700000000"
@@ -28,7 +38,7 @@ object IdentificationExperiment {
     private const val UNKNOWN = "Diagnostic family, module identity and Porsche applicability remain unknown. No service fields or reset verified."
 
     fun preview(): String = buildString {
-        appendLine("$PLAN_ID — LIVE locked; synthetic rehearsal only.")
+        appendLine("$PLAN_ID — fixed identification experiment; a live run requires an explicit operator action.")
         appendLine("Assumption: normal ISO-TP, 11-bit CAN, 500 kbit/s. A 729 -> 793 is an unverified reported endpoint, module identity unknown; B 714 -> 77E is a low-confidence Golf/VAG-analogy cluster hypothesis, not verified for Cayenne.")
         commands.forEachIndexed { index, command ->
             if (index == setup.size + routeA.size + 1) appendLine("Wait at least 1 second after A's terminal prompt.")
@@ -37,7 +47,7 @@ object IdentificationExperiment {
         appendLine("Two raw 03 22 F1 87 00 00 00 00 frames maximum. No retries, flow control, other ECU requests or cleanup writes.")
         appendLine("2s exchange / pending up to 5s from request / 60s total; 64 KiB transcript and 256 received lines.")
         appendLine("First frame means incomplete, no flow control sent. Silence is inconclusive. Abort on malformed/mismatched data, denial, lost prompt or cancellation.")
-        appendLine("Future live integration requires exclusive adapter ownership and a locally established idle boundary, then disconnect without reconnect. Neither exists in this rehearsal.")
+        appendLine("Live execution first waits up to 2s without writing for an idle prompt; absence or malformed input stops without a request. The caller must exclusively own and close the connection, without reconnect.")
         appendLine("ATD restores configurable defaults; ATBI bypasses protocol validation. Reads may cause warnings, wake modules or drain power. Host limits do not bound physical controller retries.")
         appendLine(UNKNOWN)
     }
@@ -48,7 +58,29 @@ object IdentificationExperiment {
         timeSource: TimeSource = TimeSource.Monotonic,
         onUpdate: (ExperimentResult) -> Unit = {},
     ): ExperimentResult {
-        require(transport.kind == TransportKind.FAKE) { "LIVE and imported REPLAY are locked pending exact-test owner review and separate integration" }
+        require(transport.kind == TransportKind.FAKE) { "Rehearsal accepts FAKE only; use the explicit live entry point for an operator-triggered run" }
+        return execute(transport, timeSource, false, onUpdate)
+    }
+
+    /** Caller owns this exclusive connection and must close it on every exit, including cancellation. */
+    suspend fun runLive(
+        transport: AdapterTransport,
+        timeSource: TimeSource = TimeSource.Monotonic,
+        onUpdate: (ExperimentResult) -> Unit = {},
+    ): ExperimentResult {
+        require(transport.kind == TransportKind.LIVE) { "Live experiment requires a LIVE transport; imported REPLAY and FAKE cannot activate it" }
+        return execute(transport, timeSource, true, onUpdate)
+    }
+
+    private suspend fun execute(
+        transport: AdapterTransport,
+        timeSource: TimeSource,
+        live: Boolean,
+        onUpdate: (ExperimentResult) -> Unit,
+    ): ExperimentResult {
+        val started = timeSource.markNow()
+        val preflightChunks = mutableListOf<ReplayChunk>()
+        val requestAtMillis = mutableListOf<Long>()
         val recorder = CaptureRecorder(timeSource)
         val observations = mutableListOf<String>()
         var retainedBytes = 0
@@ -58,10 +90,52 @@ object IdentificationExperiment {
         var currentEvidence: String? = null
         fun publish(outcome: ExperimentOutcome, reason: String): ExperimentResult = ExperimentResult(
             outcome, (observations + listOfNotNull(currentEvidence) + reason + UNKNOWN).distinct().joinToString(" "),
-            recorder.script(PLAN_ID, "Constructed software rehearsal; attempted host writes and timed reads, not a CAN capture.")
-                .copy(provenance = "SYNTHETIC", sourceTier = "constructed"),
+            recorder.script(PLAN_ID, (if (live) "Bluetooth Classic identification attempt" else "Constructed software rehearsal") +
+                "; attempted host writes and timed reads, not a CAN capture. Outcome: $outcome. $reason")
+                .copy(provenance = if (live) "RAW_CAPTURE" else "SYNTHETIC", sourceTier = if (live) "capture" else "constructed"),
             false, // No default-restoration command is part of this proposal.
+            preflightChunks.toList(), requestAtMillis.toList(),
         ).also(onUpdate)
+
+        fun retainRead(chunk: ByteArray, preflight: Boolean = false) {
+            if (chunk.isEmpty()) throw ExperimentStop("Empty adapter chunk")
+            if (chunk.size > 65536 - retainedBytes) throw ExperimentStop("64 KiB transcript cap exceeded; oversized chunk omitted")
+            retainedBytes += chunk.size
+            if (preflight) preflightChunks += ReplayChunk(started.elapsedNow().inWholeMilliseconds, chunk.toString(Charsets.ISO_8859_1))
+            else recorder.onRead(chunk)
+        }
+
+        suspend fun awaitIdlePrompt() {
+            publish(ExperimentOutcome.RUNNING, "Waiting for an unsolicited idle prompt; no bytes sent.")
+            withTimeout(2000L) {
+                var textInLine = false
+                while (true) {
+                    val chunk = transport.read() ?: throw ExperimentStop("Disconnected before idle prompt; no bytes sent.")
+                    retainRead(chunk, preflight = true)
+                    var prompt = false
+                    for (byte in chunk) {
+                        val c = (byte.toInt() and 255).toChar()
+                        if (c == '\r' || c == '\n') {
+                            if (!(c == '\n' && previousCr) && ++receivedLines > 256) throw ExperimentStop("256 received-line cap exceeded before idle prompt")
+                            previousCr = c == '\r'
+                            textInLine = false
+                        } else {
+                            previousCr = false
+                            if (c == '>') {
+                                if (prompt || textInLine) throw ExperimentStop("Unsettled initial stream; no bytes sent.")
+                                prompt = true
+                            } else {
+                                if (c.code !in 32..126 || (prompt && c != ' '))
+                                    throw ExperimentStop("Unsettled initial stream; no bytes sent.")
+                                if (c != ' ') textInLine = true
+                            }
+                        }
+                    }
+                    publish(ExperimentOutcome.RUNNING, "Observed passive adapter bytes; no bytes sent.")
+                    if (prompt) return@withTimeout
+                }
+            }
+        }
 
         suspend fun exchange(command: String, responder: String? = null): String {
             currentCoroutineContext().ensureActive()
@@ -71,6 +145,7 @@ object IdentificationExperiment {
             val writeBytes = command.length + 1
             if (writeBytes > 65536 - retainedBytes) throw ExperimentStop("64 KiB transcript cap exceeded before write")
             retainedBytes += writeBytes
+            requestAtMillis += started.elapsedNow().inWholeMilliseconds
             recorder.onWrite(command)
             publish(ExperimentOutcome.RUNNING, "Attempting $command; delivery not established.")
             val start = timeSource.markNow()
@@ -106,10 +181,7 @@ object IdentificationExperiment {
                 if (remaining <= 0) throw ExperimentStop("Deadline without terminal prompt at $command")
                 val chunk = withTimeout(remaining) { transport.read() }
                     ?: throw ExperimentStop("Disconnected before terminal prompt at $command")
-                if (chunk.isEmpty()) throw ExperimentStop("Empty chunk at $command")
-                if (chunk.size > 65536 - retainedBytes) throw ExperimentStop("64 KiB transcript cap exceeded; oversized chunk omitted")
-                retainedBytes += chunk.size
-                recorder.onRead(chunk)
+                retainRead(chunk)
                 publish(ExperimentOutcome.RUNNING, "Received bytes for $command.")
                 var prompt = false
                 for (byte in chunk) {
@@ -143,6 +215,7 @@ object IdentificationExperiment {
 
         try {
             withTimeout(60000L) {
+                if (live) awaitIdlePrompt()
                 for (command in setup + routeA) exchange(command)
                 observations += "A (729 -> 793): ${exchange(RAW_REQUEST, "793")}"
                 delay(1000L)
@@ -155,7 +228,9 @@ object IdentificationExperiment {
                 publish(ExperimentOutcome.CANCELLED, "Caller timeout/cancellation; no further writes. Partial transcript retained.")
                 throw e
             }
-            return publish(ExperimentOutcome.STOPPED, "Deadline reached without settled prompt; no further writes.")
+            return publish(ExperimentOutcome.STOPPED, if (live && requestAtMillis.isEmpty())
+                "No idle prompt within 2 seconds; no bytes sent. Adapter command boundary could not be established."
+                else "Deadline reached without settled prompt; no further writes.")
         } catch (e: CancellationException) {
             publish(ExperimentOutcome.CANCELLED, "Cancelled; no further writes. Partial transcript retained.")
             throw e
@@ -164,7 +239,8 @@ object IdentificationExperiment {
         } catch (e: TransportClosedException) {
             return publish(ExperimentOutcome.STOPPED, "Transport closed; write delivery uncertain. No retry or cleanup.")
         }
-        return publish(ExperimentOutcome.OBSERVED, "Synthetic attempt ended at settled prompts; no vehicle validation. No cleanup writes.")
+        return publish(ExperimentOutcome.OBSERVED, if (live) "Attempt ended at settled prompts; replies do not establish module identity or maintenance definitions. No cleanup writes."
+            else "Synthetic attempt ended at settled prompts; no vehicle validation. No cleanup writes.")
     }
 
     private data class FrameResult(val description: String, val pending: Boolean = false)

@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
                         LiveRecordingScreen(vm = vm, onDone = { nav.popBackStack("home", inclusive = false) })
                     }
                     composable("experiment") {
-                        IdentificationExperimentScreen(onBack = { nav.popBackStack() })
+                        IdentificationExperimentScreen(vm = vm, onBack = { nav.popBackStack() })
                     }
                     composable("bench") {
                         BenchScreen(vm = vm, onBack = { nav.popBackStack() })

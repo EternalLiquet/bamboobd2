@@ -59,3 +59,7 @@ The owner agreed on 2026-10-28 to go from the in-car adapter check straight to a
 ## What would change this plan
 
 A different adapter model, a host device without the needed connection mode, or a capture showing the car does not answer generic OBD-II on this adapter. Each returns the work to L0 with a new issue.
+
+## Fixed identification experiment software
+
+The owner separately requested an Android Bluetooth implementation of the [two-endpoint identification experiment](IDENTIFICATION_EXPERIMENT.md). It is distinct from generic L2/L3 scanning and does not inherit their vehicle-validation claims. The app presents exact requests and parked-vehicle conditions before an explicit owner Start; development uses constructed sockets only. Passive initial prompt preflight, bounded traffic, stop/disconnect, private reports and an acknowledged adapter power cycle before reuse are part of that software. No agent-operated hardware run or ECU state-changing operation is included.

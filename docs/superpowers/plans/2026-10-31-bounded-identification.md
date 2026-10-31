@@ -56,3 +56,13 @@ Shared interface: core keeps `preview()` and `ExperimentResult`; adds `suspend r
 Owner supplied updated route-research and bounded-experiment documents and requested implementation. Replace B with `714→77E` everywhere executable, in response matching, synthetic fixtures and preview. Remove PCM attribution from A; retain module identity as unknown. Version the plan ID to v3 so old recordings are distinguishable. Preserve all request/flow-control/stop bounds and the locked LIVE gate. No additional offline framework or vehicle run.
 
 Files: `IdentificationExperiment.kt`, its existing focused test, `docs/IDENTIFICATION_EXPERIMENT.md`, this plan and `PROJECT_STATUS.md`. Android renders the core preview, so no UI rewrite is required. Verify the exact sequence and attribution regression, full core check/demo, independent diff review and hosted Android checks; deliver replacement review APK in draft PR65.
+
+## Live integration continuation
+
+The owner explicitly requested the real Bluetooth experiment after rejecting a rehearsal-only delivery. This supersedes the earlier software activation restriction, not the prohibition on agent-operated vehicle tests. Build an explicit owner-triggered live run of the same two requests; no merge or hardware execution in this development session.
+
+- Core: separate fixed-plan `runLive`, passive initial prompt preflight within the60s deadline, accurate live provenance, preflight capture and attempted-write timestamps. Imported requests never executable.
+- Android: paired-device selection, explicit review/start, bounded connect, mutually exclusive adapter ownership, Stop/back/background close without reconnect, private reports and owner-initiated export. Receive queue bounded. Persist adapter-reuse restriction until owner acknowledges unplug/reinsert; normal requests remain unchanged.
+- Verification: focused protocol/ownership/cancellation/storage tests, full core and hosted Android checks, independent exact-tree review, draft PR and direct APK download.
+
+Important limitation: a scanner that emits no passive prompt will connect but the experiment stops before any command. Do not hide this or introduce recovery requests. No claim of vehicle success follows from fake-socket checks.
