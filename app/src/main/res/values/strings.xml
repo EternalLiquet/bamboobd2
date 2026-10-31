@@ -296,4 +296,7 @@
     <string name="pid_4c">Commanded throttle actuator</string>
     <string name="pid_5a">Relative accelerator pedal position</string>
     <string name="pid_5c">Engine oil temperature</string>
+    <string name="experiment_title">Identification experiment</string>
+    <string name="experiment_live_banner">EXPERIMENTAL · module identification</string>
+    <string name="experiment_pick">Choose your paired scanner (selection does not connect)</string>
 </resources>

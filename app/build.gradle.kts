@@ -16,8 +16,8 @@ android {
         // Provisional product baseline: docs/ANDROID_MILESTONE_1.md, "Platform baseline".
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.0-research.20261029"
+        versionCode = 5
+        versionName = "0.2.2-part-number.20261031"
     }
 
     buildTypes {
@@ -38,6 +38,7 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all { test ->
+            test.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
             // Robolectric reaches JDK internals for file descriptors on JDK 17+.
             test.jvmArgs(
                 "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",

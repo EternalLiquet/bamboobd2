@@ -1,0 +1,288 @@
+package io.github.eternalliquet.bamboobd2.core.experiment
+
+import io.github.eternalliquet.bamboobd2.core.protocol.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.*
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class IdentificationExperimentTest {
+    @Test fun twoFixedRawReadsAndNoOtherVehicleTraffic() = runTest {
+        val t = ExperimentScript()
+        val r = IdentificationExperiment.run(t, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, r.outcome)
+        assertEquals(listOf("0322F18700000000", "0322F18700000000"), t.writes.filter { !it.startsWith("AT") })
+        assertEquals(listOf("ATPC", "ATD", "ATM0", "ATI", "ATE0", "ATL0", "ATS1", "ATH1", "ATD0",
+            "ATR1", "ATAT0", "ATST7D", "ATTP6", "ATCAF0", "ATCFC0", "ATCEA", "ATAL",
+            "ATSH729", "ATCRA793", "ATBI", "0322F18700000000", "ATPC", "ATCAF0", "ATCFC0", "ATCEA", "ATAL",
+            "ATSH714", "ATCRA77E", "ATBI", "0322F18700000000"), t.writes)
+        assertFalse(t.writes.any { it.startsWith("ATFC") || it == "ATCFC1" })
+        assertEquals(1000L, testScheduler.currentTime)
+        assertEquals("SYNTHETIC", r.recording.provenance)
+        assertTrue(r.explanation.contains("unknown", true))
+        assertTrue(RequestPolicy.evaluate("0322F18700000000") is PolicyDecision.Rejected)
+    }
+    @Test fun revisedPreviewKeepsBothModuleIdentitiesUnverified() {
+        val preview = IdentificationExperiment.preview()
+        assertTrue(preview.contains("714 -> 77E"))
+        assertTrue(preview.contains("module identity unknown"))
+        assertTrue(preview.contains("Golf"))
+        assertFalse(preview.contains("reported PCM"))
+        assertFalse(preview.contains("717"))
+        assertFalse(preview.contains("781"))
+        assertEquals("two-endpoint-f187-manual-flow-control-v5", IdentificationExperiment.PLAN_ID)
+    }
+    @Test fun firstFrameGetsOneBoundedFlowControlAndCompleteIdentity() = runTest {
+        val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>",
+            flowReply = "793 21 54 31 32 33 34 35 36\r793 22 37 00 00 00 00 00 00\r>")
+        val r = IdentificationExperiment.run(t, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, r.outcome)
+        assertTrue(r.explanation.contains("TEST1234567"))
+        assertEquals(listOf("0322F18700000000", "30020A0000000000", "0322F18700000000"), t.writes.filter { !it.startsWith("AT") })
+    }
+    @Test fun malformedOrIncompleteFlowReplyStopsWithoutSecondEndpointOrRetry() = runTest {
+        for (reply in listOf(
+            "793 22 37 00 00 00 00 00 00\r>",
+            "792 21 54 31 32 33 34 35 36\r>",
+            "793 21 54 31 32\r>",
+            "793 21 54 31 32 33 34 35 36\r>",
+            "793 21 54 31 32 33 34 35 36\r793 21 37 00 00 00 00 00 00\r>",
+            "793 21 54 31 32 33 34 35 36\r793 22 37 00 00 00 00 00 00\r793 23 00\r>",
+            "NO DATA\r>")) {
+            val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>", flowReply = reply)
+            val r = IdentificationExperiment.run(t, testScheduler.timeSource)
+            assertEquals(reply, ExperimentOutcome.STOPPED, r.outcome)
+            assertEquals(listOf("0322F18700000000", "30020A0000000000"), t.writes.filter { !it.startsWith("AT") })
+            assertFalse(t.writes.contains("ATSH714"))
+        }
+    }
+    @Test fun firstFrameWithoutPromptOrWrongLengthNeverGetsFlowControl() = runTest {
+        for (reply in listOf("793 10 0E 62 F1 87 54 45 53\r", "793 10 0F 62 F1 87 54 45 53\r>",
+            "793 10 0E 62 F1 89 54 45 53\r>")) {
+            val t = ExperimentScript(reply, stallAfter = true)
+            assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertEquals(listOf("0322F18700000000"), t.writes.filter { !it.startsWith("AT") })
+        }
+    }
+    @Test fun flowControlTimeoutNeverRetriesAndCancellationNeverSendsAnotherFrame() = runTest {
+        val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>", flowReply = "\r", stallAfter = true)
+        val before = testScheduler.currentTime
+        assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+        assertEquals(2000L, testScheduler.currentTime - before)
+        assertEquals(listOf("0322F18700000000", "30020A0000000000"), t.writes.filter { !it.startsWith("AT") })
+        val cancel = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r", stallAfter = true)
+        val job = launch { IdentificationExperiment.run(cancel, testScheduler.timeSource) }
+        testScheduler.runCurrent()
+        job.cancelAndJoin()
+        assertEquals(listOf("0322F18700000000"), cancel.writes.filter { !it.startsWith("AT") })
+    }
+    @Test fun noDataAndSupportedNegativesAndPendingPromptPermitB() = runTest {
+        for (reply in listOf("NO DATA\r>", "793 03 7F 22 11 00 00 00 00\r>", "793 03 7F 22 31 00 00 00 00\r>", "793 03 7F 22 78 00 00 00 00\r>")) {
+            val t = ExperimentScript(reply)
+            assertEquals(ExperimentOutcome.OBSERVED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertEquals(2, t.writes.count { !it.startsWith("AT") })
+        }
+    }
+    @Test fun malformedMismatchedDenialAndConsecutiveFrameAbortBeforeB() = runTest {
+        for (reply in listOf("793 04 62 F1 89 41 00 00 00\r>", "792 04 62 F1 87 41 00 00 00\r>", "793 03 7F 22 33 00 00 00 00\r>", "793 03 7F 22 22 00 00 00 00\r>", "793 21 41 42 43 44 45 46 47\r>", "793 10 07 62 F1 87 41 42 43\r>", "SEARCHING...\r>", "CAN ERROR\r>", "793 09 62 F1 87 41 00 00 00\r>")) {
+            val t = ExperimentScript(reply)
+            assertEquals(reply, ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertFalse(t.writes.contains("ATSH714"))
+            assertEquals("0322F18700000000", t.writes.last())
+        }
+    }
+    @Test fun splitLinesAndEchoAreHandled() = runTest {
+        val t = ExperimentScript(split = true, echo = true)
+        assertEquals(ExperimentOutcome.OBSERVED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+    }
+    @Test fun unsupportedSetupStopsWithoutCleanup() = runTest {
+        val t = ExperimentScript(setupReply = "?\r>")
+        assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+        assertEquals(listOf("ATPC"), t.writes)
+    }
+    @Test fun partialWriteIsNeverRetried() = runTest {
+        val t = ExperimentScript(failWrite = true)
+        val r = IdentificationExperiment.run(t, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.STOPPED, r.outcome)
+        assertEquals(listOf("ATPC"), t.writes)
+        assertEquals(listOf("ATPC"), r.recording.steps.map { it.request })
+    }
+    @Test fun emptyChunksAndCapsAbort() = runTest {
+        for (reply in listOf("", "x".repeat(65537), "\r".repeat(257))) {
+            val t = ExperimentScript(setupReply = reply)
+            assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertEquals(listOf("ATPC"), t.writes)
+        }
+    }
+    @Test fun missingPromptStopsAtTwoSecondsAndPendingCannotRestartFiveSeconds() = runTest {
+        for ((reply, deadline) in listOf("793 04 62 F1 87 41 00 00 00\r" to 2000L, "793 03 7F 22 78 00 00 00 00\r" to 5000L)) {
+            val start = testScheduler.currentTime
+            val t = ExperimentScript(reply, stallAfter = true)
+            assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertEquals(deadline, testScheduler.currentTime - start)
+            assertFalse(t.writes.contains("ATSH714"))
+        }
+    }
+    @Test fun repeatedPendingDoesNotRestartDeadlineAndFinalCanComplete() = runTest {
+        val start = testScheduler.currentTime
+        val repeating = ExperimentScript("793 03 7F 22 78 00 00 00 00\r", repeatPending = true)
+        val result = IdentificationExperiment.run(repeating, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.STOPPED, result.outcome)
+        assertTrue(result.explanation.contains("Pending/incomplete"))
+        assertEquals(5000L, testScheduler.currentTime - start)
+        assertEquals(1, repeating.writes.count { !it.startsWith("AT") })
+        val final = ExperimentScript("793 03 7F 22 78 00 00 00 00\r793 04 62 F1 87 41 00 00 00\r>")
+        assertEquals(ExperimentOutcome.OBSERVED, IdentificationExperiment.run(final, testScheduler.timeSource).outcome)
+    }
+    @Test fun cancellationInSettlingGapNeverConfiguresB() = runTest {
+        val t = ExperimentScript()
+        var result: ExperimentResult? = null
+        val job = launch { IdentificationExperiment.run(t, testScheduler.timeSource) { result = it } }
+        testScheduler.runCurrent()
+        assertEquals(1, t.writes.count { !it.startsWith("AT") })
+        job.cancelAndJoin()
+        assertEquals(ExperimentOutcome.CANCELLED, result!!.outcome)
+        assertFalse(t.writes.contains("ATSH714"))
+    }
+    @Test fun totalDeadlineIncludesSetupAndSettling() = runTest {
+        val t = ExperimentScript(latencyMs = 1999L)
+        assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+        assertEquals(60000L, testScheduler.currentTime)
+    }
+    @Test fun liveAndReplayRefusedBeforeAnyWrite() = runTest {
+        for (t in listOf(ExperimentLiveSentinel(), ExperimentReplaySentinel())) {
+            try { IdentificationExperiment.run(t); fail("must reject") } catch (_: IllegalArgumentException) { }
+            assertEquals(0, if (t is ExperimentLiveSentinel) t.writes else (t as ExperimentReplaySentinel).writes)
+        }
+    }
+    @Test fun silentNewConnectionStartsWithAtpcAndCompletesFixedReads() = runTest {
+        val script = ExperimentScript()
+        val result = IdentificationExperiment.runLive(ExperimentLiveSentinel(script, stall = true), testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, result.outcome)
+        assertEquals("ATPC", script.writes.first())
+        assertEquals(2, script.writes.count { it == "0322F18700000000" })
+    }
+    @Test fun liveRetainsOptionalStartupPromptBeforeExactFixedSequence() = runTest {
+        val script = ExperimentScript()
+        val transport = ExperimentLiveSentinel(script, listOf("ELM327 v1.4\r\n", ">"))
+        val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, result.outcome)
+        assertEquals(IdentificationExperiment.commands, script.writes)
+        assertEquals("RAW_CAPTURE", result.recording.provenance)
+        assertEquals("capture", result.recording.sourceTier)
+        assertEquals(listOf("ELM327 v1.4\r\n", ">"), result.preflightChunks.map { it.text })
+        assertEquals(result.recording.steps.size, result.requestAtMillis.size)
+        assertEquals(1000L, result.requestAtMillis.last())
+        assertTrue(result.privateReport().contains("RAW_CAPTURE"))
+        assertTrue(result.privateReport().contains("preflightChunks"))
+        assertFalse(result.explanation.contains("Synthetic"))
+    }
+    @Test fun liveUnsettledStartupNeverWritesAndRetainsEvidence() = runTest {
+        for (initial in listOf(listOf("OK>"), listOf(">junk"), listOf("unfinished"))) {
+            val transport = ExperimentLiveSentinel(ExperimentScript(), initial, stall = true)
+            val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
+            assertEquals(ExperimentOutcome.STOPPED, result.outcome)
+            assertEquals(0, transport.writes)
+            assertTrue(result.recording.steps.isEmpty())
+            assertEquals(initial, result.preflightChunks.map { it.text })
+        }
+    }
+    @Test fun liveRefusesFakeAndReplayAndCancelsPassiveWaitWithoutWrite() = runTest {
+        for (transport in listOf(ExperimentScript(), ExperimentReplaySentinel())) {
+            try { IdentificationExperiment.runLive(transport); fail("must reject non-live") }
+            catch (_: IllegalArgumentException) { }
+        }
+        val transport = ExperimentLiveSentinel(ExperimentScript(), stall = true)
+        var last: ExperimentResult? = null
+        val job = launch { IdentificationExperiment.runLive(transport, testScheduler.timeSource) { last = it } }
+        testScheduler.runCurrent()
+        job.cancelAndJoin()
+        assertEquals(ExperimentOutcome.CANCELLED, last!!.outcome)
+        assertEquals("RAW_CAPTURE", last!!.recording.provenance)
+        assertEquals(0, transport.writes)
+    }
+    @Test fun cancellationPublishesPartialWithoutMoreWrites() = runTest {
+        var last: ExperimentResult? = null
+        val t = ExperimentStall()
+        val job = launch { IdentificationExperiment.run(t, testScheduler.timeSource) { last = it } }
+        testScheduler.runCurrent()
+        job.cancelAndJoin()
+        assertEquals(ExperimentOutcome.CANCELLED, last!!.outcome)
+        assertEquals(listOf("ATPC"), last!!.recording.steps.map { it.request })
+        assertEquals(1, t.writes)
+    }
+    @Test fun callerTimeoutIsCancelledAndSetupDeadlineIsBounded() = runTest {
+        var last: ExperimentResult? = null
+        withTimeoutOrNull(10) { IdentificationExperiment.run(ExperimentStall(), testScheduler.timeSource) { last = it } }
+        assertEquals(ExperimentOutcome.CANCELLED, last!!.outcome)
+        val start = testScheduler.currentTime
+        assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(ExperimentStall(), testScheduler.timeSource).outcome)
+        assertEquals(2000L, testScheduler.currentTime - start)
+    }
+}
+
+private class ExperimentScript(
+    private val replyA: String = "793 04 62 F1 87 41 00 00 00\r>",
+    private val flowReply: String = "",
+    private val setupReply: String = "OK\r>",
+    private val split: Boolean = false,
+    private val echo: Boolean = false,
+    private val failWrite: Boolean = false,
+    private val stallAfter: Boolean = false,
+    private val repeatPending: Boolean = false,
+    private val latencyMs: Long = 0,
+) : AdapterTransport {
+    override val kind = TransportKind.FAKE
+    val writes = mutableListOf<String>()
+    private val queue = ArrayDeque<ByteArray>()
+    private var reads = 0
+    override suspend fun write(request: Request) {
+        writes += request.text
+        if (failWrite) throw TransportClosedException("uncertain write")
+        val body = when {
+            request.text == "ATI" -> "ELM327 simulated\r>"
+            request.kind == Request.Kind.ADAPTER -> setupReply
+            request.text == "30020A0000000000" -> flowReply
+            reads++ == 0 -> replyA
+            else -> "77E 04 62 F1 87 42 00 00 00\r>"
+        }
+        val text = (if (echo) request.text + "\r\n" else "") + body
+        if (split && text.isNotEmpty()) text.forEach { queue.add(byteArrayOf(it.code.toByte())) }
+        else queue.add(text.toByteArray())
+    }
+    override suspend fun read(): ByteArray? {
+        delay(latencyMs)
+        queue.removeFirstOrNull()?.let { return it }
+        if (repeatPending) { delay(1000L); return "793 03 7F 22 78 00 00 00 00\r".toByteArray() }
+        return if (stallAfter) awaitCancellation() else null
+    }
+}
+private class ExperimentLiveSentinel(
+    private val delegate: AdapterTransport? = null,
+    preflight: List<String> = emptyList(),
+    private val stall: Boolean = false,
+) : AdapterTransport {
+    override val kind = TransportKind.LIVE
+    var writes = 0
+    private val initial = ArrayDeque(preflight.map { it.toByteArray() })
+    override suspend fun write(request: Request) { writes++; delegate?.write(request) }
+    override suspend fun read(): ByteArray? {
+        check(delegate != null) { "Must not read" }
+        initial.removeFirstOrNull()?.let { return it }
+        return if (writes == 0 && stall) awaitCancellation() else delegate.read()
+    }
+}
+private class ExperimentStall : AdapterTransport {
+    override val kind = TransportKind.FAKE
+    var writes = 0
+    override suspend fun write(request: Request) { writes++; awaitCancellation() }
+    override suspend fun read(): ByteArray? = awaitCancellation()
+}
+
+private class ExperimentReplaySentinel : AdapterTransport {
+    override val kind = TransportKind.REPLAY
+    var writes = 0
+    override suspend fun write(request: Request) { writes++ }
+    override suspend fun read(): ByteArray? = error("Must not read")
+}

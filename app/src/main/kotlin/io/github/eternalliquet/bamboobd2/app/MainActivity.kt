@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.eternalliquet.bamboobd2.app.ui.IdentificationExperimentScreen
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
 import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
                             onDiscardPendingLive = { if (recordingPending) vm.discardPendingRecording() else vm.discardPendingLive() },
                             onOpenSaved = { nav.navigate("saved") },
                             onOpenBench = { nav.navigate("bench") },
+                            onOpenExperiment = { nav.navigate("experiment") },
                             onOpenLive = { nav.navigate("live") },
                         )
                     }
@@ -72,6 +74,9 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("recording") {
                         LiveRecordingScreen(vm = vm, onDone = { nav.popBackStack("home", inclusive = false) })
+                    }
+                    composable("experiment") {
+                        IdentificationExperimentScreen(vm = vm, onBack = { nav.popBackStack() })
                     }
                     composable("bench") {
                         BenchScreen(vm = vm, onBack = { nav.popBackStack() })
