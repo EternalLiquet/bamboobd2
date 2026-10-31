@@ -48,9 +48,7 @@ For a valid ISO-TP first frame, record the announced length and available payloa
 
 ## Isolated adapter setup
 
-Obtain exclusive adapter ownership and stop all polling, discovery and reconnect jobs. Start only at an established idle command boundary with no outstanding or partial command. A Bluetooth connection alone does not establish that boundary. If it cannot be established locally, abort without a blank carriage return, guessed recovery command or ECU request.
-
-After Bluetooth connects, the app first listens without writing for at most two seconds for a standalone terminal `>` prompt. Complete printable banner lines may precede it and are recorded. Missing prompt, partial line or trailing non-whitespace aborts before any command. Some adapters may not emit a prompt on a new Bluetooth connection; that produces an honest no-command stop, not an automatic recovery exchange. Connection success alone does not satisfy this check. The two-second preflight counts toward the 60-second protocol deadline.
+Obtain exclusive adapter ownership and stop all polling, discovery and reconnect jobs. After Bluetooth connects, drain optional startup text for at most two seconds. A standalone terminal `>` or 250 ms without incoming bytes after complete lines permits the existing first command, `ATPC`. A quiet connection is not proof of an idle adapter; `ATPC` is the explicit handshake and must return `OK` and a prompt within two seconds before any further setup. Partial lines, malformed input, disconnect or continuously arriving data stop the run. No blank carriage return, recovery command or extra vehicle request is added. Startup bytes remain in the private report. This replaces v3's incompatible requirement for an unsolicited prompt; the protocol plan is now v4. The two-second startup bound counts toward the 60-second protocol deadline.
 
 Local setup, in order:
 
@@ -117,7 +115,7 @@ Open **Identification experiment**, review the two fixed routes and risks, selec
 
 The app reserves adapter ownership across connect, preflight, setup and reads. Competing bench, ordinary live and recording starts are blocked. Stop, Back, leaving the screen or backgrounding cancels the attempt and closes the socket; submitted bytes cannot be recalled. Completed and partial results retain raw preflight bytes, attempted writes, received chunks, monotonic timing, provenance and the stop reason. Reports are stored privately; sharing is an explicit owner action and requires checking unexpected contents for private identifiers.
 
-Because this experiment changes adapter settings without cleanup writes, the app retains a reuse restriction across restart. Unplug and reinsert the adapter before acknowledging its power cycle in the experiment screen and starting an ordinary session. Closing Bluetooth alone does not clear custom headers, filters or formatting. This explicit owner acknowledgment is not an electrical measurement. Ordinary scans retain their existing allowlist and initialization.
+Because this experiment changes adapter settings without cleanup writes, the app retains a reuse restriction across restart after an attempted command. A completed or cancelled attempt with no attempted writes releases the restriction after closing the socket; process death or uncertain writes retain it. Unplug and reinsert the adapter before acknowledging its power cycle in the experiment screen and starting an ordinary session. Closing Bluetooth alone does not clear custom headers, filters or formatting. This explicit owner acknowledgment is not an electrical measurement. Ordinary scans retain their existing allowlist and initialization.
 
 The optional rehearsal and JVM demo remain hardware-free:
 
@@ -126,4 +124,4 @@ The optional rehearsal and JVM demo remain hardware-free:
 ./gradlew -p core offlineDiagnostics -Pmode=demo
 ```
 
-There is no generic `0100` baseline, software-version request, automatic flow control or cleanup write in the experiment. Neither endpoint nor the adapter's handling of this sequence has been validated on the car. A failed passive preflight means the next research decision concerns establishing an idle adapter boundary; it does not show that either vehicle endpoint is absent.
+There is no generic `0100` baseline, software-version request, automatic flow control or cleanup write in the experiment. Neither endpoint nor the adapter's handling of this sequence has been validated on the car. A failed startup or ATPC handshake does not show that either vehicle endpoint is absent.

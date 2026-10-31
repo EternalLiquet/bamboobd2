@@ -475,7 +475,7 @@ class AppViewModel @JvmOverloads constructor(
                     }
                     val transport = (connection as ClassicConnection.Connected).transport
                     experimentTransport = transport
-                    _experiment.update { it.copy(phase = "Connected. Waiting for an idle adapter prompt; no commands sent yet.") }
+                    _experiment.update { it.copy(phase = "Connected. Checking startup stream, then sending ATPC.") }
                     IdentificationExperiment.runLive(transport, onUpdate = { result ->
                         _experiment.update { it.copy(result = result, phase = result.explanation) }
                     }).also { result -> _experiment.update { it.copy(result = result, phase = result.explanation) } }
@@ -491,6 +491,13 @@ class AppViewModel @JvmOverloads constructor(
             } finally {
                 experimentTransport?.close()
                 experimentTransport = null
+                // Every attempted write is published before transport.write. If none was
+                // attempted, this run could not have changed adapter settings. Keep the
+                // pre-connect persisted guard for process death or uncertain writes.
+                if (_experiment.value.result?.recording?.steps.isNullOrEmpty() &&
+                    experimentPreferences.edit().putBoolean("power-cycle-required", false).commit()) {
+                    _experimentReuseRequired.value = false
+                }
                 // Persist after closing, including cancellation. Never upload or include Bluetooth addresses.
                 val report = experimentReport()
                 withContext(NonCancellable + io) {

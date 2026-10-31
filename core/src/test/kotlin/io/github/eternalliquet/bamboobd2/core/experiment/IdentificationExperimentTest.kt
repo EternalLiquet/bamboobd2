@@ -31,7 +31,7 @@ class IdentificationExperimentTest {
         assertFalse(preview.contains("reported PCM"))
         assertFalse(preview.contains("717"))
         assertFalse(preview.contains("781"))
-        assertEquals("two-endpoint-f187-no-flow-control-v3", IdentificationExperiment.PLAN_ID)
+        assertEquals("two-endpoint-f187-no-flow-control-v4", IdentificationExperiment.PLAN_ID)
     }
     @Test fun firstFrameIsIncompleteAndNoFlowControlFollows() = runTest {
         val t = ExperimentScript("793 10 0A 62 F1 87 41 42 43\r>")
@@ -120,7 +120,14 @@ class IdentificationExperimentTest {
             assertEquals(0, if (t is ExperimentLiveSentinel) t.writes else (t as ExperimentReplaySentinel).writes)
         }
     }
-    @Test fun liveRequiresPassivePromptBeforeExactFixedSequence() = runTest {
+    @Test fun silentNewConnectionStartsWithAtpcAndCompletesFixedReads() = runTest {
+        val script = ExperimentScript()
+        val result = IdentificationExperiment.runLive(ExperimentLiveSentinel(script, stall = true), testScheduler.timeSource)
+        assertEquals(ExperimentOutcome.OBSERVED, result.outcome)
+        assertEquals("ATPC", script.writes.first())
+        assertEquals(2, script.writes.count { it == "0322F18700000000" })
+    }
+    @Test fun liveRetainsOptionalStartupPromptBeforeExactFixedSequence() = runTest {
         val script = ExperimentScript()
         val transport = ExperimentLiveSentinel(script, listOf("ELM327 v1.4\r\n", ">"))
         val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
@@ -135,8 +142,8 @@ class IdentificationExperimentTest {
         assertTrue(result.privateReport().contains("preflightChunks"))
         assertFalse(result.explanation.contains("Synthetic"))
     }
-    @Test fun liveMissingOrUnsettledPromptNeverWritesAndRetainsEvidence() = runTest {
-        for (initial in listOf(emptyList(), listOf("OK>"), listOf(">junk"), listOf("\r"))) {
+    @Test fun liveUnsettledStartupNeverWritesAndRetainsEvidence() = runTest {
+        for (initial in listOf(listOf("OK>"), listOf(">junk"), listOf("unfinished"))) {
             val transport = ExperimentLiveSentinel(ExperimentScript(), initial, stall = true)
             val result = IdentificationExperiment.runLive(transport, testScheduler.timeSource)
             assertEquals(ExperimentOutcome.STOPPED, result.outcome)

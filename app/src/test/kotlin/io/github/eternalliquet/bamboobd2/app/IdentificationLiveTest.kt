@@ -25,7 +25,7 @@ class IdentificationLiveTest {
         ApplicationProvider.getApplicationContext<Application>().getSharedPreferences("identification-safety", 0).edit().clear().commit()
     }
     @After fun restoreSafetyState() = clearSafetyState()
-    private class Socket(private val prompt: Boolean = true, private val blockConnect: Boolean = false) : RfcommSocket {
+    private class Socket(private val prompt: Boolean = true, private val blockConnect: Boolean = false, private val initial: String = ">") : RfcommSocket {
         val entered = CountDownLatch(1)
         val closed = CountDownLatch(1)
         private val release = CountDownLatch(if (blockConnect) 1 else 0)
@@ -36,7 +36,7 @@ class IdentificationLiveTest {
         override fun connect() {
             entered.countDown()
             check(release.await(10, TimeUnit.SECONDS))
-            if (prompt && closed.count > 0) { pipe.write(">".toByteArray()); pipe.flush() }
+            if (prompt && closed.count > 0) { pipe.write(initial.toByteArray()); pipe.flush() }
         }
         override val output: OutputStream = object : OutputStream() {
             private val line = StringBuilder()
@@ -47,6 +47,8 @@ class IdentificationLiveTest {
                 if (command == "ATCRA77E") responder = "77E"
                 val reply = when {
                     command == "ATI" -> "ELM327 constructed\r>"
+                    command == "AT@1" -> "OBDII to RS232 Interpreter\r>"
+                    command == "ATRV" -> "12.6V\r>"
                     command.startsWith("AT") -> "OK\r>"
                     command == "0322F18700000000" -> "$responder 04 62 F1 87 41 00 00 00\r>"
                     else -> error("Unexpected command: $command")
@@ -88,12 +90,13 @@ class IdentificationLiveTest {
         assertFalse(vm.experimentReport().contains(device.address))
         assertTrue(vm.experimentReport().contains("RAW_CAPTURE"))
     }
-    @Test fun noInitialPromptClosesWithoutSendingAnything() {
+    @Test fun noInitialPromptStillCompletesFixedReads() {
         val p = Platform(Socket(prompt = false)); val vm = vm(p)
         assertTrue(vm.startExperiment(device, reviewed = true))
         until { !vm.experiment.value.busy }
-        assertEquals(ExperimentOutcome.STOPPED, vm.experiment.value.result!!.outcome)
-        assertTrue(p.socket.writes().isEmpty())
+        assertEquals(ExperimentOutcome.OBSERVED, vm.experiment.value.result!!.outcome)
+        assertEquals("ATPC", p.socket.writes().first())
+        assertEquals(2, p.socket.writes().count { it == "0322F18700000000" })
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
         assertEquals(1, p.opens)
     }
@@ -112,6 +115,20 @@ class IdentificationLiveTest {
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
         assertTrue(p.socket.writes().isEmpty())
         assertEquals(1, p.opens)
+    }
+    @Test fun unsettledStartupWithoutWritesDoesNotBlockOlderFunctions() {
+        val p = Platform(Socket(initial = "unfinished")); val model = vm(p)
+        assertTrue(model.startExperiment(device, reviewed = true))
+        until { !model.experiment.value.busy }
+        assertEquals(ExperimentOutcome.STOPPED, model.experiment.value.result!!.outcome)
+        assertTrue(p.socket.writes().isEmpty())
+        assertFalse(model.experimentReuseRequired.value)
+        assertFalse(vm(p).experimentReuseRequired.value)
+        val normal = Platform(Socket(prompt = false))
+        val next = vm(normal)
+        next.startBench(device)
+        until { normal.socket.closed.count == 0L }
+        assertEquals(listOf("ATI", "AT@1", "ATRV"), normal.socket.writes())
     }
     @Test fun exportKeepsReviewedSnapshotAndNeverSuppliesAnEmptyFallback() {
         val model = vm(Platform(Socket()))

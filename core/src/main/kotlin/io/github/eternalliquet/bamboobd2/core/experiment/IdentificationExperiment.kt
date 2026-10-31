@@ -19,7 +19,7 @@ data class ExperimentResult(
     val preflightChunks: List<ReplayChunk> = emptyList(),
     val requestAtMillis: List<Long> = emptyList(),
 ) {
-    val requiresAdapterPowerCycle: Boolean get() = !cleanupConfirmed
+    val requiresAdapterPowerCycle: Boolean get() = recording.steps.isNotEmpty() && !cleanupConfirmed
 
     /** Private evidence only: raw bytes may contain identifiers and must be reviewed before sharing. */
     fun privateReport(): String = Json { prettyPrint = true; encodeDefaults = true }
@@ -28,7 +28,7 @@ data class ExperimentResult(
 
 /** Fixed experiment. Explicit LIVE entry point is separate from rehearsal and never accepts imported commands. */
 object IdentificationExperiment {
-    const val PLAN_ID = "two-endpoint-f187-no-flow-control-v3"
+    const val PLAN_ID = "two-endpoint-f187-no-flow-control-v4"
     const val RAW_REQUEST = "0322F18700000000"
     private val setup = listOf("ATPC", "ATD", "ATM0", "ATI", "ATE0", "ATL0", "ATS1", "ATH1", "ATD0",
         "ATR1", "ATAT0", "ATST7D", "ATTP6", "ATCAF0", "ATCFC0", "ATCEA", "ATAL")
@@ -47,7 +47,7 @@ object IdentificationExperiment {
         appendLine("Two raw 03 22 F1 87 00 00 00 00 frames maximum. No retries, flow control, other ECU requests or cleanup writes.")
         appendLine("2s exchange / pending up to 5s from request / 60s total; 64 KiB transcript and 256 received lines.")
         appendLine("First frame means incomplete, no flow control sent. Silence is inconclusive. Abort on malformed/mismatched data, denial, lost prompt or cancellation.")
-        appendLine("Live execution first waits up to 2s without writing for an idle prompt; absence or malformed input stops without a request. The caller must exclusively own and close the connection, without reconnect.")
+        appendLine("Live execution drains startup bytes for up to 2s; a prompt or 250ms quiet period permits the existing ATPC handshake. Partial or malformed input stops before writing. ATPC must return OK and a prompt before further setup. The caller must exclusively own and close the connection, without reconnect.")
         appendLine("ATD restores configurable defaults; ATBI bypasses protocol validation. Reads may cause warnings, wake modules or drain power. Host limits do not bound physical controller retries.")
         appendLine(UNKNOWN)
     }
@@ -105,12 +105,17 @@ object IdentificationExperiment {
             else recorder.onRead(chunk)
         }
 
-        suspend fun awaitIdlePrompt() {
-            publish(ExperimentOutcome.RUNNING, "Waiting for an unsolicited idle prompt; no bytes sent.")
+        suspend fun drainStartup() {
+            publish(ExperimentOutcome.RUNNING, "Checking startup stream before ATPC; no bytes sent.")
             withTimeout(2000L) {
                 var textInLine = false
                 while (true) {
-                    val chunk = transport.read() ?: throw ExperimentStop("Disconnected before idle prompt; no bytes sent.")
+                    val chunk = withTimeoutOrNull(250L) {
+                        transport.read() ?: throw ExperimentStop("Disconnected before startup handshake; no bytes sent.")
+                    } ?: run {
+                        if (textInLine) throw ExperimentStop("Partial startup line; no bytes sent.")
+                        return@withTimeout
+                    }
                     retainRead(chunk, preflight = true)
                     var prompt = false
                     for (byte in chunk) {
@@ -215,7 +220,7 @@ object IdentificationExperiment {
 
         try {
             withTimeout(60000L) {
-                if (live) awaitIdlePrompt()
+                if (live) drainStartup()
                 for (command in setup + routeA) exchange(command)
                 observations += "A (729 -> 793): ${exchange(RAW_REQUEST, "793")}"
                 delay(1000L)
@@ -229,7 +234,7 @@ object IdentificationExperiment {
                 throw e
             }
             return publish(ExperimentOutcome.STOPPED, if (live && requestAtMillis.isEmpty())
-                "No idle prompt within 2 seconds; no bytes sent. Adapter command boundary could not be established."
+                "Startup stream did not settle within 2 seconds; no bytes sent."
                 else "Deadline reached without settled prompt; no further writes.")
         } catch (e: CancellationException) {
             publish(ExperimentOutcome.CANCELLED, "Cancelled; no further writes. Partial transcript retained.")
