@@ -58,7 +58,7 @@ class AppFlowTest {
     @Test
     fun identificationRequiresExplicitDeviceSelectionAndReview() {
         rule.onNodeWithText("Identification experiment").performScrollTo().performClick()
-        rule.onNodeWithText("Two identification reads").assertIsDisplayed()
+        rule.onNodeWithText("Read complete part numbers").assertIsDisplayed()
         rule.onNodeWithText("Connect and run two reads").assertDoesNotExist()
         rule.onNodeWithContentDescription("Back").performClick()
         rule.onNodeWithText("Identification experiment").performScrollTo().assertIsDisplayed()

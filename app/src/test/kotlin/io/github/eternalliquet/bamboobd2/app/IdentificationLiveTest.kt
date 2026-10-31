@@ -25,7 +25,7 @@ class IdentificationLiveTest {
         ApplicationProvider.getApplicationContext<Application>().getSharedPreferences("identification-safety", 0).edit().clear().commit()
     }
     @After fun restoreSafetyState() = clearSafetyState()
-    private class Socket(private val prompt: Boolean = true, private val blockConnect: Boolean = false, private val initial: String = ">") : RfcommSocket {
+    private class Socket(private val prompt: Boolean = true, private val blockConnect: Boolean = false, private val initial: String = ">", private val multiFrame: Boolean = false) : RfcommSocket {
         val entered = CountDownLatch(1)
         val closed = CountDownLatch(1)
         private val release = CountDownLatch(if (blockConnect) 1 else 0)
@@ -50,6 +50,8 @@ class IdentificationLiveTest {
                     command == "AT@1" -> "OBDII to RS232 Interpreter\r>"
                     command == "ATRV" -> "12.6V\r>"
                     command.startsWith("AT") -> "OK\r>"
+                    command == "30020A0000000000" -> "$responder 21 54 31 32 33 34 35 36\r$responder 22 37 00 00 00 00 00 00\r>"
+                    command == "0322F18700000000" && multiFrame -> "$responder 10 0E 62 F1 87 54 45 53\r>"
                     command == "0322F18700000000" -> "$responder 04 62 F1 87 41 00 00 00\r>"
                     else -> error("Unexpected command: $command")
                 }
@@ -89,6 +91,17 @@ class IdentificationLiveTest {
         assertTrue(vm.experiment.value.saved)
         assertFalse(vm.experimentReport().contains(device.address))
         assertTrue(vm.experimentReport().contains("RAW_CAPTURE"))
+    }
+    @Test fun realWiringCollectsBothIdentitiesWithAtMostFourCanWrites() {
+        val p = Platform(Socket(prompt = false, multiFrame = true)); val model = vm(p)
+        assertTrue(model.startExperiment(device, reviewed = true))
+        until { !model.experiment.value.busy }
+        assertEquals(ExperimentOutcome.OBSERVED, model.experiment.value.result!!.outcome)
+        assertEquals(listOf("0322F18700000000", "30020A0000000000", "0322F18700000000", "30020A0000000000"),
+            p.socket.writes().filter { !it.startsWith("AT") })
+        assertTrue(model.experimentReport().contains("TEST1234567"))
+        assertTrue(model.experimentReuseRequired.value)
+        assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
     }
     @Test fun noInitialPromptStillCompletesFixedReads() {
         val p = Platform(Socket(prompt = false)); val vm = vm(p)

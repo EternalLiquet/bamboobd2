@@ -103,9 +103,9 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
         ) { padding ->
             Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Two identification reads", style = MaterialTheme.typography.headlineSmall)
+                Text("Read complete part numbers", style = MaterialTheme.typography.headlineSmall)
                 Text("A 729 → 793 · identity unknown\nB 714 → 77E · unverified cluster hypothesis")
-                Text("One 22 F1 87 request per endpoint. No resets, writes, retries or flow control. Neither route is verified for your Cayenne.")
+                Text("One F187 read per endpoint, plus at most one flow-control frame each to collect the remaining reply. No resets, coding or retries. Module identities remain unverified.")
                 TextButton(onClick = { showPlan = !showPlan }) { Text(if (showPlan) "Hide exact requests and setup" else "Review exact requests and setup") }
                 if (showPlan) SelectionContainer {
                     Text(IdentificationExperiment.preview(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
@@ -130,7 +130,7 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                             Text("Park securely, parking brake applied, ignition on and engine off. Use stable power and close other diagnostic apps. Stop for warnings, display disturbance or abnormal sounds.")
                             Row {
                                 Checkbox(checked = reviewed, onCheckedChange = { reviewed = it })
-                                Text("I reviewed the exact test and approve these two reads now. The car is parked and ready.", modifier = Modifier.padding(top = 8.dp))
+                                Text("I reviewed the exact test and approve these two reads and their flow-control frames now. The car is parked and ready.", modifier = Modifier.padding(top = 8.dp))
                             }
                             Button(onClick = {
                                 if (vm.startExperiment(device, reviewed)) { reviewed = false; showTranscript = false; exportMessage = null }

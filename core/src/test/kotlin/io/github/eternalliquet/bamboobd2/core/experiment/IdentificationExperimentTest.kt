@@ -31,15 +31,51 @@ class IdentificationExperimentTest {
         assertFalse(preview.contains("reported PCM"))
         assertFalse(preview.contains("717"))
         assertFalse(preview.contains("781"))
-        assertEquals("two-endpoint-f187-no-flow-control-v4", IdentificationExperiment.PLAN_ID)
+        assertEquals("two-endpoint-f187-manual-flow-control-v5", IdentificationExperiment.PLAN_ID)
     }
-    @Test fun firstFrameIsIncompleteAndNoFlowControlFollows() = runTest {
-        val t = ExperimentScript("793 10 0A 62 F1 87 41 42 43\r>")
+    @Test fun firstFrameGetsOneBoundedFlowControlAndCompleteIdentity() = runTest {
+        val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>",
+            flowReply = "793 21 54 31 32 33 34 35 36\r793 22 37 00 00 00 00 00 00\r>")
         val r = IdentificationExperiment.run(t, testScheduler.timeSource)
         assertEquals(ExperimentOutcome.OBSERVED, r.outcome)
-        assertTrue(r.explanation.contains("incomplete", true))
-        assertTrue(r.explanation.contains("10"))
-        assertEquals(2, t.writes.count { !it.startsWith("AT") })
+        assertTrue(r.explanation.contains("TEST1234567"))
+        assertEquals(listOf("0322F18700000000", "30020A0000000000", "0322F18700000000"), t.writes.filter { !it.startsWith("AT") })
+    }
+    @Test fun malformedOrIncompleteFlowReplyStopsWithoutSecondEndpointOrRetry() = runTest {
+        for (reply in listOf(
+            "793 22 37 00 00 00 00 00 00\r>",
+            "792 21 54 31 32 33 34 35 36\r>",
+            "793 21 54 31 32\r>",
+            "793 21 54 31 32 33 34 35 36\r>",
+            "793 21 54 31 32 33 34 35 36\r793 21 37 00 00 00 00 00 00\r>",
+            "793 21 54 31 32 33 34 35 36\r793 22 37 00 00 00 00 00 00\r793 23 00\r>",
+            "NO DATA\r>")) {
+            val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>", flowReply = reply)
+            val r = IdentificationExperiment.run(t, testScheduler.timeSource)
+            assertEquals(reply, ExperimentOutcome.STOPPED, r.outcome)
+            assertEquals(listOf("0322F18700000000", "30020A0000000000"), t.writes.filter { !it.startsWith("AT") })
+            assertFalse(t.writes.contains("ATSH714"))
+        }
+    }
+    @Test fun firstFrameWithoutPromptOrWrongLengthNeverGetsFlowControl() = runTest {
+        for (reply in listOf("793 10 0E 62 F1 87 54 45 53\r", "793 10 0F 62 F1 87 54 45 53\r>",
+            "793 10 0E 62 F1 89 54 45 53\r>")) {
+            val t = ExperimentScript(reply, stallAfter = true)
+            assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+            assertEquals(listOf("0322F18700000000"), t.writes.filter { !it.startsWith("AT") })
+        }
+    }
+    @Test fun flowControlTimeoutNeverRetriesAndCancellationNeverSendsAnotherFrame() = runTest {
+        val t = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r>", flowReply = "\r", stallAfter = true)
+        val before = testScheduler.currentTime
+        assertEquals(ExperimentOutcome.STOPPED, IdentificationExperiment.run(t, testScheduler.timeSource).outcome)
+        assertEquals(2000L, testScheduler.currentTime - before)
+        assertEquals(listOf("0322F18700000000", "30020A0000000000"), t.writes.filter { !it.startsWith("AT") })
+        val cancel = ExperimentScript("793 10 0E 62 F1 87 54 45 53\r", stallAfter = true)
+        val job = launch { IdentificationExperiment.run(cancel, testScheduler.timeSource) }
+        testScheduler.runCurrent()
+        job.cancelAndJoin()
+        assertEquals(listOf("0322F18700000000"), cancel.writes.filter { !it.startsWith("AT") })
     }
     @Test fun noDataAndSupportedNegativesAndPendingPromptPermitB() = runTest {
         for (reply in listOf("NO DATA\r>", "793 03 7F 22 11 00 00 00 00\r>", "793 03 7F 22 31 00 00 00 00\r>", "793 03 7F 22 78 00 00 00 00\r>")) {
@@ -188,6 +224,7 @@ class IdentificationExperimentTest {
 
 private class ExperimentScript(
     private val replyA: String = "793 04 62 F1 87 41 00 00 00\r>",
+    private val flowReply: String = "",
     private val setupReply: String = "OK\r>",
     private val split: Boolean = false,
     private val echo: Boolean = false,
@@ -206,6 +243,7 @@ private class ExperimentScript(
         val body = when {
             request.text == "ATI" -> "ELM327 simulated\r>"
             request.kind == Request.Kind.ADAPTER -> setupReply
+            request.text == "30020A0000000000" -> flowReply
             reads++ == 0 -> replyA
             else -> "77E 04 62 F1 87 42 00 00 00\r>"
         }

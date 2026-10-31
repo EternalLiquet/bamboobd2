@@ -28,8 +28,9 @@ data class ExperimentResult(
 
 /** Fixed experiment. Explicit LIVE entry point is separate from rehearsal and never accepts imported commands. */
 object IdentificationExperiment {
-    const val PLAN_ID = "two-endpoint-f187-no-flow-control-v4"
+    const val PLAN_ID = "two-endpoint-f187-manual-flow-control-v5"
     const val RAW_REQUEST = "0322F18700000000"
+    const val FLOW_CONTROL = "30020A0000000000"
     private val setup = listOf("ATPC", "ATD", "ATM0", "ATI", "ATE0", "ATL0", "ATS1", "ATH1", "ATD0",
         "ATR1", "ATAT0", "ATST7D", "ATTP6", "ATCAF0", "ATCFC0", "ATCEA", "ATAL")
     private val routeA = listOf("ATSH729", "ATCRA793", "ATBI")
@@ -43,10 +44,11 @@ object IdentificationExperiment {
         commands.forEachIndexed { index, command ->
             if (index == setup.size + routeA.size + 1) appendLine("Wait at least 1 second after A's terminal prompt.")
             appendLine("${index + 1}. $command\\r")
+            if (command == RAW_REQUEST) appendLine("Conditional: after matching 14-byte 62 F1 87 first frame AND terminal prompt, send $FLOW_CONTROL\\r once on this same header. CTS, block size 2, separation 10ms.")
         }
-        appendLine("Two raw 03 22 F1 87 00 00 00 00 frames maximum. No retries, flow control, other ECU requests or cleanup writes.")
+        appendLine("Two F187 requests plus at most two manual flow-control frames (four host CAN writes total). Automatic flow control stays off. No retries, other ECU requests or cleanup writes.")
         appendLine("2s exchange / pending up to 5s from request / 60s total; 64 KiB transcript and 256 received lines.")
-        appendLine("First frame means incomplete, no flow control sent. Silence is inconclusive. Abort on malformed/mismatched data, denial, lost prompt or cancellation.")
+        appendLine("Only a 14-byte positive first frame permits one flow control after its prompt; collect CF21 and CF22 within 2s. Reject other lengths or sequences. The ECU flow-control timeout is unknown; waiting for the prompt may be too slow. Silence is inconclusive.")
         appendLine("Live execution drains startup bytes for up to 2s; a prompt or 250ms quiet period permits the existing ATPC handshake. Partial or malformed input stops before writing. ATPC must return OK and a prompt before further setup. The caller must exclusively own and close the connection, without reconnect.")
         appendLine("ATD restores configurable defaults; ATBI bypasses protocol validation. Reads may cause warnings, wake modules or drain power. Host limits do not bound physical controller retries.")
         appendLine(UNKNOWN)
@@ -142,11 +144,13 @@ object IdentificationExperiment {
             }
         }
 
-        suspend fun exchange(command: String, responder: String? = null): String {
+        suspend fun exchange(command: String, responder: String? = null, assembly: MutableList<Int> = mutableListOf()): String {
             currentCoroutineContext().ensureActive()
             val vehicle = responder != null
-            currentEvidence = null
-            if (vehicle && ++attemptedFrames > 2) throw ExperimentStop("Two-frame budget exhausted")
+            if (command != FLOW_CONTROL) currentEvidence = null
+            if (vehicle && ++attemptedFrames > 4) throw ExperimentStop("Four-frame budget exhausted")
+            val collecting = command == FLOW_CONTROL
+            if (collecting && assembly.size != 6) throw ExperimentStop("No validated first frame for flow control")
             val writeBytes = command.length + 1
             if (writeBytes > 65536 - retainedBytes) throw ExperimentStop("64 KiB transcript cap exceeded before write")
             retainedBytes += writeBytes
@@ -162,6 +166,7 @@ object IdentificationExperiment {
             var status: String? = null
             var terminalData = false
             var sawEcho = false
+            var nextSequence = 1
             fun consumeLine() {
                 val text = line.toString().trim()
                 line.clear()
@@ -170,12 +175,27 @@ object IdentificationExperiment {
                 if (compact == command && !sawEcho && status == null && adapterLines.isEmpty()) { sawEcho = true; return }
                 if (!vehicle) { adapterLines += text; return }
                 if (terminalData) throw ExperimentStop("Unexpected additional response at $command")
+                if (collecting) {
+                    val bytes = rawFrame(text, responder!!)
+                    if (bytes.first() != 0x20 + nextSequence || nextSequence > 2)
+                        throw ExperimentStop("Wrong consecutive-frame sequence; no retry")
+                    val needed = minOf(7, 14 - assembly.size)
+                    if (bytes.size < needed + 1) throw ExperimentStop("Truncated consecutive frame")
+                    assembly += bytes.drop(1).take(needed)
+                    nextSequence++
+                    terminalData = assembly.size == 14
+                    status = if (terminalData) identityDescription(assembly)
+                        else "Incomplete F187 transfer: ${assembly.size}/14 payload bytes retained."
+                    currentEvidence = "Responder $responder: $status"
+                    return
+                }
                 if (text == "NO DATA" && status == null) {
                     status = "No data; route, transport, timing or support remain inconclusive."
                     terminalData = true
                     return
                 }
                 val result = inspectFrame(text, responder)
+                result.firstPayload?.let { assembly.addAll(it) }
                 status = result.description
                 currentEvidence = "Responder $responder: $status"
                 if (result.pending) deadline = 5000L else terminalData = true
@@ -213,19 +233,30 @@ object IdentificationExperiment {
                         validateAdapter(command, adapterLines)
                         return "Adapter accepted $command"
                     }
+                    if (collecting && assembly.size != 14)
+                        throw ExperimentStop("Incomplete F187 transfer after flow control; no retry")
                     return status ?: throw ExperimentStop("Empty vehicle response")
                 }
             }
+        }
+
+        suspend fun readIdentity(responder: String): String {
+            val assembly = mutableListOf<Int>()
+            val first = exchange(RAW_REQUEST, responder, assembly)
+            // exchange returns only after a fully consumed terminal prompt. Never
+            // interrupt an outstanding ELM command to send flow control.
+            if (assembly.isEmpty()) return first
+            return exchange(FLOW_CONTROL, responder, assembly)
         }
 
         try {
             withTimeout(60000L) {
                 if (live) drainStartup()
                 for (command in setup + routeA) exchange(command)
-                observations += "A (729 -> 793): ${exchange(RAW_REQUEST, "793")}"
+                observations += "A (729 -> 793): ${readIdentity("793")}"
                 delay(1000L)
                 for (command in routeB) exchange(command)
-                observations += "B (714 -> 77E): ${exchange(RAW_REQUEST, "77E")}"
+                observations += "B (714 -> 77E): ${readIdentity("77E")}"
                 currentEvidence = null
             }
         } catch (e: TimeoutCancellationException) {
@@ -248,15 +279,26 @@ object IdentificationExperiment {
             else "Synthetic attempt ended at settled prompts; no vehicle validation. No cleanup writes.")
     }
 
-    private data class FrameResult(val description: String, val pending: Boolean = false)
+    private data class FrameResult(val description: String, val pending: Boolean = false, val firstPayload: List<Int>? = null)
 
-    /** Raw CAN lines only: explicit 11-bit ID, no DLC digit, PCI included, no ISO-TP reassembly. */
-    private fun inspectFrame(line: String, responder: String): FrameResult {
+    /** Raw CAN lines only: explicit 11-bit ID, no DLC digit, PCI included. */
+    private fun rawFrame(line: String, responder: String): List<Int> {
         val compact = line.replace(" ", "").uppercase()
         if (!Regex("[0-9A-F]{5,19}").matches(compact) || (compact.length - 3) % 2 != 0)
             throw ExperimentStop("Malformed raw CAN line or unexpected adapter text")
         if (compact.take(3) != responder) throw ExperimentStop("Unexpected responder")
-        val bytes = compact.drop(3).chunked(2).map { it.toInt(16) }
+        return compact.drop(3).chunked(2).map { it.toInt(16) }
+    }
+
+    private fun identityDescription(payload: List<Int>): String {
+        val identity = payload.drop(3)
+        val hex = identity.joinToString(" ") { it.toString(16).uppercase().padStart(2, '0') }
+        val text = if (identity.all { it in 32..126 }) identity.map { it.toChar() }.joinToString("") else "non-printable; see hex"
+        return "Complete F187 response. Reported part-number text: $text; hex: $hex. Module attribution unverified."
+    }
+
+    private fun inspectFrame(line: String, responder: String): FrameResult {
+        val bytes = rawFrame(line, responder)
         val pci = bytes.first()
         val payload: List<Int>
         var announced: Int? = null
@@ -269,14 +311,14 @@ object IdentificationExperiment {
             1 -> {
                 if (bytes.size != 8) throw ExperimentStop("Truncated first frame")
                 announced = ((pci and 15) shl 8) + bytes[1]
-                if (announced <= 7) throw ExperimentStop("Malformed first-frame length")
+                if (announced != 14) throw ExperimentStop("First-frame length outside this 14-byte experiment; no flow control")
                 payload = bytes.drop(2)
             }
             else -> throw ExperimentStop("Unsolicited consecutive/flow-control frame")
         }
         if (payload.take(3) == listOf(0x62, 0xf1, 0x87) && payload.size > 3) {
-            return if (announced != null) FrameResult("Incomplete—no flow control sent; announced $announced bytes; prefix retained, no complete identity.")
-            else FrameResult("Complete single-frame 62 F1 87 reply; identity bytes opaque and attribution provisional.")
+            return if (announced != null) FrameResult("Incomplete F187 first frame: 6/14 payload bytes retained; awaiting terminal prompt before one flow control.", firstPayload = payload)
+            else FrameResult(identityDescription(payload))
         }
         if (announced == null && payload.size == 3 && payload.take(2) == listOf(0x7f, 0x22)) {
             return when (payload[2]) {
@@ -312,7 +354,8 @@ internal class IdentificationRehearsalTransport : AdapterTransport {
         val reply = when {
             request.text == "ATI" -> "ELM327 simulated\r>"
             request.kind == Request.Kind.ADAPTER -> "OK\r>"
-            responder == "793" -> "793 10 0A 62 F1 87 44 45 4D\r>"
+            request.text == IdentificationExperiment.FLOW_CONTROL -> "793 21 4F 31 32 33 34 35 36\r793 22 37 00 00 00 00 00 00\r>"
+            responder == "793" -> "793 10 0E 62 F1 87 44 45 4D\r>"
             else -> "77E 04 62 F1 87 41 00 00 00\r>"
         }
         pending.add(reply.toByteArray(Charsets.US_ASCII))
