@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
+import io.github.eternalliquet.bamboobd2.core.experiment.ExperimentOutcome
 import io.github.eternalliquet.bamboobd2.core.experiment.IdentificationExperiment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -104,15 +105,15 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
             Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Read complete part numbers", style = MaterialTheme.typography.headlineSmall)
-                Text("A 729 → 793 · identity unknown\nB 714 → 77E · unverified cluster hypothesis")
-                Text("One F187 read per endpoint, plus at most one flow-control frame each to collect the remaining reply. No resets, coding or retries. Module identities remain unverified.")
+                Text("Read part-number information from two candidate modules. Their identities are not yet confirmed.")
+                Text("Each module gets one read and, if needed, one message asking for the rest of its reply. No vehicle settings are changed.")
                 TextButton(onClick = { showPlan = !showPlan }) { Text(if (showPlan) "Hide exact requests and setup" else "Review exact requests and setup") }
                 if (showPlan) SelectionContainer {
                     Text(IdentificationExperiment.preview(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(state.phase)
+                    Text(if (state.result == null) "Connecting to scanner…" else "Reading module replies…")
                     Button(onClick = vm::stopExperiment, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop and disconnect") }
                 } else {
                     if (reuseRequired) {
@@ -139,8 +140,14 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (state.result != null || state.phase != "Choose your paired scanner") {
-                        Text(state.result?.outcome?.name ?: "Connection result", style = MaterialTheme.typography.titleMedium)
-                        Text(state.phase)
+                        Text(when (state.result?.outcome) {
+                            ExperimentOutcome.OBSERVED -> "Read attempt finished"
+                            ExperimentOutcome.CANCELLED -> "Read cancelled"
+                            else -> "Read stopped"
+                        }, style = MaterialTheme.typography.titleMedium)
+                        Text(if (state.result?.outcome == ExperimentOutcome.OBSERVED)
+                            "Reply details are available below. Export the report for module identification; this does not confirm maintenance support."
+                        else "The attempt ended before completion. Open details for the reason, or export the report for analysis.")
                         if (state.saved) Text("Report saved privately on this phone.")
                         state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         OutlinedButton(onClick = { exportText = vm.experimentReport(); identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export private report") }
@@ -148,14 +155,13 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                         OutlinedButton(onClick = { exportText = previousReport!!; identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export previous private report") }
                     }
                 }
-                state.result?.let { result ->
-                    TextButton(onClick = { showTranscript = !showTranscript }) { Text(if (showTranscript) "Hide raw transcript" else "Show raw transcript") }
+                if (state.result != null || state.phase != "Choose your paired scanner") {
+                    TextButton(onClick = { showTranscript = !showTranscript }) { Text(if (showTranscript) "Hide reply details" else "Show reply details") }
                     if (showTranscript) SelectionContainer {
-                        Text(result.privateReport(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                        Text(state.result?.privateReport() ?: state.phase, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 exportMessage?.let { Text(it) }
-                Text("The app first waits for an idle adapter prompt. If none arrives, it disconnects without sending commands. A response still does not prove the module is the cluster.", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

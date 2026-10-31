@@ -13,7 +13,7 @@ Reviewed 2026-10-30 for [#58](https://github.com/EternalLiquet/bamboobd2/issues/
 | [ELM327DSL](https://www.elmelectronics.com/wp-content/uploads/2020/05/ELM327DSL.pdf), genuine v2.3, printed pp14, 18, 27, 43–45 and 62–64 | The chip documents header, CAN multi-frame and flow-control mechanics. Its interleaved example on p45 is Mode 09, used here only for framing rules. The owned adapter's advertised v1.5 identity does not prove the same optional command or flow-control behavior. |
 | [Ross-Tech FAQ 4.11](https://www.ross-tech.com/vag-com/faq_4.php), checked 2026-10-30 | VCDS offers generic OBD use on other makes, not Porsche manufacturer-specific definitions. No VW address, adaptation identifier, UDS or TP2.0 assumption fills the gap. |
 
-An inspected bulletin for 981/991 does not apply to this Cayenne and supplies no fields here. The source search stops at these applicable public documents; no private notes, proprietary data or other model's schedule were copied in.
+An inspected bulletin for 981/991 does not apply to this Cayenne and supplies no fields here. This records the original bounded six-source pass. The owner's later request continues hypothesis-led research in the [cloud research note](CAYENNE_CLOUD_RESEARCH.md) and [preserved desktop checkpoint](CAYENNE_OFFLINE_RESEARCH_CHECKPOINT.md). No private notes, proprietary data or other model's schedule were copied into this evidence matrix.
 
 ## Evidence required for an interval decoder
 
