@@ -99,3 +99,19 @@ tasks.named("check") {
 }
 
 apply(from = "../gradle/transport-registry.gradle.kts")
+
+// Offline JVM tool only. No Android connection or imported command execution.
+tasks.register<JavaExec>("offlineDiagnostics") {
+    group = "application"
+    description = "Preview the disabled identification plan, rehearse synthetic data, or inspect a local recording."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.github.eternalliquet.bamboobd2.core.storage.OfflineDiagnosticsMainKt")
+    val mode = providers.gradleProperty("mode").orElse("plan")
+    doFirst {
+        args(mode.get())
+        providers.gradleProperty("input").orNull?.let { args(it) }
+        if (mode.get() == "capture") {
+            args(providers.gradleProperty("protocol").get(), providers.gradleProperty("framing").get())
+        }
+    }
+}

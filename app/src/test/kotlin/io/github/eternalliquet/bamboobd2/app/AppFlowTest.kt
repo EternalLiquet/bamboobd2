@@ -56,6 +56,15 @@ class AppFlowTest {
     }
 
     @Test
+    fun identificationPreviewKeepsLiveExecutionLocked() {
+        rule.onNodeWithText("Identification experiment").performScrollTo().performClick()
+        rule.onNodeWithText("Live execution locked").assertIsDisplayed()
+        rule.onNodeWithText("Run synthetic rehearsal").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithContentDescription("Back").performClick()
+        rule.onNodeWithText("Identification experiment").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun completeTwoCodesSessionSavesAndReopensWithBannerOnEveryScreen() {
         bannerShown()
         rule.onNodeWithText("Two codes").performScrollTo().performClick()

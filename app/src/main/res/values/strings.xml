@@ -296,4 +296,11 @@
     <string name="pid_4c">Commanded throttle actuator</string>
     <string name="pid_5a">Relative accelerator pedal position</string>
     <string name="pid_5c">Engine oil temperature</string>
+    <string name="experiment_title">Identification experiment</string>
+    <string name="experiment_locked">Live execution locked</string>
+    <string name="experiment_explainer">Review build only. This screen uses constructed responses and never opens Bluetooth. Neither address is a verified cluster route. Vehicle execution needs a separate reviewed integration and your approval.</string>
+    <string name="experiment_rehearse">Run synthetic rehearsal</string>
+    <string name="experiment_stop">Stop rehearsal</string>
+    <string name="experiment_transcript">Synthetic host transcript</string>
+    <string name="experiment_plan">Exact proposed sequence</string>
 </resources>

@@ -90,10 +90,14 @@ object ElmResponseParser {
     private const val MAX_CAN_11BIT_ID = 0x7FF
     private const val CAN_FRAME_BYTES = 8
 
-    fun parse(text: String, request: Request, format: ResponseFormat): ParsedResponse {
+    fun parse(text: String, request: Request, format: ResponseFormat): ParsedResponse =
+        parseRecorded(text, request.text, format)
+
+    /** Parsing only: recorded request text is used to remove an echo, never authorized or executed. */
+    fun parseRecorded(text: String, requestText: String, format: ResponseFormat): ParsedResponse {
         val lines = text.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
         // Echo is on by default (AT E1); the first line may repeat the command.
-        if (lines.isNotEmpty() && compact(lines.first()) == request.text.uppercase()) lines.removeAt(0)
+        if (lines.isNotEmpty() && compact(lines.first()) == compact(requestText.uppercase())) lines.removeAt(0)
 
         val data = mutableListOf<String>()
         var noData = false
