@@ -9,3 +9,6 @@ core/src/main/kotlin/io/github/eternalliquet/bamboobd2/core/protocol/ReplayTrans
 app/src/main/kotlin/io/github/eternalliquet/bamboobd2/app/bluetooth/BluetoothClassic.kt BluetoothClassicTransport LIVE reviewed:issue-12
 core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/bench/AdapterBenchCheckTest.kt StallingTransport FAKE
 core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/capture/CaptureRecorderTest.kt RecordingTransport REPLAY
+# Test-only refusal sentinel; no hardware connection. Reviewed with issue-64 final diff.
+core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/experiment/IdentificationExperimentTest.kt ExperimentLiveSentinel LIVE reviewed:issue-64
+core/src/test/kotlin/io/github/eternalliquet/bamboobd2/core/experiment/IdentificationExperimentTest.kt ExperimentStall FAKE
