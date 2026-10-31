@@ -512,9 +512,12 @@ class AppViewModel @JvmOverloads constructor(
                         _experiment.update { it.copy(saved = true) }
                     } catch (_: Exception) {
                         _experiment.update { it.copy(saveError = "Could not save privately. Export the report before closing the app.") }
+                    } finally {
+                        // Returning to a cancelled Main context can throw before any
+                        // following statement. Release ownership inside this cleanup.
+                        _experiment.update { it.copy(busy = false) }
                     }
                 }
-                _experiment.update { it.copy(busy = false) }
             }
         }
         return true

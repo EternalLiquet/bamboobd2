@@ -69,10 +69,10 @@ class IdentificationLiveTest {
     }
     private fun vm(platform: Platform) = AppViewModel(ApplicationProvider.getApplicationContext<Application>(),
         FileSessionStore(Files.createTempDirectory("experiment-test").toFile()), Dispatchers.IO, platform)
-    private fun until(condition: () -> Boolean) {
+    private fun until(description: String = "condition", condition: () -> Boolean) {
         val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
         while (!condition()) {
-            check(System.nanoTime() < end) { "condition not reached" }
+            check(System.nanoTime() < end) { "$description not reached" }
             ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS)
             Thread.sleep(5)
         }
@@ -118,13 +118,13 @@ class IdentificationLiveTest {
         assertFalse(vm.startExperiment(device, reviewed = false))
         assertEquals(0, p.opens)
         assertTrue(vm.startExperiment(device, reviewed = true))
-        until { p.socket.entered.count == 0L }
+        until("experiment socket connect entered") { p.socket.entered.count == 0L }
         vm.startBench(device); vm.startLive(device)
         assertFalse(vm.startRecording(device))
         assertFalse(vm.startExperiment(device, reviewed = true))
         assertEquals(1, p.opens)
         vm.onAppBackgrounded()
-        until { !vm.experiment.value.busy }
+        until("background cancellation completed: ${vm.experiment.value.phase}") { !vm.experiment.value.busy }
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
         assertTrue(p.socket.writes().isEmpty())
         assertEquals(1, p.opens)
