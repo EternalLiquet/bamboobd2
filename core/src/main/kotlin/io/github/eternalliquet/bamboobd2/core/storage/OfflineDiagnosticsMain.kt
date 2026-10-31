@@ -2,7 +2,6 @@ package io.github.eternalliquet.bamboobd2.core.storage
 
 import io.github.eternalliquet.bamboobd2.core.experiment.IdentificationExperiment
 import io.github.eternalliquet.bamboobd2.core.offline.*
-import io.github.eternalliquet.bamboobd2.core.protocol.FakeTransport
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -12,11 +11,16 @@ fun main(args: Array<String>) = runBlocking {
     when (args.firstOrNull() ?: "plan") {
         "plan" -> print(IdentificationExperiment.preview())
         "demo" -> {
-            val result = IdentificationExperiment.run(FakeTransport(IdentificationExperiment.syntheticReplies()))
+            val result = IdentificationExperiment.rehearse()
             println("SYNTHETIC identification rehearsal: ${result.outcome}; cleanup acknowledged=${result.cleanupConfirmed}")
             println(result.explanation)
-            val recording = ManufacturerRecording(result.recording, DiagnosticProtocol.UDS, RecordedFraming.CAN_11BIT_HEADERS)
-            print(OfflineDiagnostics.analyze(recording).render())
+            println("Synthetic raw host transcript; chunk times are relative to their attempted request.")
+            result.recording.steps.forEach { step ->
+                println("TX ${step.request}")
+                step.chunks.forEach { chunk ->
+                    println("RX +${chunk.atMillis}ms " + chunk.text.replace("\r", "\\r").replace("\n", "\\n"))
+                }
+            }
             println()
             print(OfflineExample.render())
         }

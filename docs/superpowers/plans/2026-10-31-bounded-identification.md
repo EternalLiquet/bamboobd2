@@ -18,7 +18,7 @@
 - Normal RequestPolicy and replay import policy remain unchanged. Offline importer cannot send.
 - Keep provenance, byte ordering, original chunks, timing, responder and uncertainty. Reports are private local output by default, not auto-redacted public evidence.
 - No VIN/serial requests, session changes, scan loops, fallback routes, writes, resets or security access.
-- No Android screen in this slice: focus on executable JVM example and reviewed runner; LIVE gate cannot be bypassed with imported data or a caller boolean.
+- Revised owner scope: small Android plan/rehearsal screen; LIVE gate cannot be bypassed with imported data or a caller boolean.
 
 ## Review focus
 
@@ -37,3 +37,16 @@ Malformed/oversized input; pending without final response; incorrect echo or res
 Initial wrapper baseline failed before build: Java network access did not inherit the current proxy. Downloaded the exact Gradle distribution using the normal HTTPS proxy and verified its pinned SHA256; no repository dependency or network-policy change. Local helper supplies the current proxy to Gradle. Test results recorded at handoff.
 
 Review/checkpoint notes: full core check and synthetic demo passed. Independent review found empty-chunk retention, unexpected adapter search text and spaced recorded echoes; each received a failing regression followed by a fix. Caller-timeout cancellation and initial-ATD no-retry behavior likewise reproduced before fixing. Final checks/review and PR links are recorded in the PR handoff. Live integration is deliberately not enabled; owner must review the exact experiment first.
+
+## October 31 two-endpoint revision
+
+Spec: [exact experiment](../../IDENTIFICATION_EXPERIMENT.md), supplied by the owner. Routine decisions remain authorized; no merge or vehicle run.
+
+Ruling: retain the LIVE gate through this test build because the owner requests exact implementation review before activation. Provide a runnable Android synthetic rehearsal and exact plan, not an enabled hardware test. This delays real acquisition until the owner reviews the concrete result and live ownership/idle-boundary handling is implemented.
+
+Shared interface: core keeps `preview()` and `ExperimentResult`; adds `suspend rehearse(onUpdate)` using a route-aware fake. Android consumes only these and never a Bluetooth transport.
+
+- [x] Core: replace the old runner sequence and regression tests with the two fixed raw requests, no flow control, explicit outcome classification, 60-second total deadline, per-exchange deadlines, transcript caps and disconnect-only termination. Reuse recording models.
+- [x] Android: home entry, exact-plan review, synthetic rehearsal, stop/back/background cancellation and visible live lock. No redesign or extra tooling.
+- [ ] Integration: run full core checks and required Android unit/lint/permission/build checks; independent review of separation, malformed input, provenance and false success. Fix substantive findings.
+- [ ] Publish coherent checkpoints to existing draft PR65; no merge. Deliver build and exact remaining activation gap.

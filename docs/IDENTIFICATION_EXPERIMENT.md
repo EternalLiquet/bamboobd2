@@ -1,77 +1,115 @@
-# Bounded module-identification experiment
+# Cayenne identification experiment: two requests
 
-This is a proposed test for owner review, implemented as a Kotlin/JVM runner with synthetic transport only. **The runner refuses a LIVE transport before any write. There is no Android binding in this slice.** Printing this plan or running the demo sends nothing to an adapter. Owner approval of the exact test, a reviewed live integration and the [live-test gate](LIVE_TEST_GATE.md) are still required before enabling a vehicle run.
+2014 Cayenne S (958) · Revised October 31, 2026 · Software rehearsal; no vehicle run
 
-The question is small: does the reported `729`/`793` route return a correlated identity response under the explicitly selected UDS hypothesis? This is **not a verified cluster route, service-counter reader or resetter**. No service-field definition is supplied.
+## Scope and activation gate
 
-## Why this route and these requests
+Prepare a separate, user-triggered experimental mode that sends **one `22 F1 87` part-number read to each of two fixed endpoints**, with automatic flow control disabled and no manual flow control. Maximum: **two app-issued CAN data frames, no retries and no other ECU requests**. Capture a complete single-frame response or the first frame of a longer response; label the latter incomplete. Do not add these requests to ordinary polling or expose arbitrary address/payload entry.
 
-[PCM-Forge's public research note](https://github.com/dspl1236/PCM-Forge/blob/main/research/SERVICE_RESET_RESEARCH.md) reports a Cayenne 958 exchange using TX `0x729`, RX `0x793`, with part `7P5919204H`, through Mongoose Pro J2534. The note calls that module the PCM and explicitly questions whether it is the instrument cluster. This is one author's observation, not a raw exchange independently validated here. The inspected content-blob SHA is `989a3871a4df2307b492d9d29416f791499c4a2f` (a blob, not a commit). No broad address-offset rule is adopted. No code, firmware-derived dataset or reset procedure is copied from that project.
+Endpoint A (`729→793`) is a reported PCM endpoint used for comparison. Endpoint B (`717→781`) is an explicitly low-confidence cluster-address hypothesis. Neither is a verified route to this car's cluster. The owner authorized software preparation. LIVE and imported REPLAY transports remain rejected before any write. The Android entry point provides plan review and a synthetic rehearsal only. A reviewed live integration and separate owner approval are required before transmission; this document does not authorize a vehicle run.
 
-The [udsoncan standard DID constants](https://udsoncan.readthedocs.io/en/latest/_modules/udsoncan/common/dids.html) identify `F187` as manufacturer spare-part number and `F189` as manufacturer ECU software version. They do not establish that this Porsche module supports either field. [py-uds's ReadDataByIdentifier description](https://uds.readthedocs.io/en/stable/pages/knowledge_base/service.html#readdatabyidentifier-0x22) supplies the selected UDS `22`/`62` request/response and echoed-DID rule. A response consistent with that rule does not, by itself, distinguish UDS from a similar KWP response or identify the responding module's role.
+## What the experiment can teach us
 
-The physical hypothesis is normal-addressed ISO-TP over 11-bit, 500-kbit/s CAN. The preliminary generic read tests that transport setting; it does not prove the manufacturer route or session. We make no diagnostic-session change. Default-session accessibility, gateway routing and Veepeak optional-command behavior remain unknown. No response means this attempt was inconclusive, not that the cluster is absent.
+The immediate question is whether either fixed endpoint answers this standard-shaped identification read under the selected conditions. A coherent negative response, or a first frame showing the expected service and identifier, can be useful even without a complete part number. Silence remains inconclusive.
 
-## Exact proposed host sequence
-
-The notation `\r` below means one ASCII carriage return, byte `0D`; it is not a literal backslash and letter. Each line is a separate write, followed by a bounded wait for its prompt. There are no bare carriage returns, retries, automatic searches, fallback addresses or user-editable commands. Stop at the first failed condition; do not continue down the table.
-
-| Order | Exact host bytes as ASCII | Condition / purpose |
+| Endpoint | Proposed TX → RX | Evidence and hypothesis |
 | --- | --- | --- |
-| 1 | `ATD\r` | Require `OK`; start from adapter defaults. |
-| 2 | `ATE0\r` | Require `OK`; disable echo. |
-| 3 | `ATL0\r` | Require `OK`; disable line feeds. |
-| 4 | `ATH1\r` | Require `OK`; retain responder/framing information. |
-| 5 | `ATI\r` | Record firmware's self-description; this is not authenticated identity. |
-| 6 | `ATRV\r` | Require an adapter-reported 12.0–15.0 V; provisional conservative bound, not a battery-health guarantee. |
-| 7 | `ATM0\r` | Require `OK`; disable protocol memorization. |
-| 8 | `ATTP6\r` | Require `OK`; select only the provisional CAN setting. |
-| 9 | `ATCAF1\r` | Require `OK`; adapter supplies request PCI. |
-| 10 | `ATAT0\r` | Require `OK`; disable adaptive timeout adjustment. |
-| 11 | `ATSTFF\r` | Require `OK`; select the fixed adapter timeout. |
-| 12 | `0100\r` | One generic supported-PID baseline; require a complete valid reply. |
-| 13 | `ATDPN\r` | Require `6`; a reported setting alone is not connectivity proof. |
-| 14 | `ATSH729\r` | Require `OK`; select the single hypothetical physical target. |
-| 15 | `ATCRA793\r` | Require `OK`; restrict received responses. |
-| 16 | `ATFCSH729\r` | Require `OK`; explicit flow-control destination. |
-| 17 | `ATFCSD300000\r` | Require `OK`; fixed flow-control payload. |
-| 18 | `ATFCSM1\r` | Require `OK`; use the configured flow-control values. |
-| 19 | `ATCFC1\r` | Require `OK`; enable adapter flow control. |
-| 20 | `22F187\r` | Require one complete nonempty `62 F1 87 ...` response from `793`. |
-| 21 | `22F189\r` | Only after step 20 succeeds; require `62 F1 89 ...` from `793`. |
-| 22 | `ATD\r` | Require `OK`; restore adapter defaults before releasing it. |
+| A: comparison | `0x729 → 0x793` | PCM-Forge reports this pair with a PCM-labelled part number using Mongoose J2534. It is not established as the instrument cluster or validated with Veepeak. |
+| B: candidate | `0x717 → 0x781` | Combines presumed logical module `0x17` with that project's reported `+0x6A` reply offset. Neither conversion is verified for the cluster. The project reports an unsuccessful standard-addressing attempt; its exact equivalence to this test is unknown. |
 
-The [genuine ELM327DSL datasheet](https://www.elmelectronics.com/wp-content/uploads/2020/05/ELM327DSL.pdf), printed pp17, 19, 27, 29, 46, 55 and 62–65, documents these adapter mechanisms. `TP6` with memory off avoids saving a protocol; `SP6` would save it. Headers on retain PCI bytes with automatic formatting. The custom flow-control header avoids assuming a standard response-minus-eight address. `ATD` restores custom headers, filters, masks and timers. None of this proves that an adapter advertising an ELM-compatible version implements the commands correctly. Unsupported commands terminate the attempt. `ATBI` is deliberately excluded: its documented initialization bypass would weaken the transport check.
+Source: [PCM-Forge research note](https://github.com/dspl1236/PCM-Forge/blob/main/research/SERVICE_RESET_RESEARCH.md), inspected content blob `989a3871a4df2307b492d9d29416f791499c4a2f`. These are research hypotheses, not OEM definitions. No other address is tried.
 
-### Host commands versus CAN traffic
+Proposed transport: **11-bit CAN, 500 kbit/s, normal ISO-TP addressing**. This is also an assumption. No TP2.0 negotiation, extended addressing or alternative bitrate is attempted. A successful A response would support this limited transport path to A, not prove the route to B.
 
-The two manufacturer requests contain application payloads `22 F1 87` and `22 F1 89`. Under the selected formatting hypothesis, their CAN data would be `03 22 F1 87 pp pp pp pp` and `03 22 F1 89 pp pp pp pp` on ID `729`, where `03` is the single-frame payload length and `pp` denotes adapter-supplied padding. Padding bytes are not measured or guaranteed by this host transcript. The generic baseline similarly has application payload `01 00`, with PCI length `02` and adapter padding at the default functional address.
+## Exact requests and reception
 
-`ATFCSD300000` configures implicit flow-control bytes `30 00 00` on ID `729` when the adapter receives an applicable first frame. These transport acknowledgements are additional vehicle traffic, even though the application sends only two manufacturer reads. They are not service-reset acknowledgements. The experiment records all host writes, incoming host chunks, order and available timestamps. It records the configured automatic traffic separately; **it is not a complete CAN-bus capture** and cannot prove actual padding or flow-control transmission.
+1. Send application payload `22 F1 87` to A once.
+2. After A's transaction ends cleanly or yields ordinary no-data, wait at least one second, configure B, and send the same payload once. An abort condition prevents step 2.
 
-## Bounds, cancellation and cleanup
+For the proposed transport, each request's raw eight-byte CAN data field is:
 
-Provisional software bounds are 2 seconds per adapter step, 3 seconds per vehicle exchange including pending responses, 45 seconds for the whole attempt, and 8 KiB of incoming host bytes per exchange. An oversized chunk is not retained; the stop reason explicitly records that loss. These are deliberately finite implementation choices, not measured Porsche timing requirements. The adapter timeout is separate from the application's deadline. A pending response never restarts the application deadline or triggers retransmission.
+`03 22 F1 87 00 00 00 00`
 
-Abort on negative reply, wrong responder/echo, malformed or incomplete framing, timeout, no data, unexpected adapter text, buffer limit, disconnection or cancellation. Preserve partial data and the stop reason. A future operator must also stop for unexpected vehicle behavior, warnings, unstable power or adapter heat, as required by the live-test gate. No state-changing prerequisite is attempted to get past a refusal.
+The leading byte is the single-frame payload length; the last four bytes are proposed padding. [udsoncan's identifier definitions](https://udsoncan.readthedocs.io/en/latest/_modules/udsoncan/common/dids.html) name `F187` as the manufacturer spare-part number. That establishes a standard UDS meaning, not support or encoding on this Porsche.
 
-Adapter routing can survive Bluetooth disconnection. On a normal completion, checked `ATD` cleanup is required before reuse. On failure or cancellation, further diagnostic writes stop; if default restoration cannot be confirmed, mark cleanup unconfirmed and require an adapter power cycle before any normal scan. Closing the socket alone does not restore settings. Cancellation cannot retract already transmitted frames or guarantee instantaneous cessation of adapter-generated flow control. A future Android integration must enforce exclusive connection ownership and the reuse restriction; this offline-only runner does not claim that integration exists.
+Keep raw response bytes. A complete positive reply must start `62 F1 87`. Remaining bytes are opaque; a printable-text preview is provisional. A matching envelope alone does not establish the diagnostic family or identify the responder as the cluster.
 
-Raw data stays private and outside Git. A future export needs explicit review/redaction; avoiding VIN and serial DIDs does not guarantee that an unexpected module reply contains no private data. Do not send automatic telemetry or publish captures.
+For a valid ISO-TP first frame, record the announced length and available payload prefix, then label it **incomplete—no flow control sent**. Never reconstruct missing bytes or report the prefix as a complete identity. No consecutive-frame collection is requested, and neither software nor adapter may intentionally send flow control in this stage.
 
-## Run without hardware
+## Isolated adapter setup
 
-From the repository root:
+Obtain exclusive adapter ownership and stop all polling, discovery and reconnect jobs. Start only at an established idle command boundary with no outstanding or partial command. A Bluetooth connection alone does not establish that boundary. If it cannot be established locally, abort without a blank carriage return, guessed recovery command or ECU request.
 
-```bash
+Proposed local setup, in order:
+
+`ATPC`, `ATD`, `ATM0`, `ATI`, `ATE0`, `ATL0`, `ATS1`, `ATH1`, `ATD0`, `ATR1`, `ATAT0`, `ATST7D`, `ATTP6`, `ATCAF0`, `ATCFC0`, `ATCEA`, `ATAL`
+
+Then set A's header/filter with `ATSH729`, `ATCRA793`, and issue `ATBI`. Before switching to B, require a settled prompt, issue `ATPC`, reapply `ATCAF0`, `ATCFC0`, `ATCEA`, `ATAL`, then `ATSH717`, `ATCRA781`, and `ATBI`.
+
+Send each setup command once, requiring its complete response and prompt within two seconds and the overall deadline. `ATI` returns an identification string; configuration commands require `OK`. The parser must tolerate echo and either line-ending style until normalization completes. An unrecognized command or error aborts; there is no fallback sequence.
+
+`ATPC` closes protocol activity. **`ATD` restores configurable defaults, not necessarily pristine factory settings**; prior programmable parameters can affect behavior. `ATM0` precedes protocol activation to avoid remembering a successful protocol. No programmable parameters are written. `ATD0` requests raw lines without a separate DLC digit. Receive filtering limits host-visible replies, not bus activity.
+
+`ATST7D` proposes a nominal **500 ms receive-gap timeout** at the documented base multiplier. Inherited configuration and firmware behavior may alter its actual timing; host deadlines remain authoritative. `ATBI` avoids a generic initialization exchange but also bypasses protocol validation, adding uncertainty if the transport assumption is wrong. No automatic protocol search is permitted.
+
+The [Elm datasheet](https://www.elmelectronics.com/wp-content/uploads/2020/05/ELM327DSL.pdf) documents these adapter controls. Veepeak's [FAQ20, page 3](https://veepeak.com/cdn/shop/files/OBDCheck_BLE_PLUS_FAQs_Troubleshooting_guide_V3.pdf?v=1027675084096395144) describes normal BLE as supporting v1.4 AT commands. Recognition of a command is not wire-level validation of this particular adapter.
+
+## Limits and stopping behavior
+
+- **Two app-issued CAN data frames maximum:** the two requests above. Zero retries, manual flow-control frames, keepalives or other ECU requests. Automatic flow control remains disabled throughout.
+- Count a request against the budget before starting its transport write. A partial or uncertain write is never retried. Only one request may be outstanding.
+- Maximum **60 seconds** for the whole run, including setup. Maximum **two seconds** for a request to produce its first response or terminal prompt. An earlier prompt ends reception.
+- Response pending may extend an active receive window to **five seconds from the original request**, never restart the deadline. If the prompt returns, record pending/incomplete and end that route. Do not assume idle CAN streaming or send a monitor command.
+- After a first frame, send nothing further. Wait only for the terminal prompt within the existing deadline. A first frame is a useful partial result, not a reason to extend the run.
+- Maximum **64 KiB** transcript and **256 received adapter lines**. Any excess, malformed framing, mismatched service/identifier, unexpected responder, unsolicited consecutive frame, CAN/buffer error, lost prompt or disconnect aborts the entire run.
+- Cancellation, backgrounding or leaving the experiment screen prevents any further writes and closes the connection without reconnecting. Already-submitted bytes cannot be recalled; disconnecting cannot guarantee immediate cessation of adapter activity or a responder's timeout.
+- Software limits do not guarantee the number of physical CAN transmissions: controller retries, acknowledgements and faulty firmware are outside the app's direct control.
+
+| Outcome | Meaning | Next action |
+| --- | --- | --- |
+| Complete single-frame `62 F1 87 …` | Positive response to the proposed identifier; data encoding and module identity remain provisional | Preserve bytes; proceed only to B if this was A and no abort condition occurred. |
+| Valid first frame with expected positive prefix | Responder offers a longer reply; announced length and prefix are evidence | Record incomplete, send no flow control; proceed to B only after A's prompt and settling delay. |
+| Coherent service-not-supported or request-out-of-range reply | A responder rejects this read under these conditions | End the route; A may still be followed by B. |
+| Pending, followed by prompt or deadline | Final result was not observed | End the route without retry; A may still be followed by B only if its prompt is settled. |
+| Security, conditions or session denial | A prerequisite may be unmet | Abort the whole run; no unlock or session change. |
+| Ordinary no-data with a settled prompt | Route, timing, transport or support may be wrong | End route without retry; A may still be followed by B. |
+| New warning, display disturbance, abnormal sound, unstable power or owner presses Stop | Unexpected behavior or owner cancellation | Stop immediately; no cleanup requests or automatic restart. |
+
+Unclassified negative responses stop the entire run. A timeout without a terminal prompt also aborts the whole run; it is not safe to queue B into an unsettled adapter transaction.
+
+## Review before a vehicle run
+
+The owner reviews the two hypotheses, exact requests, implementation and potential side effects before separately approving a run. Any run must be parked securely, in Park with parking brake applied, ignition on and engine off, with stable power and an attentive owner. No other diagnostic tool may be connected concurrently.
+
+Identification reads can wake modules and load the bus. Wrong addressing, protocol assumptions, adapter behavior or ECU defects could cause communication faults, warnings, temporary display disturbance or battery drain. No persistent ECU change is intended, but a read is not a guarantee of no side effects. Do not clear any resulting codes or send a session-change request as part of this test.
+
+Keep the transcript private. Record the adapter identification string, settings, actual request/response lines, monotonic timestamps and stop reason. Do not request VIN/serial fields or log Bluetooth hardware addresses; review unexpected data for identifiers before sharing. Identifying a module would still not supply maintenance-counter definitions.
+
+## Focused implementation checks
+
+Use offline transcripts to verify only the behavior needed here:
+
+- Exact two-request emission and setup ordering, with no flow control, retry, fallback or other ECU request.
+- Split-line/prompt handling, complete single frames and incomplete first frames.
+- Malformed or mismatched replies stopping further traffic.
+- Cancellation and deadlines, including partial-write uncertainty.
+- Absence of polling, background and reconnect traffic during and after the experiment.
+
+Keep the fixed endpoints, request bytes and caps outside the ordinary polling allowlist. No arbitrary hex entry or address/DID enumeration. End by disconnecting; the next ordinary session must initialize its own settings.
+
+**Deferred:** manual flow control and additional software/hardware identifiers may be considered in a separate proposal after this first result. They are not runnable options in this stage.
+
+## This build
+
+Open **Identification experiment** from the app home screen to review the fixed plan and run a synthetic rehearsal. No Bluetooth transport is supplied to this screen. Leaving it or backgrounding cancels the rehearsal. The results are constructed software checks, not observations from a vehicle.
+
+From the repository root, the existing JVM entry point remains available:
+
+```sh
 ./gradlew -p core offlineDiagnostics -Pmode=plan
 ./gradlew -p core offlineDiagnostics -Pmode=demo
 ```
 
-`plan` prints the proposed sequence. `demo` exercises constructed exchanges through a fake transport. Every demo identity and value is synthetic. Neither mode demonstrates Veepeak compatibility, Porsche support, the cluster's identity or a real service reset.
+The proposed live requirements above are not claims of an implemented live connection manager. Exclusive adapter ownership, proof of an idle command boundary, reconnect suppression and reinitialization before an ordinary session must be implemented and reviewed before the LIVE gate can be removed. The current build cannot establish any of those properties on hardware.
 
-## Evidence needed after an approved future attempt
-
-Review whether the declared framing and responder correlation held, which setup commands were accepted, and whether identity replies were complete. Keep negative, pending and partial results. Treat a returned part/software string as an observation requiring independent module attribution. Do not promote the address pair to a cluster route solely because bytes arrived.
-
-Oil, intermediate and main service still need separate applicable definitions: read identifiers, response layout, units, scaling, signedness, unavailable values and the distinction between remaining, elapsed, configured intervals and prior-service records. This experiment requests none of those counters. A protocol acknowledgement is never evidence that a reminder was reset, and this test performs no reset.
+The former one-route F187/F189 proposal is superseded. This revision has no generic `0100` baseline, software-version request, automatic flow control or cleanup writes. Normal scanning and its allowlist remain unchanged.

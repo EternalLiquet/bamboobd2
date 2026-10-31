@@ -40,6 +40,7 @@ fun HomeScreen(
     onOpenSaved: () -> Unit,
     onOpenBench: () -> Unit,
     onOpenLive: () -> Unit,
+    onOpenExperiment: () -> Unit,
     onOpenPendingLive: () -> Unit,
     onDiscardPendingLive: () -> Unit,
 ) {
@@ -80,6 +81,9 @@ fun HomeScreen(
             }
             OutlinedButton(onClick = onOpenBench, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.bench_open))
+            }
+            OutlinedButton(onClick = onOpenExperiment, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.experiment_title))
             }
             OutlinedButton(onClick = onOpenLive, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.live_open))
