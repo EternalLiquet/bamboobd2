@@ -1,5 +1,7 @@
 # Android milestone 1: offline, read-only diagnostic app
 
+> Historical milestone proposal. The proposed/unimplemented status and four-reading scope below describe the original plan, not current master. Kotlin core, Android, Bluetooth generic reads and the separate identification experiment are now implemented. See [project status](../PROJECT_STATUS.md), [BUILD.md](BUILD.md) and [the current handoff](PR65_HANDOFF.md). Historical scope exclusions remain preserved here; they do not describe all later deliveries.
+
 Status: **proposed**, pending owner approval on [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2). Nothing here is implemented, adapter-tested or car-tested. Decision record: [ADR 0001](adr/0001-kotlin-core-android-first.md). Live-test prerequisites: [LIVE_TEST_GATE.md](LIVE_TEST_GATE.md).
 
 ## Scope

@@ -1,5 +1,7 @@
 # Evidence: hardware readiness for L1 (issue #11)
 
+> Historical owner observations and gaps from October 28/29. Later generic observations are tracked in closed [#7](https://github.com/EternalLiquet/bamboobd2/issues/7), [#14](https://github.com/EternalLiquet/bamboobd2/issues/14) and [#15](https://github.com/EternalLiquet/bamboobd2/issues/15); see [project status](../../PROJECT_STATUS.md) and [PR65 handoff](../PR65_HANDOFF.md) for subsequent evidence. The original failures and unknowns below are retained, not current instructions to repeat those runs.
+
 - Date and observer: opened 2026-10-28, updated 2026-10-29; facts and observations from the owner, recorded by Claude. Claude ran no hardware.
 - Status: owner-reported facts, explicit unknowns, and summaries of owner-run observations: an adapter-only check on 2026-10-28 and two codes-only reads on 2026-10-29. Raw captures stay private and are not in Git; no SHA-256 or acquisition log has been recorded for them yet.
 

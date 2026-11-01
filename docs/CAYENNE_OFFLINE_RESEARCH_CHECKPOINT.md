@@ -1,5 +1,7 @@
 # Cayenne deeper-research checkpoint
 
+> Preserved 2026-10-30 checkpoint. Its publication blocker and unimplemented experiment were subsequently resolved by [#62](https://github.com/EternalLiquet/bamboobd2/issues/62) and [merged PR63](https://github.com/EternalLiquet/bamboobd2/pull/63). See [the follow-up results](CAYENNE_CLOUD_RESEARCH.md) and [current handoff](PR65_HANDOFF.md). The original observations and limitations below are historical evidence.
+
 Checkpoint: 2026-10-30. Research only; no implementation, dependency installation, hardware operation, capture acquisition, VIN collection or publication was performed by this research worker. Parent verified repository base `c1a169b3c21aa8278034933a070e1b288c463619` and branch `research/cayenne-offline-exploration`. This note extends the bounded six-source pass in PR #61; it is not a supported vehicle profile.
 
 ## New inspected evidence

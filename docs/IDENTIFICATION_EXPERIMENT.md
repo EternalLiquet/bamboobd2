@@ -15,6 +15,12 @@ Historical route source: [PCM-Forge research note](https://github.com/dspl1236/P
 
 The v5 continuation adds **one conditional manual flow-control frame per route** to collect the remainder of the observed 14-byte response. Automatic flow control remains off. This changes the earlier no-flow-control experiment; the Android review and plan identifier explicitly distinguish it. No VIN, additional DID, scan, session/security request, reset, coding, retry or cleanup write is included. Ordinary polling and RequestPolicy are unchanged; arbitrary requests and imported REPLAY are not executable.
 
+## Latest owner observation (2026-11-01)
+
+The supplied v5 transcript shows successful setup, a positive first frame on route A, a terminal prompt and one manual flow-control attempt. Host-relative times were: F187 request 860 ms, first frame 921 ms, prompt 1437 ms and FC attempt 1438 ms. `NO DATA` arrived 582 ms after FC. Thus FC was attempted about 517 ms after the first frame. No complete identity was obtained; the run stopped before route B. These are owner-provided host observations, not a bus capture or an agent-operated test. The raw transcript remains private.
+
+The current app classifies that `NO DATA` during FC collection as malformed CAN/unexpected text. This is a known wording/classification gap, not evidence of a bad vehicle. The ECU timeout, adapter behavior and cause of absent continuation remain unresolved. Successful v5 completion is still unverified.
+
 ## Exact commands
 
 Assumptions: normal ISO-TP, 11-bit CAN, 500kbit/s. Existing startup fix retained: drain optional startup bytes for at most 2s. A standalone prompt or 250ms quiet period after complete lines permits the first `ATPC`. Partial/malformed startup data or disconnect stops without writes. ATPC must return OK and a terminal prompt before further setup.

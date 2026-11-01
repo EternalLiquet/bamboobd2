@@ -1,5 +1,7 @@
 # Bounded identification experiment implementation plan
 
+> Historical implementation plan, completed through [merged PR65](https://github.com/EternalLiquet/bamboobd2/pull/65). Earlier LIVE restrictions, unchecked delivery tasks and no-merge instructions below describe intermediate scopes, not the current implementation. The current [experiment specification](../../IDENTIFICATION_EXPERIMENT.md) and [handoff](../../PR65_HANDOFF.md) take precedence for capability/status; v5 completion remains unverified on a vehicle. This history grants no new operation or merge permission.
+
 > For agentic workers: use executing-plans for the runner and independent parallel implementation for offline analysis, then independent whole-branch review.
 
 **Goal:** Prepare a finite, owner-reviewable identification experiment and the minimum offline tools needed to understand its results.

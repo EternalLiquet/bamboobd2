@@ -1,6 +1,6 @@
 # Offline diagnostic evidence
 
-The portable `core.offline` API inspects manufacturer recordings without opening an adapter. It does not change the generic request allowlist or turn imported strings into executable requests. The identification experiment uses the same response framing and evidence conventions; its selected route and protocol remain hypotheses.
+The portable `core.offline` API inspects manufacturer recordings without opening an adapter. It does not change the generic request allowlist or turn imported strings into executable requests. The identification experiment uses the same response framing and evidence conventions; partial route replies are owner-observed, while protocol family and physical module attribution remain unresolved.
 
 ## Small entry points
 
@@ -40,7 +40,7 @@ Categories are oil, intermediate and main. Meanings remain separate: remaining, 
 
 Comparison requires matching nonblank vehicle pseudonyms/module identities, matching provenance, distinct recording IDs and identical field definitions. It does not normalize conflicting units or choose among duplicate observations. Manual dashboard observations retain source and observation time and are compared separately; numerical agreement does not establish a raw field's meaning. Changed counters are reported independently of the optional operation description. An acknowledgement alone cannot establish that an operation occurred or caused a change.
 
-The PR63 counter experiments informed the separate categories, explicit all-ones policy and refusal to choose a meaning by plausible arithmetic. Their synthetic candidate evaluator remains separate test-only research; this implementation does not merge PR63 or adopt its examples as vehicle definitions.
+The PR63 counter experiments informed the separate categories, explicit all-ones policy and refusal to choose a meaning by plausible arithmetic. Their synthetic candidate evaluator remains separate test-only research; PR63 is merged, and its examples are not vehicle definitions.
 
 ## Privacy
 

@@ -1,5 +1,7 @@
 # Open diagnostic foundations
 
+> Historical source survey (2026-10-13). The Python-first recommendation below was superseded by the Kotlin/JVM and Android decision in [ADR 0001](adr/0001-kotlin-core-android-first.md), now implemented. Use [project status](../PROJECT_STATUS.md) for current capabilities; dependency and upstream-version statements below retain their original review dates.
+
 Source review date: 2026-10-13. These are source and maintainer-claim assessments, **not hardware validation**. No reviewed project provides a verified oil-reset recipe for the owner's 2014 Cayenne S. Generic OBD-II emissions reads, manufacturer diagnostics and service resets are distinct.
 
 | Project | Useful role and evidence | Limit for this project |

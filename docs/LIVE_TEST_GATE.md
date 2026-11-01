@@ -1,5 +1,7 @@
 # Live-test gate
 
+> Current software, 2026-11-01: the L0/L1/L2/L3 table and original L2 run sheet below preserve the initial staged scopes. Current generic discovery follows advertised continuation pages, and snapshots use the supported subset of the 27-reading catalog. See [protocol](PROTOCOL.md) and [recording](LIVE_RECORDING.md). Earlier owner four-reading observations do not validate the expanded snapshot/recording. These updates grant no new hardware authorization.
+
 This document authorizes nothing. Each adapter or car run is the owner's decision. It lists the evidence and permissions an adapter or parked-car test needs, and the status of each stage as the owner decided it. Each stage needs its own issue, a reviewed plan, and the owner's written **go** in that issue naming the stage. Approval of one stage does not carry to the next. See also [safety boundary](SAFETY_AND_EVIDENCE.md).
 
 ## Stages
@@ -13,9 +15,9 @@ This document authorizes nothing. Each adapter or car run is the owner's decisio
 
 Driving tests, code clearing, resets, coding and flashing are outside every stage.
 
-## L3 software slice and hardware gate
+## Original L3 software slice and hardware gate
 
-[Issue #30](https://github.com/EternalLiquet/bamboobd2/issues/30) adds an explicit one-shot **Codes + sensor snapshot** choice in software. It uses the existing four allowlisted PIDs and requests only those confirmed by the supported map, with fake-socket and replay checks offline. This does **not** perform an L3 hardware run, validate a vehicle or satisfy [L3 issue #15](https://github.com/EternalLiquet/bamboobd2/issues/15). The default **Codes only** choice remains the L2 sequence; selecting the wider option on a vehicle needs the separate owner-operated L3 plan and written go.
+At the original milestone, [issue #30](https://github.com/EternalLiquet/bamboobd2/issues/30) added an explicit one-shot **Codes + sensor snapshot** choice in software. It uses the existing four allowlisted PIDs and requests only those confirmed by the supported map, with fake-socket and replay checks offline. This does **not** perform an L3 hardware run, validate a vehicle or satisfy [L3 issue #15](https://github.com/EternalLiquet/bamboobd2/issues/15). The default **Codes only** choice remains the L2 sequence; selecting the wider option on a vehicle needs the separate owner-operated L3 plan and written go.
 
 A stage is approved for one **host platform, transport medium and adapter model** together. A desktop app, a USB adapter, or a different adapter model is a new set of stage issues; Android approval does not carry over.
 
@@ -47,7 +49,7 @@ Record these in the evidence note. They are measured during L1, never assumed be
 - Written stop criteria. Unplug the adapter and stop on: a new warning light or unexpected vehicle behavior, adapter heat, low battery voltage, any response outside the allowlist's expected shapes, repeated timeouts, or the owner saying stop.
 - Operator authorization in the stage issue, from the vehicle owner.
 
-## L2 run sheet (code in PR #26)
+## Historical L2 run sheet (code in PR #26)
 
 The owner agreed on 2026-10-28 to go from the in-car adapter check straight to a codes-only read with the app's **Read codes** screen in the parked car, and ran two such reads on 2026-10-29 (see the [readiness note](evidence/2026-10-28-hardware-readiness.md)). The owner has not waived the "Additional evidence before L2 and L3" list above, and several items on it are not done: no evidence log or SHA-256 for the captures, battery health unchecked, stop criteria only as written here. Whether those are required before the next read is the owner's call. The run sheet:
 - **Car:** parked, ignition **on** (dash lights and warning lamps lit, engine not started). Accessory mode is not enough: it may not power the engine computer. No other diagnostic app connected to the adapter at the same time.

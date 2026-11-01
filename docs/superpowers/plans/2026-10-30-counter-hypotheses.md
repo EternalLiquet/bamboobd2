@@ -1,5 +1,7 @@
 # Synthetic Counter Hypotheses Implementation Plan
 
+> Historical plan delivered in [merged PR63](https://github.com/EternalLiquet/bamboobd2/pull/63). Environment-specific helper paths below belong to that execution environment. Use [BUILD.md](../../BUILD.md) for portable commands and [research results](../../CAYENNE_CLOUD_RESEARCH.md) for the constructed-test outcome.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The established handoff selects a separate GPT-6 Sol HIGH implementer; the parent owns dispatch and subsequent independent reviews.
 
 **Goal:** Execute small synthetic examples that distinguish mathematical counter interpretations while preserving uncertainty about vehicle applicability.
