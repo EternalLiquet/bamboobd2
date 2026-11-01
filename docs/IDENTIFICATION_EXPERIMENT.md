@@ -79,7 +79,7 @@ Protocol basis: [ELM327DSJ](https://www.elmelectronics.com/wp-content/uploads/20
 
 ## Android operation and records
 
-Open Identification experiment, select the already-paired scanner, review the exact test, and explicitly approve the two reads plus conditional flow-control frames. Use a parked vehicle, parking brake, ignition on/engine off, stable power and no competing diagnostic app. Stop for warnings, unusual sounds or display disturbance. Development and hosted checks never operate the vehicle.
+Since #66 the experiment is opened from the home screen's Porsche section, which offers it only while the current connection's VIN says Porsche (or, with no VIN read, the owner chose Porsche) and the owner confirmed the 92A Cayenne ([vehicle startup](VEHICLE_STARTUP.md)). It uses the saved scanner, closes the normal connection and opens its own, as before. Review the exact test, and explicitly approve the two reads plus conditional flow-control frames. Use a parked vehicle, parking brake, ignition on/engine off, stable power and no competing diagnostic app. Stop for warnings, unusual sounds or display disturbance. Development and hosted checks never operate the vehicle.
 
 Reports use RAW_CAPTURE provenance and contain app/plan versions, attempted-write timestamps and received chunks. The request timestamps plus per-step chunk offsets allow measuring first-frame-to-flow-control delay. Reports persist privately, export only after preview/identifier review, and are never automatically uploaded. Bluetooth addresses are not stored. Synthetic rehearsal remains labeled SYNTHETIC and uses constructed identities.
 
