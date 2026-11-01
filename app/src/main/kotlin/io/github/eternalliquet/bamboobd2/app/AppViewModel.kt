@@ -118,7 +118,8 @@ class AppViewModel @JvmOverloads constructor(
      */
     /**
      * Persistent, redacted log of every Bluetooth connection (vehicle, bench, experiment).
-     * It only queues work, so it adds no request or delay. See docs/DIAGNOSTIC_LOG.md.
+     * Transport callbacks admit bounded work without waiting for disk or adding requests.
+     * See docs/DIAGNOSTIC_LOG.md.
      */
     val diagnostics = DiagnosticLog(File(application.filesDir, "diagnostics"), buildInfo(application))
 

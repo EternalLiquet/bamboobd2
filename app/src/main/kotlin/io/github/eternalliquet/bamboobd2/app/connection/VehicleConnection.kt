@@ -150,6 +150,8 @@ class VehicleConnection(
             _state.value = ConnectionState.Disconnected(SavedAdapter(device.name, device.address), "Couldn't save the scanner choice. Try again.")
             return false
         }
+        // The cancelled attempt's Connecting/Identifying state must not block its replacement.
+        _state.value = ConnectionState.Disconnected(SavedAdapter(device.name, device.address))
         return connect()
     }
 

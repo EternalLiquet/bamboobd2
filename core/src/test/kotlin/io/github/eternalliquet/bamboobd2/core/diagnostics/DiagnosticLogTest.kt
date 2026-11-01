@@ -181,6 +181,43 @@ class DiagnosticLogTest {
         assertTrue("restart must disclose loss", log().export().truncated)
     }
 
+    @Test fun transientWriteFailureIsDisclosedAfterStorageRecovers() {
+        val log = log()
+        val s = log.startSession("vehicle", "test")
+        log.flush()
+        val file = java.io.File(dir, "${s.id}.jsonl")
+        val original = file.readText()
+        assertTrue(file.delete())
+        assertTrue(file.mkdir()) // Appending to this path now fails on every supported host.
+        try {
+            s.onWrite("0100")
+            log.flush() // A persistent failure must not turn into a busy retry loop.
+            log.flush() // Drain the loss notification queued by that write before replacing the fixture.
+        } finally {
+            assertTrue(file.delete())
+            file.writeText(original)
+        }
+        s.reply("NO DATA\r>")
+        s.end("done")
+        val export = log.export()
+        assertEquals(0, export.unfinished)
+        assertTrue("a closed session must still disclose lost traffic", export.truncated)
+        assertTrue("restart must retain the loss warning", log().export().truncated)
+        assertEquals(1, exported(log).events().count { it.str("kind") == "truncated" })
+    }
+
+    @Test fun storedLossEvidenceWarnsEvenWithoutATruncationMarker() {
+        val log = log()
+        val s = log.startSession("vehicle", "test")
+        s.end("done"); log.flush()
+        val file = java.io.File(dir, "${s.id}.jsonl")
+        val intact = file.readText()
+        for (damaged in listOf(intact.replace("\"droppedEvents\":0", "\"droppedEvents\":2"), intact + "{unfinished line\n")) {
+            file.writeText(damaged)
+            assertTrue("persisted loss must be visible to the export dialog", log().export().truncated)
+        }
+    }
+
     @Test fun exportSnapshotCannotBeRotatedWhileBeingRead() {
         // The directory forces the old export's unsafe interleaving: list A, rotate
         // A out on the worker, then try to read A. Worker-owned snapshots don't interleave.
@@ -247,6 +284,22 @@ class DiagnosticLogTest {
         s.operationEnd("identification", "STOPPED_NO_PROTOCOL", "ATDPN '?' after 0100 '7E8 21 41 41 32 41 32 58 45 7E8 22 4C 41 30 30 30 30 31'")
         s.end("done")
         assertFalse("4C 41 30 30 30 30 31" in log.export().json!!)
+    }
+
+    @Test fun shortCompactVinContinuationsInErrorsNeverReachDiskOrExport() {
+        val fragments = listOf("7E8224C4130", "7E8224C41", "7E8224C", "224C4130", "224C41", "224C")
+        val log = log()
+        val s = log.startSession("vehicle", "test")
+        for (fragment in fragments) {
+            s.operationEnd("identification", "STOPPED_NO_PROTOCOL", "ATDPN '?' after 0100 '$fragment'")
+        }
+        s.end("done")
+        val exported = log.export().json!!
+        val disk = dir.listFiles()!!.filter { it.isFile }.joinToString { it.readText() }
+        for (fragment in fragments) {
+            assertFalse("compact VIN tail persisted: $fragment", fragment in disk)
+            assertFalse("compact VIN tail exported: $fragment", fragment in exported)
+        }
     }
 
     @Test fun incompleteDataCannotClaimToBeAnAlreadyRedactedMarkerOrValidShortFrame() {

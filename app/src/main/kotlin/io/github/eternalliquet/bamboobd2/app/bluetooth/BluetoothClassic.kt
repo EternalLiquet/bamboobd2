@@ -121,7 +121,7 @@ class BluetoothClassicTransport internal constructor(
     private val io: CoroutineDispatcher,
     recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
-    /** The diagnostic log for this whole connection. Its calls only queue work, so timing is unchanged. */
+    /** Whole-connection logging admits bounded work without waiting for disk or adding requests. */
     private val traffic: TrafficSink? = null,
 ) : AdapterTransport {
     /**

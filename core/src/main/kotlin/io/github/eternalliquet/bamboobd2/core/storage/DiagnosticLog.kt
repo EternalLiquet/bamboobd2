@@ -71,7 +71,7 @@ class DiagnosticLog(
 
     internal data class Loss(val wall: Long, val mono: Long, val reason: String)
 
-    private fun drainLoss() { active.forEach { s -> s.loss.getAndSet(null)?.let { s.writeLoss(it) } } }
+    private fun drainLoss() { active.forEach { s -> s.writeLoss(s.loss.getAndSet(null)) } }
 
     private fun wakeLoss() {
         if (lossWake.compareAndSet(false, true)) worker.execute {
@@ -147,7 +147,9 @@ class DiagnosticLog(
                     }
                 }
                 val kinds = events.mapNotNull { (it as? JsonObject)?.get("kind")?.jsonPrimitive?.content }
-                val sessionTruncated = "truncated" in kinds
+                val sessionTruncated = "truncated" in kinds || "unreadable_line" in kinds || events.any {
+                    ((it as? JsonObject)?.get("droppedEvents") as? JsonPrimitive)?.content?.toLongOrNull()?.let { count -> count > 0 } == true
+                }
                 val ended = "session_end" in kinds
                 truncated = truncated || sessionTruncated
                 if (!ended) unfinished++
@@ -228,6 +230,8 @@ class DiagnosticLog(
         private var seq = 0
         private val dropped = AtomicLong()
         private var truncationNoted = false
+        // Retried only by later queued work/flush/export, never by a busy failure loop.
+        private var pendingLoss: Loss? = null
         private var ended = false
         private val endRequested = AtomicBoolean()
         private val slotReleased = AtomicBoolean()
@@ -250,7 +254,7 @@ class DiagnosticLog(
         // Rotation permanently retires a live handle, including callbacks already queued.
         internal fun retire() {
             endRequested.set(true); trafficSealed.set(true); ended = true
-            open = null; file = null; loss.set(null)
+            open = null; file = null; loss.set(null); pendingLoss = null
             releaseSlot()
         }
 
@@ -375,11 +379,16 @@ class DiagnosticLog(
             wakeLoss()
         }
 
-        internal fun writeLoss(value: Loss) {
-            if (truncationNoted || ended || file == null) { if (file == null) loss.compareAndSet(null, value); return }
-            truncationNoted = true
-            append("app", "truncated", value.wall, value.mono, force = true) {
-                put("reason", value.reason); put("droppedEvents", dropped.get()); put("limitBytes", limits.sessionBytes)
+        internal fun writeLoss(value: Loss?) {
+            if (truncationNoted || ended) return
+            if (pendingLoss == null) pendingLoss = value
+            val first = pendingLoss ?: return
+            if (file == null) return
+            if (append("app", "truncated", first.wall, first.mono, force = true) {
+                put("reason", first.reason); put("droppedEvents", dropped.get()); put("limitBytes", limits.sessionBytes)
+            }) {
+                truncationNoted = true
+                pendingLoss = null
             }
         }
 
@@ -446,7 +455,12 @@ class DiagnosticLog(
             // A completed exchange replaces its checkpoint; other events share its budget.
             val pendingSize = if (kind == "exchange") 0 else File(dir, "$id.pending").length()
             if (!force && bytes + size + pendingSize > limit) { lose("session_byte_limit", wall, mono); return false }
-            if (runCatching { target.appendText(line) }.isFailure) { lose("storage_error", wall, mono); return false }
+            if (runCatching { target.appendText(line) }.isFailure) {
+                // writeLoss retains an undurable marker for the next external task.
+                // Re-enqueuing its own failure here would spin while storage is unavailable.
+                if (kind != "truncated") lose("storage_error", wall, mono)
+                return false
+            }
             seq++
             bytes += size
             return true

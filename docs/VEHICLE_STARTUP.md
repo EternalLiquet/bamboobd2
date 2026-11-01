@@ -1,6 +1,6 @@
 # Vehicle-aware startup (epic #66)
 
-This page describes what [epic #66](https://github.com/EternalLiquet/bamboobd2/issues/66) and its slices [#67](https://github.com/EternalLiquet/bamboobd2/issues/67)–[#70](https://github.com/EternalLiquet/bamboobd2/issues/70) built. Everything here has been run only in host software checks with constructed sockets and replies. No phone, adapter or car has run this flow yet; see [What has and hasn't been exercised](#what-has-and-hasnt-been-exercised).
+This page describes what [epic #66](https://github.com/EternalLiquet/bamboobd2/issues/66) and its slices [#67](https://github.com/EternalLiquet/bamboobd2/issues/67)–[#70](https://github.com/EternalLiquet/bamboobd2/issues/70) built. An owner-operated test of an earlier APK connected but left the car unidentified and reported invalid negative responses during generic reads. That cause remains unknown; the current diagnostic export and review fixes have been exercised only in host software with constructed sockets and replies. See [What has and hasn't been exercised](#what-has-and-hasnt-been-exercised).
 
 ## The flow
 
@@ -78,7 +78,7 @@ Exercised in host software (core JVM tests and Robolectric app tests, constructe
 - First-run setup → save → identify; relaunch makes one startup attempt; activity recreation makes none.
 - Identification: VIN advertised and read; not advertised; `NO DATA`/negative `0900`; disagreeing responders; truncated or invalid VIN; legacy protocol (no Mode 09 sent); no vehicle answer; disconnect during the VIN read.
 - Service selection: only the matching service is constructed, once per connection; VIN make can't be overridden; unknown manufacturer code stays generic; capability gating and the separate oil/intermediate/main entries; confirmation sends nothing.
-- Switching both ways between constructed BRZ and Cayenne identities on one scanner; the late VIN reply from a cancelled connection is ignored; the experiment is refused unless this connection's Cayenne 92A is confirmed; BRZ connections receive only the generic identification sequence.
+- Switching both ways between constructed BRZ and Cayenne identities on one scanner; changing scanners during connection or identification replaces the old attempt; the late VIN reply from a cancelled connection is ignored; the experiment is refused unless this connection's Cayenne 92A is confirmed; BRZ connections receive only the generic identification sequence.
 - Unknown vehicle keeps generic scanning; unavailable saved scanner, Bluetooth off, forget; codes, snapshot and recording on the shared connection, including disconnect, pause, background and pending-result behaviour; experiment, bench and power-cycle guard ownership.
 
 Not exercised, needs the owner's phone and cars under the [live-test gate](LIVE_TEST_GATE.md):

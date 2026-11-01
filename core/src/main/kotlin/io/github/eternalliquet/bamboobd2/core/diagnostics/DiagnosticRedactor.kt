@@ -11,7 +11,8 @@ object DiagnosticRedactor {
     private val asciiFragment = Regex("[A-HJ-NPR-Z0-9]+")
     private val hex = Regex("[0-9A-Fa-f]+")
     private val spacedFrame = Regex("(?i)(?<![A-Z0-9])(?:[0-9A-F]{3}[ \\t]+)?[0-9A-F]{2}(?:[ \\t]+[0-9A-F]{2}(?![0-9A-F])){1,7}")
-    private val compactFrame = Regex("(?i)(?<![A-Z0-9])[0-9A-F]{12,}(?![A-Z0-9])")
+    // Even a PCI plus one ASCII byte can be a late VIN fragment in an error detail.
+    private val compactFrame = Regex("(?i)(?<![A-Z0-9])[0-9A-F]{4,}(?![A-Z0-9])")
     private val pieces = Regex("[^\\r\\n>]+|[\\r\\n>]")
     private val redactedPiece = Regex("(?:[0-9A-F]{3} )?\\[REDACTED:VIN(?: response)? data, [0-9]+ (?:bytes|characters)\\]")
     private val withheldPiece = Regex("(?:[0-9A-F]{3} )?(?:10 0E 62 F1 87 )?\\[WITHHELD:incomplete payload(?:, [0-9]+ characters)?\\]")

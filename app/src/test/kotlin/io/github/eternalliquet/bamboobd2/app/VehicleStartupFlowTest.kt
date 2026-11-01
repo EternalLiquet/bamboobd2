@@ -198,6 +198,45 @@ class VehicleStartupFlowTest {
         assertEquals(TestCars.IDENTIFY_WITH_VIN, brz.writes())
     }
 
+    @Test fun changingScannerReplacesConnectingAndIdentifyingAttempts() {
+        val second = io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice("Second scanner", "11:22:33:44:55:66")
+        availability = BluetoothAvailability.Ready(listOf(TEST_SCANNER, second))
+        for (holdConnect in listOf(true, false)) {
+            val old = ScriptedElmSocket(TestCars.cayenne, hold = if (holdConnect) emptySet() else setOf("0902"))
+            val entered = java.util.concurrent.CountDownLatch(1)
+            val release = java.util.concurrent.CountDownLatch(1)
+            val first = if (!holdConnect) old else object : RfcommSocket by old {
+                override fun connect() {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+                override fun close() { old.close(); release.countDown() }
+            }
+            val replacement = ScriptedElmSocket(TestCars.brz)
+            sockets += first; sockets += replacement
+            try {
+                assertTrue(vm.chooseScanner(TEST_SCANNER))
+                if (holdConnect) {
+                    idleUntil(10) { entered.count == 0L }
+                    assertTrue(vm.connection.value is ConnectionState.Connecting)
+                } else {
+                    idleUntil(10) { old.writes().endsWith("0902\r") }
+                    assertTrue(vm.connection.value is ConnectionState.Identifying)
+                }
+                assertTrue("choosing a replacement must start it", vm.chooseScanner(second))
+                idleUntil(20) { vm.connection.value is ConnectionState.Ready }
+                old.release.countDown()
+                repeat(10) { ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS) }
+                assertTrue(old.isClosed)
+                assertEquals(second.address, (vm.connection.value as ConnectionState.Ready).adapter.address)
+                assertEquals("Subaru", context().make.entryOrNull!!.make)
+                assertEquals(TestCars.IDENTIFY_WITH_VIN, replacement.writes())
+            } finally {
+                vm.disconnectVehicle(); first.close(); replacement.close()
+            }
+        }
+    }
+
     @Test fun vinTimeoutClosesConnectionBeforeNextScanAndCapture() {
         val slow = ScriptedElmSocket(TestCars.cayenne, hold = setOf("0902")).also { sockets += it }
         assertTrue(vm.chooseScanner(TEST_SCANNER))
