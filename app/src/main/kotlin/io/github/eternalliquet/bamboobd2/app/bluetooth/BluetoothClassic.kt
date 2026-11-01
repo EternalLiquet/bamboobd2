@@ -168,14 +168,16 @@ class BluetoothClassicTransport internal constructor(
     override suspend fun write(request: Request) {
         if (closed) throw TransportClosedException("Bluetooth connection closed")
         recorder?.onWrite(request.text)
-        traffic?.onWrite(request.text)
+        traffic?.onWriteAttempt(request.text)
         try {
             coroutineScope {
                 val writing = async(io) {
                     currentCoroutineContext().ensureActive()
                     if (closed) throw TransportClosedException("Bluetooth connection closed")
+                    traffic?.onWrite(request.text)
                     socket.output.write(request.encoded())
                     socket.output.flush()
+                    traffic?.onWriteCompleted(request.text)
                 }
                 try {
                     writing.await()
@@ -190,6 +192,12 @@ class BluetoothClassicTransport internal constructor(
             traffic?.onWriteFailed(request.text, e.message ?: e::class.simpleName.orEmpty())
             currentCoroutineContext().ensureActive()
             throw TransportClosedException("Bluetooth write failed: ${e.message}")
+        } catch (e: CancellationException) {
+            traffic?.onWriteFailed(request.text, "write cancelled; delivery unknown")
+            throw e
+        } catch (e: TransportClosedException) {
+            traffic?.onWriteFailed(request.text, e.message ?: "connection closed; delivery unknown")
+            throw e
         }
     }
 
