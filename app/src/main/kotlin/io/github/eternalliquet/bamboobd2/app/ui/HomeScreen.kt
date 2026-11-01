@@ -43,6 +43,8 @@ fun HomeScreen(
     /** A scan or recording holds the connection. */
     connectionBusy: Boolean = false,
     vehicleActions: VehicleActions? = null,
+    /** The "Export diagnostic log" action, shown under the vehicle card. */
+    diagnosticExport: @Composable () -> Unit = {},
     onStart: (FakeScenario) -> Unit,
     onStartReplay: (String) -> Unit,
     onOpenSaved: () -> Unit,
@@ -67,6 +69,7 @@ fun HomeScreen(
             }
             if (vehicleActions != null) {
                 VehicleCard(connection, profiles, connectionBusy, vehicleActions)
+                diagnosticExport()
                 val ready = connection as? ConnectionState.Ready
                 Text(stringResource(R.string.scan_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                 Text(stringResource(if (ready != null) R.string.scan_explainer else R.string.scan_connect_first), style = MaterialTheme.typography.bodyMedium)

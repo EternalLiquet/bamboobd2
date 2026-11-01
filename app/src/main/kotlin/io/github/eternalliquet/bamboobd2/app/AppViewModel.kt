@@ -40,6 +40,7 @@ import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticLog
 import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 import io.github.eternalliquet.bamboobd2.core.storage.SessionStore
 import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
@@ -115,9 +116,16 @@ class AppViewModel @JvmOverloads constructor(
      * Scans and recording borrow its transport; the bench check and experiment close it
      * before opening their own. See docs/VEHICLE_STARTUP.md.
      */
+    /**
+     * Persistent, redacted log of every Bluetooth connection (vehicle, bench, experiment).
+     * It only queues work, so it adds no request or delay. See docs/DIAGNOSTIC_LOG.md.
+     */
+    val diagnostics = DiagnosticLog(File(application.filesDir, "diagnostics"), buildInfo(application))
+
     val vehicle = VehicleConnection(viewModelScope, bluetooth, io, SavedAdapterStore(application),
         powerCycleRequired = { experimentReuseRequired.value },
-        otherToolActive = { _experiment.value.busy || benchJob?.isActive == true })
+        otherToolActive = { _experiment.value.busy || benchJob?.isActive == true },
+        diagnostics = diagnostics)
     val connection: StateFlow<ConnectionState> get() = vehicle.state
 
     /** For the scanner setup screen; reads state only and never connects. */
@@ -209,6 +217,7 @@ class AppViewModel @JvmOverloads constructor(
         }
         _recordingPending.value = true
         _live.value = LiveState.Idle
+        lease.log?.operationStart("recording")
         recordingJob = viewModelScope.launch {
             try {
                 // Ready and Paused do not read; an EOF must still end this recording.
@@ -220,6 +229,9 @@ class AppViewModel @JvmOverloads constructor(
                     liveController.state.first { it is LiveReadState.Finished }
                 } finally { disconnectWatch.cancel() }
             } finally {
+                (liveController.state.value as? LiveReadState.Finished)?.record?.let { record ->
+                    logRecord(lease, "recording", record.recording?.stopReason?.name ?: record.outcome?.name ?: "UNKNOWN", record)
+                } ?: lease.log?.operationEnd("recording", "CANCELLED")
                 // USER and duration-limit finishes can interrupt a reply even when
                 // the record's outcome is COMPLETE. Never reuse that byte stream.
                 vehicle.release(lease, reusable = false)
@@ -340,7 +352,7 @@ class AppViewModel @JvmOverloads constructor(
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
             try {
-                _bench.value = when (val run = BluetoothBench(bluetooth, io).run(device) { check = it; _bench.value = BenchState.Running(device.name) }) {
+                _bench.value = when (val run = BluetoothBench(bluetooth, io, diagnostics).run(device) { check = it; _bench.value = BenchState.Running(device.name) }) {
                     is BenchRun.ConnectFailed -> BenchState.Failed(device.name, run.reason)
                     is BenchRun.Finished -> BenchState.Done(device.name, run.result)
                 }
@@ -419,7 +431,9 @@ class AppViewModel @JvmOverloads constructor(
         lease.transport.recorder = recorder
         // The controller gates any sensor request on the supported map; provenance
         // comes from the LIVE transport, not from the selected scope.
+        lease.log?.operationStart("scan", selectedScope.name)
         if (!controller.start(ElmObdReader(lease.transport, "bluetooth:classic"), selectedScope)) {
+            lease.log?.operationEnd("scan", "NOT_STARTED", "another session is running")
             vehicle.release(lease)
             _live.value = LiveState.Failed(adapterName(), "another session is running")
             return false
@@ -427,9 +441,12 @@ class AppViewModel @JvmOverloads constructor(
         _live.value = LiveState.Started
         liveJob = viewModelScope.launch {
             var completed = false
+            var logged = false
             try {
                 val finished = controller.state.first { it is SessionState.Finished } as SessionState.Finished
                 completed = finished.record.outcome == SessionOutcome.COMPLETE
+                logRecord(lease, "scan", finished.record.outcome?.name ?: "UNKNOWN", finished.record)
+                logged = true
                 val id = finished.record.id
                 val scopeLabel = when (selectedScope) {
                     ReadScope.CODES_ONLY -> "codes-only (L2) session"
@@ -439,6 +456,7 @@ class AppViewModel @JvmOverloads constructor(
                     "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
                 _captures.update { it + (id to recorder.json(id, source)) }
             } finally {
+                if (!logged) lease.log?.operationEnd("scan", "CANCELLED")
                 // A cancelled/failed reader may still be awaiting a terminal prompt.
                 // Do not give that socket to a new reader or its capture recorder.
                 vehicle.release(lease, reusable = completed)
@@ -495,21 +513,26 @@ class AppViewModel @JvmOverloads constructor(
         experimentId = java.util.UUID.randomUUID().toString()
         experimentStartedUtc = java.time.Instant.now().toString()
         _experiment.value = ExperimentUiState(busy = true, phase = "Connecting to scanner…")
+        val log = diagnostics.startSession("experiment", device.name)
+        log.app("connect_start")
         experimentJob = viewModelScope.launch {
             try {
                 withTimeout(60_000L) {
                     val connection = withTimeout(10_000L) {
-                        connectClassic(bluetooth, device, io, receiveCapacity = 256).also {
+                        connectClassic(bluetooth, device, io, receiveCapacity = 256, traffic = log).also {
                             // Own the transport before withTimeout can discard its result at a deadline boundary.
                             if (it is ClassicConnection.Connected) experimentTransport = it.transport
                         }
                     }
                     if (connection is ClassicConnection.Failed) {
+                        log.app("connect_failed", connection.reason)
                         _experiment.update { it.copy(phase = "Connection failed: " + connection.reason.replace(Regex("(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2}"), "[adapter]")) }
                         return@withTimeout
                     }
                     val transport = (connection as ClassicConnection.Connected).transport
                     experimentTransport = transport
+                    log.app("connected")
+                    log.operationStart("cayenne-part-number-experiment", IdentificationExperiment.PLAN_ID)
                     _experiment.update { it.copy(phase = "Connected. Checking startup stream, then sending ATPC.") }
                     IdentificationExperiment.runLive(transport, onUpdate = { result ->
                         _experiment.update { it.copy(result = result, phase = result.explanation) }
@@ -526,6 +549,9 @@ class AppViewModel @JvmOverloads constructor(
             } finally {
                 experimentTransport?.close()
                 experimentTransport = null
+                _experiment.value.result?.let { log.operationEnd("cayenne-part-number-experiment", it.outcome.name, it.explanation) }
+                log.interpretation("experiment", _experiment.value.phase)
+                log.end("experiment finished")
                 // Every attempted write is published before transport.write. If none was
                 // attempted, this run could not have changed adapter settings. Keep the
                 // pre-connect persisted guard for process death or uncertain writes.
@@ -611,10 +637,45 @@ class AppViewModel @JvmOverloads constructor(
         const val EXPERIMENT_CAPABILITY = "porsche.cayenne92a.part-number-experiment"
     }
 
+    /** Writes one diagnostic export for sharing or saving. No file when nothing is stored. */
+    suspend fun prepareDiagnosticExport(): DiagnosticExportFile = withContext(io) {
+        val export = diagnostics.export()
+        val json = export.json ?: return@withContext DiagnosticExportFile(null, 0, false, 0)
+        val dir = File(getApplication<Application>().cacheDir, "diagnostic-exports")
+        dir.mkdirs()
+        dir.listFiles()?.forEach { it.delete() }
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        val file = File(dir, "bamboobd2-diagnostic-log-$stamp.json").apply { writeText(json) }
+        DiagnosticExportFile(file, export.sessions, export.truncated, export.unfinished)
+    }
+
+    private fun logRecord(lease: io.github.eternalliquet.bamboobd2.app.connection.Lease, operation: String, outcome: String, record: SessionRecord) {
+        val log = lease.log ?: return
+        // The reader's own notes (retries, discarded replies, decode failures) are its
+        // interpretation of the traffic, which the transport has already logged verbatim.
+        record.events.forEach { log.interpretation(operation, "${it.kind}: ${it.detail}") }
+        log.operationEnd(operation, outcome, record.events.lastOrNull()?.detail?.ifEmpty { null })
+    }
+
     private fun appVersion(): String {
         val app = getApplication<Application>()
         return app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "unknown version"
     }
+}
+
+/** A prepared diagnostic export: [file] is null when no log is stored. */
+class DiagnosticExportFile(val file: File?, val sessions: Int, val truncated: Boolean, val unfinished: Int)
+
+/** Version facts included with every diagnostic export. No device identifiers. */
+private fun buildInfo(app: Application): Map<String, String> {
+    val info = runCatching { app.packageManager.getPackageInfo(app.packageName, 0) }.getOrNull()
+    @Suppress("DEPRECATION")
+    val code = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong() }
+    return mapOf(
+        "appVersion" to (info?.versionName ?: "unknown"),
+        "versionCode" to (code?.toString() ?: "unknown"),
+        "android" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+    )
 }
 
 /** Main-dispatcher delays are scheduled on uptime, so replay timing reads the same clock. */

@@ -100,10 +100,12 @@ fun VehicleCard(state: ConnectionState, profiles: List<VehicleProfile>, busy: Bo
             if (adapter != null) {
                 HorizontalDivider()
                 Text(stringResource(R.string.vc_scanner, adapter.name), style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state is ConnectionState.Ready) OutlinedButton(onClick = actions.disconnect, enabled = !busy) { Text(stringResource(R.string.vc_disconnect)) }
-                    TextButton(onClick = actions.choose, enabled = !busy) { Text(stringResource(R.string.vc_change)) }
-                    TextButton(onClick = actions.forget, enabled = !busy) { Text(stringResource(R.string.vc_forget)) }
+                // One full-width action per line: no label wraps or squeezes on a narrow
+                // screen or with large text.
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (state is ConnectionState.Ready) OutlinedButton(onClick = actions.disconnect, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.vc_disconnect)) }
+                    OutlinedButton(onClick = actions.choose, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.vc_change)) }
+                    TextButton(onClick = actions.forget, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.vc_forget)) }
                 }
                 val technical = technicalDetails(state)
                 if (technical.isNotEmpty()) {

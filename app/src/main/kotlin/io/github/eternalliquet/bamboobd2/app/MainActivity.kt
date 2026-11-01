@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.ui.IdentificationExperimentScreen
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
+import io.github.eternalliquet.bamboobd2.app.ui.DiagnosticExportButton
 import io.github.eternalliquet.bamboobd2.app.ui.ScannerSetupScreen
 import io.github.eternalliquet.bamboobd2.app.ui.VehicleActions
 import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
                             connection = connection,
                             profiles = remember(connection) { vm.selectableProfiles() },
                             connectionBusy = busy,
+                            diagnosticExport = { DiagnosticExportButton(vm) },
                             vehicleActions = VehicleActions(
                                 choose = { nav.navigate("setup") },
                                 connect = vm::connectVehicle,

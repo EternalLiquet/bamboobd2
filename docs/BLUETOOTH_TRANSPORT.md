@@ -36,6 +36,7 @@ The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection fr
 - **Behavior:** the same deadlines, single retry, response-pending and stale-reply rules as replay sessions. Provenance is `LIVE`, from the transport. The session can be saved and reopened like any other. A completed scan keeps the connection open until disconnect, link loss or backgrounding. A cancelled or failed scan, and every recording finish, closes it and requires explicit reconnect; nothing reconnects by itself.
 - **Raw capture:** the transport records every request and reply chunk of that session with its timing, starting at the session's own setup; identification (and its VIN reply) is never included. The finished session screen offers "Copy raw capture for review". The capture is kept in memory only and marked `RAW_CAPTURE`, which the replay loader rejects until it goes through [CAPTURE_IMPORT.md](CAPTURE_IMPORT.md). It doesn't record when a connection ended, so a disconnected session doesn't replay as `DISCONNECTED` (see the limitation there).
 - The bench check stays a separate adapter-only path.
+- **Diagnostic log:** separately from the per-scan capture, the transport reports every write, received chunk, write failure, stream end and local close of every connection to the [diagnostic log](DIAGNOSTIC_LOG.md). Those calls only queue work, so they change no timing or request.
 
 ## G2 transport registry
 

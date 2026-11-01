@@ -144,6 +144,8 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                         if (state.saved) Text("Report saved privately on this phone.")
                         state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         OutlinedButton(onClick = { exportText = vm.experimentReport(); identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export private report") }
+                        // The redacted connection log, with timing, for an attempt that didn't finish.
+                        if (state.result?.outcome != ExperimentOutcome.OBSERVED) DiagnosticExportButton(vm)
                     } else if (previousReport != null) {
                         OutlinedButton(onClick = { exportText = previousReport!!; identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export previous private report") }
                     }

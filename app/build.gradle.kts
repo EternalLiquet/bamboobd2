@@ -16,8 +16,8 @@ android {
         // Provisional product baseline: docs/ANDROID_MILESTONE_1.md, "Platform baseline".
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.3.0-vehicle-startup.20261101"
+        versionCode = 7
+        versionName = "0.3.1-diagnostic-log.20261101"
     }
 
     buildTypes {

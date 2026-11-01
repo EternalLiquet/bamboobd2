@@ -160,6 +160,8 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                     if (status == SaveStatus.Saving) Text(stringResource(R.string.recording_saving))
                     if (result is SaveResult.Saved) Text(stringResource(R.string.saved_ok))
                     if (result is SaveResult.Failed) Text(stringResource(R.string.save_failed, result.reason))
+                    // Stopped by something other than the user: offer the whole connection's log.
+                    if (r.stopReason != LiveStopReason.USER) DiagnosticExportButton(vm)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::saveRecording, enabled = status != SaveStatus.Saving && result !is SaveResult.Saved,
                             modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }

@@ -10,7 +10,7 @@ This page describes what [epic #66](https://github.com/EternalLiquet/bamboobd2/i
 4. **Manufacturer service.** If the VIN's manufacturer code maps to a bundled manufacturer, that manufacturer's service object is created and its capabilities are evaluated. Otherwise the car stays "not identified" and only generic scanning is offered.
 5. **Every connection starts over.** Disconnect, connection loss, cancel, a new scanner, *Identify again* or backgrounding ends the connection's generation. Its identity, model confirmation, service and results are dropped, and a late reply from the old generation is ignored.
 
-Home screen states: *Set up your scanner* → *Connecting* → *Identifying the car* → ready (identified, partly identified or *Car not identified*), *Connected, but the car didn't answer*, or one actionable problem. The identification transcript and technical reasons are behind **Show technical details**.
+Home screen states: *Set up your scanner* → *Connecting* → *Identifying the car* → ready (identified, partly identified or *Car not identified*), *Connected, but the car didn't answer*, or one actionable problem. The identification transcript and technical reasons are behind **Show technical details**. Every connection, including identification, scans, the bench check and the experiment, is also kept in the redacted [diagnostic log](DIAGNOSTIC_LOG.md), which **Export diagnostic log** shares or saves.
 
 ## Identification sequence and its limits
 

@@ -9,6 +9,8 @@ import android.os.Build
 import io.github.eternalliquet.bamboobd2.core.bench.AdapterBenchCheck
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
+import io.github.eternalliquet.bamboobd2.core.diagnostics.TrafficSink
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticLog
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
 import io.github.eternalliquet.bamboobd2.core.protocol.Request
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
@@ -119,6 +121,8 @@ class BluetoothClassicTransport internal constructor(
     private val io: CoroutineDispatcher,
     recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
+    /** The diagnostic log for this whole connection. Its calls only queue work, so timing is unchanged. */
+    private val traffic: TrafficSink? = null,
 ) : AdapterTransport {
     /**
      * Records the raw conversation while set; never changes what is sent. The owner of
@@ -146,11 +150,14 @@ class BluetoothClassicTransport internal constructor(
                         // Read the current per-operation property, not the constructor
                         // parameter captured by this initializer.
                         this@BluetoothClassicTransport.recorder?.onRead(chunk)
+                        traffic?.onRead(chunk)
                         chunks.send(chunk)
                     }
                 }
+                if (!closed) traffic?.onStreamEnded("end of stream")
             } catch (e: IOException) {
                 // The connection ended; readers see the end of the stream.
+                if (!closed) traffic?.onStreamEnded("read error: ${e.message ?: e::class.simpleName}")
             } finally {
                 chunks.close()
                 disconnected.complete(Unit)
@@ -161,6 +168,7 @@ class BluetoothClassicTransport internal constructor(
     override suspend fun write(request: Request) {
         if (closed) throw TransportClosedException("Bluetooth connection closed")
         recorder?.onWrite(request.text)
+        traffic?.onWrite(request.text)
         try {
             coroutineScope {
                 val writing = async(io) {
@@ -179,6 +187,7 @@ class BluetoothClassicTransport internal constructor(
             }
         } catch (e: IOException) {
             // Our own close() on cancellation makes the write fail; report that as cancellation.
+            traffic?.onWriteFailed(request.text, e.message ?: e::class.simpleName.orEmpty())
             currentCoroutineContext().ensureActive()
             throw TransportClosedException("Bluetooth write failed: ${e.message}")
         }
@@ -191,6 +200,7 @@ class BluetoothClassicTransport internal constructor(
 
     /** Closes the socket; a blocked read ends. Never reopened: a new connection is a new transport. */
     fun close() {
+        if (!closed) traffic?.onLocalClose()
         closed = true
         runCatching { socket.close() }
         pump.cancel()
@@ -217,6 +227,7 @@ internal suspend fun connectClassic(
     io: CoroutineDispatcher,
     recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
+    traffic: TrafficSink? = null,
 ): ClassicConnection {
     val socket = try {
         platform.openSocket(device.address)
@@ -248,7 +259,7 @@ internal suspend fun connectClassic(
         runCatching { socket.close() }
         return ClassicConnection.Failed("could not connect: ${e::class.simpleName}")
     }
-    val transport = BluetoothClassicTransport(socket, io, recorder, receiveCapacity)
+    val transport = BluetoothClassicTransport(socket, io, recorder, receiveCapacity, traffic)
     try {
         currentCoroutineContext().ensureActive()
         return ClassicConnection.Connected(transport)
@@ -271,6 +282,7 @@ sealed interface BenchRun {
 class BluetoothBench(
     private val platform: BluetoothPlatform,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val diagnostics: DiagnosticLog? = null,
 ) {
     /**
      * Cancelling the caller closes the socket, including during the blocking connect.
@@ -278,16 +290,29 @@ class BluetoothBench(
      * after cancelling.
      */
     suspend fun run(device: BondedDevice, onCheck: (AdapterBenchCheck) -> Unit = {}): BenchRun {
-        val transport = when (val connection = connectClassic(platform, device, io)) {
-            is ClassicConnection.Failed -> return BenchRun.ConnectFailed(connection.reason)
+        val log = diagnostics?.startSession("bench", device.name)
+        log?.app("connect_start")
+        val connection = try { connectClassic(platform, device, io, traffic = log) }
+            catch (e: CancellationException) { log?.end("cancelled while connecting"); throw e }
+        val transport = when (connection) {
+            is ClassicConnection.Failed -> {
+                log?.app("connect_failed", connection.reason)
+                log?.end("connect failed")
+                return BenchRun.ConnectFailed(connection.reason)
+            }
             is ClassicConnection.Connected -> connection.transport
         }
+        log?.app("connected")
+        log?.operationStart("bench")
+        var outcome = "CANCELLED"
         try {
             val check = AdapterBenchCheck(transport)
             onCheck(check)
-            return BenchRun.Finished(check.run())
+            return BenchRun.Finished(check.run().also { outcome = it.stop.name })
         } finally {
+            log?.operationEnd("bench", outcome)
             transport.close()
+            log?.end("bench finished")
         }
     }
 }

@@ -8,6 +8,10 @@ import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.app.bluetooth.ClassicConnection
 import io.github.eternalliquet.bamboobd2.app.bluetooth.connectClassic
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
+import io.github.eternalliquet.bamboobd2.core.manufacturer.MakeEvidence
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticLog
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticSession
+import io.github.eternalliquet.bamboobd2.core.vehicle.VinRead
 import io.github.eternalliquet.bamboobd2.core.manufacturer.ManufacturerRegistry
 import io.github.eternalliquet.bamboobd2.core.manufacturer.ManufacturerService
 import io.github.eternalliquet.bamboobd2.core.manufacturer.VehicleContext
@@ -76,7 +80,12 @@ sealed interface ConnectionState {
 }
 
 /** Exclusive use of the shared transport for one operation; invalid once its generation ends. */
-class Lease internal constructor(val transport: BluetoothClassicTransport, val generation: Long)
+class Lease internal constructor(
+    val transport: BluetoothClassicTransport,
+    val generation: Long,
+    /** This connection's diagnostic log, for operation boundaries; traffic is logged by the transport. */
+    val log: DiagnosticSession? = null,
+)
 
 /**
  * Owns the single Bluetooth connection to the saved scanner, its vehicle context and
@@ -100,6 +109,8 @@ class VehicleConnection(
     private val powerCycleRequired: () -> Boolean,
     /** True while the bench check or experiment owns its own connection. */
     private val otherToolActive: () -> Boolean,
+    /** Persistent diagnostic log; one session per connection attempt. */
+    private val diagnostics: DiagnosticLog? = null,
 ) {
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -109,6 +120,7 @@ class VehicleConnection(
     private var job: Job? = null
     private var watch: Job? = null
     private var lease: Lease? = null
+    private var log: DiagnosticSession? = null
     /** Services created for this connection only; cleared with the generation. */
     private val services = mutableMapOf<String, ManufacturerService>()
     private var startupDone = false
@@ -157,14 +169,23 @@ class VehicleConnection(
         startupPending = false
         val gen = ++generation
         _state.value = ConnectionState.Connecting(adapter)
+        val session = diagnostics?.startSession("vehicle", adapter.name)
+        log = session
+        session?.app("connect_start")
         job = scope.launch {
-            val result = connectClassic(platform, adapter.device(), io)
+            val result = connectClassic(platform, adapter.device(), io, traffic = session)
             if (gen != generation) { (result as? ClassicConnection.Connected)?.transport?.close(); return@launch }
             when (result) {
-                is ClassicConnection.Failed -> _state.value = ConnectionState.Disconnected(adapter,
-                    "Couldn't connect to ${adapter.name}. Check that it's plugged in and powered, then try again.", result.reason)
+                is ClassicConnection.Failed -> {
+                    session?.app("connect_failed", result.reason)
+                    session?.end("connect failed")
+                    log = null
+                    _state.value = ConnectionState.Disconnected(adapter,
+                        "Couldn't connect to ${adapter.name}. Check that it's plugged in and powered, then try again.", result.reason)
+                }
                 is ClassicConnection.Connected -> {
                     val t = result.transport
+                    session?.app("connected")
                     transport = t
                     watch = scope.launch {
                         t.awaitDisconnect()
@@ -221,7 +242,7 @@ class VehicleConnection(
         val ready = _state.value as? ConnectionState.Ready ?: return null
         if (lease != null) return null
         val t = transport ?: return null
-        return Lease(t, ready.generation).also { lease = it }
+        return Lease(t, ready.generation, log).also { lease = it }
     }
 
     fun release(released: Lease, reusable: Boolean = true) {
@@ -265,9 +286,11 @@ class VehicleConnection(
         _state.value = ConnectionState.Identifying(adapter)
         val recorder = CaptureRecorder()
         t.recorder = recorder
+        log?.operationStart("identification")
         val result = try { VehicleIdentifier(ElmObdReader(t, "bluetooth:classic")).identify() }
             finally { if (t.recorder === recorder) t.recorder = null }
         if (gen != generation) return
+        logIdentification(result)
         val transcript = transcript(recorder)
         _state.value = when (result) {
             is IdentificationResult.Completed ->
@@ -281,12 +304,42 @@ class VehicleConnection(
         }
     }
 
+    private fun logIdentification(result: IdentificationResult) {
+        val session = log ?: return
+        when (result) {
+            is IdentificationResult.Stopped -> session.operationEnd("identification", "STOPPED_${result.reason}", result.detail)
+            is IdentificationResult.Completed -> {
+                val evidence = result.evidence
+                val vin = when (val v = evidence.vin) {
+                    is VinRead.Read -> "read from ${v.responders.joinToString { it ?: "unknown" }}, manufacturer code ${v.vin.wmi} (rest hidden)"
+                    is VinRead.Conflict -> "different VINs from ${v.responders.joinToString { it ?: "unknown" }}"
+                    is VinRead.NotAvailable -> "not read: ${v.reason}"
+                }
+                session.operationEnd("identification", "COMPLETED", "protocol: ${evidence.protocol ?: "unknown"}; " +
+                    "responders: ${evidence.responders.joinToString { it ?: "unknown" }.ifEmpty { "none" }}; VIN $vin")
+                // Same per-connection service cache as the screen state: nothing is constructed twice.
+                val make = registry.resolve(evidence, null, services).make
+                session.interpretation("identification", when (make) {
+                    is MakeEvidence.FromVin -> "Manufacturer ${make.entry.make} from the VIN's manufacturer code."
+                    is MakeEvidence.Manual -> "Manufacturer ${make.entry.make} chosen by the user."
+                    is MakeEvidence.Unknown -> "Vehicle not identified: ${make.reason}."
+                })
+            }
+        }
+    }
+
     /** Ends the current generation: closes the transport and drops all vehicle state. */
     private fun teardown(next: ConnectionState?) {
         generation++
         job?.cancel(); job = null
         watch?.cancel(); watch = null
         transport?.close(); transport = null
+        log?.end(when (next) {
+            is ConnectionState.Disconnected -> next.reason ?: "disconnected by the user"
+            null -> "replaced by a new connection"
+            else -> next::class.simpleName.orEmpty()
+        })
+        log = null
         lease = null
         closeWhenReleased = false
         services.clear()

@@ -371,4 +371,26 @@
     <string name="scan_connection">Connected to %1$s · %2$s</string>
     <string name="scan_not_connected">Not connected. Go back and connect to your scanner.</string>
     <string name="scan_start">Start</string>
+
+    <!-- Diagnostic log export. -->
+    <string name="diag_export">Export diagnostic log</string>
+    <string name="diag_none_title">No diagnostic log yet</string>
+    <string name="diag_none_body">The log starts with the next scanner connection. Connect, try again, then export.</string>
+    <string name="diag_title">Export diagnostic log</string>
+    <plurals name="diag_body">
+        <item quantity="one">Includes %1$d recent connection session: commands sent, replies received, timing, errors and the app\'s own explanations. Nothing is uploaded unless you share it.</item>
+        <item quantity="other">Includes %1$d recent connection sessions: commands sent, replies received, timing, errors and the app\'s own explanations. Nothing is uploaded unless you share it.</item>
+    </plurals>
+    <string name="diag_privacy">VINs and Bluetooth addresses are hidden. It isn\'t anonymous: the scanner name, timestamps and module replies remain.</string>
+    <string name="diag_truncated">Some sessions were cut short to stay within the storage limit. The cut is marked in the file.</string>
+    <plurals name="diag_unfinished">
+        <item quantity="one">%1$d session didn\'t close normally (for example, the app was stopped). It\'s included as far as it got.</item>
+        <item quantity="other">%1$d sessions didn\'t close normally (for example, the app was stopped). They\'re included as far as they got.</item>
+    </plurals>
+    <string name="diag_share">Share…</string>
+    <string name="diag_save">Save to file…</string>
+    <string name="diag_share_chooser">Share diagnostic log</string>
+    <string name="diag_saved">Diagnostic log saved.</string>
+    <string name="diag_save_failed">Couldn\'t save the diagnostic log. Nothing was written.</string>
+    <string name="diag_failed">Couldn\'t prepare the diagnostic log.</string>
 </resources>

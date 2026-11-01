@@ -43,7 +43,7 @@ jobs:
           apk=app/build/outputs/apk/debug/app-debug.apk
           printf 'Source SHA: %s\n' "$(git rev-parse HEAD)"
           badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")
-          printf '%s\n' "$badging" | grep -F "package: name='io.github.eternalliquet.bamboobd2' versionCode='6' versionName='0.3.0-vehicle-startup.20261101'"
+          printf '%s\n' "$badging" | grep -F "package: name='io.github.eternalliquet.bamboobd2' versionCode='7' versionName='0.3.1-diagnostic-log.20261101'"
           printf '%s\n' "$badging" | grep -Fx "sdkVersion:'26'"
           printf '%s\n' "$badging" | grep -Fx "targetSdkVersion:'36'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk"
