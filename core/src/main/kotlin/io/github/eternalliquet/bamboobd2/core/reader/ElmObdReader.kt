@@ -236,6 +236,25 @@ class ElmObdReader(
         }
     }
 
+    /** The reply form [readSupportedPids] established from ATDPN, or null before it succeeded. */
+    val protocolForm: ProtocolForm? get() = format?.form
+
+    /**
+     * One Mode 09 (vehicle information) exchange, parsed but not decoded: the caller's
+     * Mode 09 decoder validates it. Uses the same deadline, retry and serialization
+     * rules as every other request. Requires [readSupportedPids] to have set the form.
+     */
+    suspend fun readVehicleInformation(request: VehicleRequest): ParsedResponse {
+        require(request.text.startsWith("09")) { "not a vehicle-information request" }
+        discoveryStop?.let { throw it }
+        val format = checkNotNull(format) { "protocol not determined" }
+        phase = "vehicle information ${request.text}"
+        val parsed = ElmResponseParser.parse(exchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis), RequestPolicy.vehicle(request), format)
+        if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET)
+            throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
+        return parsed
+    }
+
     override suspend fun readPid(pid: String): List<ReadingResult> = readPidResults(pid, observations = false)
 
     override suspend fun readPidObservations(pid: String): List<ReadingResult> = readPidResults(pid, observations = true)

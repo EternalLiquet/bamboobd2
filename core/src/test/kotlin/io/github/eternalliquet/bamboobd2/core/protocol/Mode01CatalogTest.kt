@@ -12,7 +12,7 @@ import org.junit.Test
 class Mode01CatalogTest {
     @Test fun exactCatalogAndDecoderBoundaries() {
         assertEquals(Mode01Catalog.readings.map { "01${it.pid}" }.toSet(),
-            VehicleRequest.entries.map { it.text }.filter { it.length == 4 && it.substring(2) !in Mode01Catalog.pageIds }.toSet())
+            VehicleRequest.entries.map { it.text }.filter { it.length == 4 && it.startsWith("01") && it.substring(2) !in Mode01Catalog.pageIds }.toSet())
         assertEquals(27, Mode01Catalog.readings.size)
         assertEquals(27, Mode01Catalog.readings.map { it.labelKey }.distinct().size)
         val cases = listOf(

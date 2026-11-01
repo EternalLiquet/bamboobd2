@@ -10,7 +10,7 @@ import org.junit.Test
 /** F9: deny by default, exact allowlist, nothing rejected reaches a transport. */
 class RequestPolicyTest {
 
-    private val vehicleAllowlist = (Mode01Catalog.readings.map { "01${it.pid}" } + Mode01Catalog.pageIds.map { "01$it" } + listOf("03", "07")).toSet()
+    private val vehicleAllowlist = (Mode01Catalog.readings.map { "01${it.pid}" } + Mode01Catalog.pageIds.map { "01$it" } + listOf("03", "07", "0900", "0902")).toSet()
 
     // Owner-approved adapter configuration/information commands (2026-10-28).
     private val adapterAllowlist = setOf("ATE0", "ATL0", "ATH1", "ATDPN", "ATI", "AT@1", "ATRV", "ATSP0")
@@ -44,7 +44,7 @@ class RequestPolicyTest {
     @Test
     fun explicitDangerousAndNearMissRequestsAreRejected() {
         val rejected = listOf(
-            "04", "0400", "08", "09", "0902", "0A", "10", "11", "1101", "14", "19", "22", "22F190", "27", "2701", "2E",
+            "04", "0400", "08", "09", "0901", "0903", "0904", "090A", "09 02", "0902 ", "0A", "10", "11", "1101", "14", "19", "22", "22F190", "27", "2701", "2E",
             "2F", "31", "3101", "34", "35", "36", "3E", "02", "0200", "05", "06", "0101", "0121", "0141", "01FF",
             "", " ", "\r", "\t", "0 4", "01 05", "010c", "0105 ", " 0105", "0105\r", "01050", "0105\r04",
             "ATZ", "ATWS", "ATD", "ATSP6", "ATSP3", "ATSPA0", "ATSP00", "atsp0", "ATSP 0", "AT SP 0", "ATTP0", "ATTPA6", "ATSH7E0", "ATCRA7E8", "ATPP2CSV81", "ATSD00",
@@ -103,6 +103,6 @@ class RequestPolicyTest {
     }
 
     private companion object {
-        const val PINNED_ALLOWLIST_SHA256 = "55653bc23ab8eec87bf6d3a01d0d2c8c65e31352a4e4024b1757f0b65c7ad210"
+        const val PINNED_ALLOWLIST_SHA256 = "584fa0164b5e529a705798c5f258102291559f9ebdd92e85d4c9d42e3a6ffe69"
     }
 }
