@@ -1,5 +1,7 @@
 # ADR 0001: Platform-independent Kotlin/JVM core, Android first, connections behind interfaces
 
+> Historical decision record. The Kotlin/JVM core and Android shell described here are implemented; the approval/untested statements below retain the original planning context. Current boundaries and owner observations are in [project status](../../PROJECT_STATUS.md) and [the handoff](../PR65_HANDOFF.md).
+
 - Status and date: **Proposed**, 2026-10-13 (revised the same day after the owner's portability clarification; revised 2026-10-27 for the platform baseline and vendor Bluetooth evidence). Direction approved in chat; design and acceptance criteria await approval on [issue #2](https://github.com/EternalLiquet/bamboobd2/issues/2).
 - Context and safety scope: first milestone is read-only generic OBD-II (fault codes, a few live readings, local session save) delivered as an Android app. Windows and Linux must stay viable later. The Veepeak OBDCheck BLE is the first adapter, not a product-wide Bluetooth requirement. No vehicle writes, no manufacturer-specific diagnostics, no reset. Details in [ANDROID_MILESTONE_1.md](../ANDROID_MILESTONE_1.md).
 - Alternatives:

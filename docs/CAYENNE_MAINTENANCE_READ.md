@@ -1,5 +1,7 @@
 # Cayenne maintenance read: evidence before implementation
 
+> Status update, 2026-11-01: this maintenance-definition research/proposal remains unresolved. The later [identification experiment](IDENTIFICATION_EXPERIMENT.md) is implemented and has owner-observed partial F187 first frames on two routes, without complete identity or module attribution. Earlier unknown-route statements below concern the maintenance read under review and predate that evidence. This document grants no vehicle operation.
+
 Reviewed 2026-10-30 for [#58](https://github.com/EternalLiquet/bamboobd2/issues/58), with [#59](https://github.com/EternalLiquet/bamboobd2/issues/59) and [#60](https://github.com/EternalLiquet/bamboobd2/issues/60) as the bounded deliverables. The owner target is a 2014 Cayenne S (958, V8), Veepeak OBDCheck BLE (not BLE+), Bluetooth Classic and Samsung S24. No exact, applicable maintenance read definition was found. The app therefore has no supported oil or inspection interval decoder for this target. No vehicle or adapter action was part of this review.
 
 ## What the sources establish

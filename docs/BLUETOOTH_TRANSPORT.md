@@ -1,6 +1,6 @@
 # Bluetooth Classic transport (issue #12)
 
-The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection from the Android app to an adapter already paired in system settings. It is implemented and tested offline only. **Nothing here has run on hardware.** Running it on a powered adapter is stage L1 and needs its own go ([LIVE_TEST_GATE.md](LIVE_TEST_GATE.md)). Hardware facts and unknowns: [evidence note](evidence/2026-10-28-hardware-readiness.md).
+The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection from the Android app to an adapter already paired in system settings. The owner has observed Classic adapter connection and earlier generic reads. The expanded catalog/recording and v5 identification completion remain without vehicle validation. New hardware operation needs its own reviewed scope ([LIVE_TEST_GATE.md](LIVE_TEST_GATE.md)). Hardware facts and unknowns: [evidence note](evidence/2026-10-28-hardware-readiness.md).
 
 ## Sources (checked 2026-10-28)
 
@@ -22,7 +22,7 @@ The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection fr
 
 ## The adapter-only bench path (L1)
 
-- `BluetoothBench` connects, runs `AdapterBenchCheck` (in `:core`) and closes. The Bluetooth transport never leaves `BluetoothBench`, so in this stage the app has **no way to run a vehicle-read session over Bluetooth**. Live vehicle reads (L2) are not wired.
+- `BluetoothBench` connects, runs `AdapterBenchCheck` (in `:core`) and closes. The bench owns and closes its transport and sends no vehicle requests. Separate generic live/recording and identification paths also use Bluetooth, under mutually exclusive app ownership.
 - `AdapterBenchCheck` sends only `ATI`, `AT@1` and `ATRV` from the owner-approved list. Every write passes `AdapterBenchCheck.guard`, which rejects every vehicle request, allowlisted or not; a test runs all of them through it.
 - Each command is sent once. A missed deadline (`AdapterProfile.PROVISIONAL`, unmeasured) stops the check without sending more, because any character interrupts a busy adapter (ELM327DSJ p9). A disconnect or cancel stops it too, and replies already read stay on screen. On cancel, the command in progress is reported as "interrupted after sending", with any partial reply and its timing, or as "write interrupted, may not have been sent" if the write itself was cancelled. Only commands never sent show "not run".
 - For the test handoff, the screen shows "This phone: Android <version> (API <level>)" and a copyable report. The report holds the app version, that line, each command's reply, timing and chunk count, and how the check ended. It has no device identifiers, no Bluetooth address and no adapter serial.
@@ -30,8 +30,8 @@ The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection fr
 
 ## The codes-only live read (L2)
 
-- A separate **Read codes** screen (banner "LIVE READ — car codes only, no sensor readings or clearing") connects to a paired adapter and runs the normal `ElmObdReader` session in **codes-only scope** (`ReadScope.CODES_ONLY` in `:core`).
-- **Sequence:** `ATE0`, `ATL0`, `ATH1` and `ATSP0`, each of which must answer `OK`. Then `0100`, during which the adapter searches protocols (bounded 30 s budget). Then `ATDPN`, which reports the protocol found and picks the reply form. Then `03` and `07`. Any of these may be sent once more under the single retry after a missed deadline. No sensor PIDs, no clearing, no other protocol command; the protocol is detected, not hardcoded. A test checks the exact bytes written.
+- The **Live** screen offers codes only, a supported-sensor snapshot and live recording. Codes-only uses `ElmObdReader` with `ReadScope.CODES_ONLY`; [recording](LIVE_RECORDING.md) uses the same transport serially.
+- **Sequence:** `ATE0`, `ATL0`, `ATH1` and `ATSP0`, each of which must answer `OK`. Then `0100`, during which the adapter searches protocols (bounded 30 s budget). Then `ATDPN`, which reports the protocol found and picks the reply form. Then advertised support-page continuations through at most eight pages total, followed by `03` and `07`. Discovery has a 180-second monotonic budget including setup. Any of these may be sent once more under the single retry after a missed deadline. No sensor PIDs, no clearing, no other protocol command; the protocol is detected, not hardcoded. A test checks the exact bytes written.
 - **When the car doesn't answer:** a session that gets nothing says "Finished, but nothing was read from the car". It shows the reported protocol and the adapter's reason for each list it couldn't read (for example `BUS INIT: ...ERROR`). It never says "no codes" unless both code lists were read.
 - **Behavior:** the same deadlines, single retry, response-pending and stale-reply rules as replay sessions. Provenance is `LIVE`, from the transport. The session can be saved and reopened like any other. The connection closes when the session ends; nothing reconnects.
 - **Raw capture:** the transport records every request and reply chunk with its timing. The finished session screen offers "Copy raw capture for review". The capture is kept in memory only and marked `RAW_CAPTURE`, which the replay loader rejects until it goes through [CAPTURE_IMPORT.md](CAPTURE_IMPORT.md). It doesn't record when a connection ended, so a disconnected session doesn't replay as `DISCONNECTED` (see the limitation there).
@@ -41,11 +41,17 @@ The first real `AdapterTransport`: an RFCOMM (Serial Port Profile) connection fr
 
 `BluetoothClassicTransport LIVE reviewed:issue-12` is pinned in `transport-registry.txt`. A LIVE entry now needs a `reviewed:<reference>` marker. An unpinned, unmarked or undeclared transport still fails. **The marker records code review only; it is not permission to run the transport on hardware.**
 
-## Verified offline vs needs hardware
+## Original offline checks and remaining hardware questions
 
-| Verified offline (Robolectric on the JVM, not a device) | Needs L1 on the real phone and adapter |
+The table was the original L1 checklist. Owner-reported connection and adapter replies subsequently satisfied L1; see the evidence note above. Reliability, fault scenarios and unobserved device behavior remain unverified.
+
+| Verified offline (Robolectric on the JVM, not a device) | Original hardware question (see subsequent evidence above) |
 | --- | --- |
 | Permission-needed and denied states; Bluetooth off; paired-device listing (Robolectric Bluetooth shadows) | The real permission prompt on the S24 and its Android version |
 | Bench over a fake RFCOMM socket: only `ATI`, `AT@1`, `ATRV` written, CR-terminated; replies parsed; connect failure; cancel during a blocking connect closes the socket; disconnect keeps earlier replies | Whether the unit pairs and connects over Classic with SPP, and how reliably |
 | A paired shadow adapter that never answers ends as "no reply" through the real `createRfcommSocketToServiceRecord` path | Real chunk sizes, timing, status strings and `ATI`/`AT@1`/`ATRV` replies |
 | Merged manifest has exactly the reviewed Bluetooth permissions | Behavior when Bluetooth is toggled or the adapter loses power mid-check |
+
+## Identification ownership and reuse
+
+The separate [fixed experiment](IDENTIFICATION_EXPERIMENT.md) uses bounded startup draining, an ATPC handshake and conditional manual flow control. `AppViewModel` excludes competing bench/live/recording connections, closes on cancellation/backgrounding, and persists an adapter power-cycle acknowledgment requirement after attempted commands. Socket closure alone does not restore experimental headers and filters. A zero-write attempt clears the guard after closure; uncertain writes/process death retain it. Remembered-adapter startup and manufacturer services remain future [epic #66](https://github.com/EternalLiquet/bamboobd2/issues/66) work.

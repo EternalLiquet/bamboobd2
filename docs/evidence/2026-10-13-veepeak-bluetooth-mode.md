@@ -1,5 +1,7 @@
 # Evidence: Does the Veepeak OBDCheck BLE support Classic Bluetooth on Android?
 
+> Historical vendor-evidence record. Later owner-operated Classic connection and generic reads are recorded in [hardware readiness](2026-10-28-hardware-readiness.md); partial F187 observations are summarized in [the current handoff](../PR65_HANDOFF.md). The original untested statements below apply to the dated source review, not current project evidence.
+
 - Date and observer: opened 2026-10-13, updated 2026-10-27; Claude (planning sessions).
 - Status: **vendor-documented** for the model. The owner's particular unit and firmware are **untested**.
 - Source and license/provenance:

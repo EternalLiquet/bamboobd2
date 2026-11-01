@@ -1,5 +1,7 @@
 # Cayenne counter hypotheses: finite public-source follow-up
 
+> Historical research delivered in [merged PR63](https://github.com/EternalLiquet/bamboobd2/pull/63). Its test counts and authorization statements describe that phase. Later [PR65](PR65_HANDOFF.md) adds a separate live identification attempt, without validating maintenance definitions.
+
 Reviewed 2026-10-30 against repository base `c1a169b3c21aa8278034933a070e1b288c463619`. This supplements the [desktop checkpoint](CAYENNE_OFFLINE_RESEARCH_CHECKPOINT.md) and [maintenance evidence matrix](CAYENNE_MAINTENANCE_READ.md). No applicable maintenance request, response layout or read-only invocation was established. Vendor workflows distinguish prior-service dates and mileages from configured intervals. Their relationship to a displayed countdown still needs an applicable field definition.
 
 ## Scope and provenance

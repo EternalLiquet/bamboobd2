@@ -1,5 +1,7 @@
 # Cayenne service read: owner evidence proposal
 
+> Status update, 2026-11-01: this maintenance-definition research/proposal remains unresolved. The later [identification experiment](IDENTIFICATION_EXPERIMENT.md) is implemented and has owner-observed partial F187 first frames on two routes, without complete identity or module attribution. Earlier unknown-route statements below concern the maintenance read under review and predate that evidence. This document grants no vehicle operation.
+
 Draft for owner review, 2026-10-30. Target: 2014 Porsche Cayenne S (958, V8). The goal is useful open-source oil and inspection information with definitions we can substantiate. No claim of being first is made. This proposal authorizes no new connection or diagnostic operation.
 
 ## Useful evidence from ordinary use
