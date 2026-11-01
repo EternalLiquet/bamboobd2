@@ -50,8 +50,8 @@ class ManufacturerRegistryTest {
         assertEquals(Subaru.MAKE, brz.make.entryOrNull!!.make)
         assertNull(brz.profile)
         assertEquals(0, porscheCreated)
-        // A 2013 Subaru VIN offers only the first-generation BRZ.
-        assertEquals(listOf(Subaru.BRZ_ZC6), brz.selectableProfiles(registry))
+        // Without established year-rule applicability, either generation may be confirmed.
+        assertEquals(Subaru.entry.profiles, brz.selectableProfiles(registry))
     }
 
     @Test

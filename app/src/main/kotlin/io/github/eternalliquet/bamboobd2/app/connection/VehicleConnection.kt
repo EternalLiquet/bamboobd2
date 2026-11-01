@@ -222,10 +222,11 @@ class VehicleConnection(
         return Lease(t, ready.generation).also { lease = it }
     }
 
-    fun release(released: Lease) {
+    fun release(released: Lease, reusable: Boolean = true) {
         if (lease !== released) return
         lease = null
         released.transport.recorder = null
+        if (!reusable) return disconnect("The scan stopped before the scanner was ready. Connect again to continue.")
         if (closeWhenReleased && !foreground) disconnect("Disconnected while the app was in the background.")
     }
 
@@ -270,8 +271,9 @@ class VehicleConnection(
             is IdentificationResult.Completed ->
                 ConnectionState.Ready(adapter, gen, VehicleStatus.Known(registry.resolve(result.evidence, null, services)), transcript)
             is IdentificationResult.Stopped -> {
-                if (result.reason == StopReason.DISCONNECTED)
-                    return teardown(ConnectionState.Disconnected(adapter, "The scanner connection ended during identification.", result.detail))
+                if (result.reason != StopReason.NO_PROTOCOL)
+                    return teardown(ConnectionState.Disconnected(adapter,
+                        "Identification stopped. Connect again to continue.", result.detail))
                 ConnectionState.Ready(adapter, gen, VehicleStatus.NoAnswer(noAnswer(result.reason), result.detail), transcript)
             }
         }

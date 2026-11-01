@@ -72,7 +72,7 @@ class VehicleStartupFlowTest {
         rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
         waitForText("Porsche · model not confirmed")
         rule.onNodeWithText("Porsche · from the VIN").assertExists()
-        rule.onNodeWithText("2014 · from the VIN").assertExists()
+        rule.onNodeWithText("2014 · from the VIN").assertDoesNotExist()
         rule.onNodeWithText("WP1" + "•".repeat(14) + " · hidden, not saved").assertExists()
         rule.onNodeWithText("Porsche features").performScrollTo()
         rule.onNodeWithText("Needs model confirmation").performScrollTo()
@@ -177,6 +177,40 @@ class VehicleStartupFlowTest {
         repeat(20) { ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS); Thread.sleep(5) }
         assertEquals("Subaru", context().make.entryOrNull!!.make)
         assertEquals(TestCars.IDENTIFY_WITH_VIN, brz.writes())
+    }
+
+    @Test fun vinTimeoutClosesConnectionBeforeNextScanAndCapture() {
+        val slow = ScriptedElmSocket(TestCars.cayenne, hold = setOf("0902")).also { sockets += it }
+        assertTrue(vm.chooseScanner(TEST_SCANNER))
+        idleUntil(10) { slow.writes().endsWith("0902\r") }
+        idleUntil(45, "identification timeout") { vm.connection.value !is ConnectionState.Identifying }
+        assertTrue("Timed-out identification must close its socket", slow.isClosed)
+        assertTrue(vm.connection.value is ConnectionState.Disconnected)
+        assertFalse(vm.startLive())
+        val clean = ScriptedElmSocket(TestCars.unidentified).also { sockets += it }
+        assertTrue(vm.connectVehicle())
+        idleUntil(20) { vm.connection.value is ConnectionState.Ready }
+        slow.release.countDown()
+        assertTrue(vm.startLive())
+        idleUntil(20) { vm.session.value is SessionState.Finished }
+        idleUntil(5) { vm.captures.value.isNotEmpty() }
+        val capture = vm.captures.value.values.last()
+        assertFalse(capture.contains("0902"))
+        assertFalse(capture.contains("57 50 31")) // synthetic WP1 VIN bytes
+        assertEquals(TestCars.IDENTIFY_WITH_VIN, slow.writes())
+        assertTrue(clean.writes().endsWith("03\r07\r"))
+    }
+
+    @Test fun cancelledScanClosesItsLeaseBeforeAnotherOperation() {
+        val car = ScriptedElmSocket(TestCars.unidentified, hold = setOf("03")).also { sockets += it }
+        vm.connectForTest()
+        assertTrue(vm.startLive())
+        idleUntil(10) { car.writes().endsWith("03\r") }
+        vm.cancelLiveConnect()
+        idleUntil(10) { vm.session.value is SessionState.Finished }
+        idleUntil(5) { vm.captures.value.isNotEmpty() }
+        assertTrue("Cancellation leaves an unfinished exchange; close the socket", car.isClosed)
+        assertTrue(vm.connection.value is ConnectionState.Disconnected)
     }
 
     @Test fun unavailableSavedScannerAndForget() {

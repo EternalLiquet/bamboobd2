@@ -56,8 +56,9 @@ class VehicleIdentifier(private val reader: ElmObdReader, private val budgetMill
                     else VehicleInfoDecoder.vin(reader.readVehicleInformation(VehicleRequest.VIN), form)
             }
         } catch (e: ReaderStoppedException) {
-            if (e.reason == StopReason.DISCONNECTED) return IdentificationResult.Stopped(e.reason, e.message.orEmpty())
-            VinRead.NotAvailable("VIN read stopped: ${e.message}")
+            // A missing prompt is not an unsupported VIN: the exchange may still be
+            // arriving. The owner must close this connection before another reader.
+            return IdentificationResult.Stopped(e.reason, e.message.orEmpty())
         }
         return IdentificationResult.Completed(VehicleEvidence(protocol, supported, vin))
     }

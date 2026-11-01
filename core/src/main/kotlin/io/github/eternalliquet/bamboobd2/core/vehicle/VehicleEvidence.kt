@@ -14,7 +14,7 @@ class Vin private constructor(internal val value: String) {
     /** World manufacturer identifier: the first three characters (ISO 3780). */
     val wmi: String get() = value.substring(0, 3)
 
-    /** Model-year code, position 10. */
+    /** Position 10; whether this is a model-year code depends on the applicable rules. */
     val yearCode: Char get() = value[9]
 
     /**
@@ -26,18 +26,8 @@ class Vin private constructor(internal val value: String) {
     /** Only the manufacturer code is shown; the serial part stays hidden. */
     fun masked(): String = wmi + "•".repeat(LENGTH - 3)
 
-    /** Model year from position 10, using position 7 to pick the 30-year cycle where that rule applies. */
-    fun modelYear(): YearEvidence {
-        val index = YEAR_CODES.indexOf(yearCode)
-        if (index < 0) return YearEvidence.Unknown("position 10 is not a model-year code")
-        val early = 1980 + index
-        val late = 2010 + index
-        return when {
-            value[6].isLetter() -> YearEvidence.FromVin(late, NORTH_AMERICA_RULE)
-            value[6].isDigit() -> YearEvidence.FromVin(early, NORTH_AMERICA_RULE)
-            else -> YearEvidence.Ambiguous(listOf(early, late), "position 7 does not select a cycle")
-        }
-    }
+    /** Market and vehicle-class applicability of a year rule are not established by a WMI or check digit. */
+    fun modelYear(): YearEvidence = YearEvidence.Unknown("VIN model-year rule applicability is not established")
 
     override fun equals(other: Any?): Boolean = other is Vin && other.value == value
     override fun hashCode(): Int = value.hashCode()
@@ -46,11 +36,6 @@ class Vin private constructor(internal val value: String) {
     companion object {
         const val LENGTH = 17
 
-        /** 49 CFR 565.15(b): position 7 alphabetic means 2010–2039, numeric means 1980–2009 (North American market). */
-        const val NORTH_AMERICA_RULE = "VIN position 10, North American position-7 rule"
-
-        // Model-year codes in order, 30-year cycle (ISO 3779 / 49 CFR 565.15); I, O, Q, U, Z and 0 are not used.
-        private const val YEAR_CODES = "ABCDEFGHJKLMNPRSTVWXY123456789"
         private val allowed = Regex("[A-HJ-NPR-Z0-9]{17}")
         private val weights = intArrayOf(8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2)
 
@@ -91,9 +76,9 @@ sealed interface VinRead {
 }
 
 /**
- * Generic evidence gathered on one connection: no manufacturer knowledge. A VIN gives
- * at most a manufacturer code and a model year; model, trim, market, engine, modules
- * and supported commands are never derived from it here.
+ * Generic evidence gathered on one connection: no manufacturer knowledge. A VIN supplies
+ * a manufacturer code. Year-rule applicability is unknown; model, trim, market, engine,
+ * modules and supported commands are never derived from it here.
  */
 data class VehicleEvidence(
     /** What ATDPN reported, e.g. "6: ISO 15765-4 CAN (11 bit ID, 500 kbaud), found by automatic search". */

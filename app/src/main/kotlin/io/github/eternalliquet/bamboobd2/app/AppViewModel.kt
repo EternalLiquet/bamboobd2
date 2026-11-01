@@ -36,6 +36,7 @@ import io.github.eternalliquet.bamboobd2.core.reader.ElmObdReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeReader
 import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 import io.github.eternalliquet.bamboobd2.core.model.SessionRecord
+import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.session.SessionController
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
@@ -421,8 +422,10 @@ class AppViewModel @JvmOverloads constructor(
         }
         _live.value = LiveState.Started
         liveJob = viewModelScope.launch {
+            var completed = false
             try {
                 val finished = controller.state.first { it is SessionState.Finished } as SessionState.Finished
+                completed = finished.record.outcome == SessionOutcome.COMPLETE
                 val id = finished.record.id
                 val scopeLabel = when (selectedScope) {
                     ReadScope.CODES_ONLY -> "codes-only (L2) session"
@@ -432,9 +435,9 @@ class AppViewModel @JvmOverloads constructor(
                     "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
                 _captures.update { it + (id to recorder.json(id, source)) }
             } finally {
-                // The connection stays open for the next scan; the Started hand-off stays
-                // until the screen acknowledges it.
-                vehicle.release(lease)
+                // A cancelled/failed reader may still be awaiting a terminal prompt.
+                // Do not give that socket to a new reader or its capture recorder.
+                vehicle.release(lease, reusable = completed)
             }
         }
         return true

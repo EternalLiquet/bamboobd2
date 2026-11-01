@@ -6,7 +6,7 @@ This page describes what [epic #66](https://github.com/EternalLiquet/bamboobd2/i
 
 1. **Generic code is ready at launch.** The catalog, decoders, reader and the bundled manufacturer list are plain classes loaded with the app. Nothing waits for identification, and practice and saved sessions work without a scanner.
 2. **Saved scanner.** On a normal launch (`MainActivity` `ON_START`, once per ViewModel) the app tries the saved scanner once. With none saved, the home screen offers **Choose scanner**, which lists paired devices. Picking one saves it and starts the same connection flow. Bluetooth off, permission needed or denied, no Bluetooth, the saved scanner no longer paired, the experiment's power-cycle guard, and another tool using the scanner each show one plain message and one action. A startup attempt that was blocked runs once when the block clears (for example after granting permission). Nothing else reconnects by itself.
-3. **Identify.** On a new connection the app runs one bounded, generic identification sequence (below) and shows what it learned: make, model year and VIN, each with its source, plus the model if the user confirmed it.
+3. **Identify.** On a new connection the app runs one bounded, generic identification sequence (below) and shows what it learned: make and masked VIN, with model year explicitly unknown, plus the model if the user confirmed it.
 4. **Manufacturer service.** If the VIN's manufacturer code maps to a bundled manufacturer, that manufacturer's service object is created and its capabilities are evaluated. Otherwise the car stays "not identified" and only generic scanning is offered.
 5. **Every connection starts over.** Disconnect, connection loss, cancel, a new scanner, *Identify again* or backgrounding ends the connection's generation. Its identity, model confirmation, service and results are dropped, and a late reply from the old generation is ignored.
 
@@ -29,12 +29,12 @@ Limits, chosen to be conservative rather than complete:
 - Legacy protocols (J1850, ISO 9141-2, KWP) send the VIN in a different multi-message layout that is not implemented. Those cars get no `0900`/`0902` and stay unidentified unless the user chooses a vehicle.
 - The whole identification has a 120 s limit (`VehicleIdentifier.BUDGET_MILLIS`); discovery keeps its own 180 s cap inside it. At most two Mode 09 requests per attempt, plus the reader's one retry after a missed deadline.
 - Responders that return different valid VINs produce *Modules reported different VINs*; neither is chosen.
-- The model year comes from VIN position 10, using the North American position-7 rule (49 CFR 565.15) to pick the 30-year cycle. It is labelled "from the VIN". The check digit is computed and reported in details only; outside North America a mismatch is normal.
-- A VIN gives at most the manufacturer and model year. **Model, trim, market, engine, modules and supported commands are never derived from it.** The model is a user confirmation for the current connection.
+- Model year stays **Unknown**: the app has not established market and vehicle-class applicability of the North American position-7 year-cycle rule. Neither WMI nor a matching check digit establishes that applicability. No year-based profile exclusion is made from this unverified inference.
+- A VIN supplies the manufacturer code; model year remains unknown. **Model, trim, market, engine, modules and supported commands are never derived from it.** The model is a user confirmation for the current connection.
 
 ## Privacy
 
-The VIN stays in memory for the connection. `Vin.toString()` is masked; the screen shows only the manufacturer code (`WP1••••••••••••••`). It is never saved, logged, put in a session record, or included in a scan's raw capture: each scan's capture recorder is attached when that scan starts, after identification. The identification transcript in technical details replaces the `0902` reply with its length.
+The VIN stays in memory for the connection. `Vin.toString()` is masked; the screen shows only the manufacturer code (`WP1••••••••••••••`). It is never saved, logged, put in a session record, or included in a scan's raw capture: each scan's capture recorder is attached when that scan starts, after identification. A timeout or other interrupted identification closes the socket before a scan can attach a recorder; the user must reconnect. Prompt-terminated unsupported/no-data VIN replies still allow generic scanning. Cancelled or failed scans likewise close their socket. The identification transcript in technical details replaces the `0902` reply with its length.
 
 The saved scanner's name and Bluetooth address are kept in app-private `SharedPreferences` (`saved-adapter`); `android:allowBackup="false"` keeps them out of backups. The address is left out of `SavedAdapter.toString()` and is never written to records, captures, reports or logs. **Forget scanner** clears both values.
 
@@ -54,7 +54,7 @@ The saved scanner's name and Bluetooth address are kept in app-private `SharedPr
 
 **Capabilities.** Each `CapabilityDefinition` lists requirements (`Make`, `Profile`, `Module`), an implementation (`None` with a reason, or `ResearchExperiment`) and its source. Evaluation gives `RESEARCH_ONLY`, `NEEDS_CONFIRMATION` or `UNAVAILABLE`, always with a reason. `Module` requirements are never met yet because the app collects no module identity, so manual selection cannot unlock them.
 
-**Manual choice.** When no VIN was read, the user may choose a bundled vehicle; it is marked "your choice". When a VIN was read, only that manufacturer's profiles whose years fit are offered. A VIN with an unrecognized manufacturer code offers none. The choice lasts for the connection only.
+**Manual choice.** When no VIN was read, the user may choose a bundled vehicle; it is marked "your choice". When a VIN was read, that manufacturer's profiles are offered for manual confirmation, without excluding them using an unverified VIN year. A VIN with an unrecognized manufacturer code offers none. The choice lasts for the connection only.
 
 ## Bundled manufacturers today
 

@@ -261,7 +261,7 @@ class LiveReadTest {
     }
 
     @Test
-    fun anAdapterThatNeverAnswersEndsAsAFailedLiveSessionOnTheSessionScreen() {
+    fun anAdapterThatNeverAnswersRequiresReconnectBeforeScanning() {
         // The real Android socket path, to Robolectric's shadow socket, which never answers.
         val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
         val app = vm.getApplication<Application>()
@@ -277,22 +277,15 @@ class LiveReadTest {
             rule.onAllNodes(hasText("Paired devices", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
-        // Identification's ATE0 gets no prompt: it stops after the deadline and resync window,
-        // and the home screen says so plainly. Generic scanning is still offered.
+        // No terminal prompt means the socket cannot safely be lent to a scan.
         rule.waitUntil(40_000) {
             ShadowLooper.idleMainLooper(200, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Connected, but the car didn't answer")).fetchSemanticsNodes().isNotEmpty()
+            vm.connection.value is ConnectionState.Disconnected
         }
-        rule.onNodeWithText("The scanner stopped answering during identification.").assertExists()
-        rule.onNodeWithText("Scan this car").performScrollTo().performClick()
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
-        rule.onNodeWithText("Start").performScrollTo().performClick()
-        // The scan's ATE0 also gets no prompt: the reader waits its deadline and the resync window, then stops.
-        rule.waitUntil(40_000) {
-            ShadowLooper.idleMainLooper(200, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Stopped by an error: nothing was read")).fetchSemanticsNodes().isNotEmpty()
-        }
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE — data read from a connected adapter")
-        rule.onNodeWithText("Copy raw capture for review").performScrollTo()
+        rule.onNodeWithText("Identification stopped. Connect again to continue.").assertExists()
+        rule.onNodeWithText("Connect").performScrollTo().assertExists()
+        rule.onNodeWithText("Scan this car").assertIsNotEnabled()
+        assertFalse(vm.startLive())
+        assertEquals(SessionState.Idle, vm.session.value)
     }
 }

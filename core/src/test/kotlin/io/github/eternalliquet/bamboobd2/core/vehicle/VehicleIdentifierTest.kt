@@ -24,13 +24,38 @@ import org.junit.Test
  */
 class VehicleIdentifierTest {
 
+    @Test fun wholeAttemptTimeoutDuringVinRequiresConnectionTeardown() = runTest {
+        val steps = discovery + support(0x40) + step("0902", 2_000L to frames("7E8", CAYENNE) + "\r>")
+        val transport = ReplayTransport(ReplayScript("t", "t", "SYNTHETIC", "constructed", "VehicleIdentifierTest", steps = steps), testScheduler.timeSource)
+        val result = VehicleIdentifier(ElmObdReader(transport, "synthetic"), budgetMillis = 600).identify()
+        assertTrue("The budget expired while VIN was outstanding", transport.writes.last() == "0902")
+        assertEquals(StopReason.NO_RESPONSE, (result as IdentificationResult.Stopped).reason)
+        assertTrue(result.detail.contains("did not finish"))
+    }
+
+    @Test fun missingVinPromptStopsIdentificationInsteadOfReturningUsableEvidence() = runTest {
+        val run = identify(discovery + support(0x40) + step("0902", 10L to frames("7E8", CAYENNE)))
+        assertTrue("An unfinished VIN exchange must not become Completed", run.result is IdentificationResult.Stopped)
+        assertEquals(StopReason.NO_RESPONSE, (run.result as IdentificationResult.Stopped).reason)
+    }
+
+    @Test fun unknownMarketCannotAssertYearOrExcludeManualProfile() {
+        for (vin in listOf(CAYENNE, CAYENNE.replaceRange(6, 7, "2"), BRZ)) {
+            assertTrue(Vin.parse(vin)!!.modelYear() is YearEvidence.Unknown)
+        }
+        val evidence = VehicleEvidence(null, SupportedPids.Unknown,
+            VinRead.Read(Vin.parse(CAYENNE.replaceRange(6, 7, "2"))!!, listOf("7E8")))
+        val context = ManufacturerRegistry.BUNDLED.resolve(evidence, Porsche.CAYENNE_92A.id)
+        assertEquals(Porsche.CAYENNE_92A, context.profile)
+    }
+
     @Test
     fun canVinGivesMakeAndYearButLeavesModelToTheUser() = runTest {
         val run = identify(discovery + support(0x40) + vinStep("7E8", CAYENNE))
         val evidence = (run.result as IdentificationResult.Completed).evidence
         val vin = (evidence.vin as VinRead.Read).vin
         assertEquals("WP1", vin.wmi)
-        assertEquals(YearEvidence.FromVin(2014, Vin.NORTH_AMERICA_RULE), evidence.modelYear)
+        assertTrue(evidence.modelYear is YearEvidence.Unknown)
         assertEquals(listOf<String?>("7E8"), evidence.responders)
         assertTrue(evidence.protocol!!.startsWith("6: ISO 15765-4 CAN"))
         // The bounded sequence: setup, discovery, one support read, one VIN read; nothing else.
@@ -41,7 +66,7 @@ class VehicleIdentifierTest {
         val context = ManufacturerRegistry.BUNDLED.resolve(evidence)
         assertEquals(Porsche.MAKE, (context.make as MakeEvidence.FromVin).entry.make)
         assertEquals(null, context.profile)
-        assertEquals(listOf(Porsche.CAYENNE_92A), context.selectableProfiles(ManufacturerRegistry.BUNDLED))
+        assertEquals(Porsche.entry.profiles, context.selectableProfiles(ManufacturerRegistry.BUNDLED))
         assertEquals(CapabilityStatus.NEEDS_CONFIRMATION, context.capabilities.first().status)
     }
 
@@ -117,8 +142,8 @@ class VehicleIdentifierTest {
 
     @Test
     fun yearRuleAndCheckDigit() {
-        assertEquals(YearEvidence.FromVin(2013, Vin.NORTH_AMERICA_RULE), Vin.parse(BRZ)!!.modelYear())
-        assertEquals(YearEvidence.FromVin(2003, Vin.NORTH_AMERICA_RULE), Vin.parse("1HGCM82633A000001")!!.modelYear())
+        assertTrue(Vin.parse(BRZ)!!.modelYear() is YearEvidence.Unknown)
+        assertTrue(Vin.parse("1HGCM82633A000001")!!.modelYear() is YearEvidence.Unknown)
         // Public worked example of the 49 CFR 565.15 check digit.
         assertTrue(Vin.parse("1M8GDM9AXKP042788")!!.checkDigitMatches)
         assertFalse(Vin.parse("1M8GDM9A1KP042788")!!.checkDigitMatches)
