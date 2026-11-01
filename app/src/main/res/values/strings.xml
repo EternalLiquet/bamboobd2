@@ -29,7 +29,7 @@
     <string name="recording_title">Live recording</string>
     <string name="recording_option">Live recording (up to four readings)</string>
     <string name="recording_banner">LIVE — generic emissions readings; no clearing</string>
-    <string name="recording_explainer">Prepare once, choose one to four positively supported generic Mode 01 readings, then record for at most ten minutes. Responders are separate; this software path has not been vehicle tested.</string>
+    <string name="recording_explainer">Prepare once, choose one to four positively supported generic Mode 01 readings, then record for at most ten minutes. When recording ends, reconnect from Home before scanning again. Responders are separate; this software path has not been vehicle tested.</string>
     <string name="recording_connecting">Preparing…</string>
     <string name="recording_setup_ended">Recording setup ended. Go back to start another scan.</string>
     <string name="recording_preparing">Preparing support and codes…</string>
@@ -347,7 +347,7 @@
     <string name="vc_choose_vehicle">Choose vehicle</string>
     <string name="vc_change_model">Change model</string>
     <string name="vc_model_dialog_title">Which car is this?</string>
-    <string name="vc_model_dialog_vin">The VIN gives the maker and year, not the exact model. Your choice applies to this connection only.</string>
+    <string name="vc_model_dialog_vin">The VIN identifies the maker. The year remains unknown, and you confirm the model. Your choice applies to this connection only.</string>
     <string name="vc_model_dialog_manual">The VIN wasn\'t read, so the maker is unknown. Your choice is marked as yours, applies to this connection only, and can\'t unlock features that need module checks.</string>
     <string name="vc_model_none">None of these</string>
     <string name="vc_model_no_options">No model this app knows matches the VIN.</string>

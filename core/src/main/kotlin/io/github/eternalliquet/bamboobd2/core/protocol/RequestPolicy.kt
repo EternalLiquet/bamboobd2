@@ -62,13 +62,15 @@ enum class VehicleRequest(val text: String) {
 
     /**
      * Mode 09 PID 00: which vehicle-information PIDs each responder supports (SAE J1979 /
-     * ISO 15031-5 Service 09). Read-only. Sent once per identification, after 0100.
+     * ISO 15031-5 Service 09). Read-only. Queried once per identification, after
+     * 0100, with the reader's single retry after passive resynchronization.
      */
     VEHICLE_INFO_SUPPORTED("0900"),
 
     /**
      * Mode 09 PID 02: the vehicle identification number (same standard). Read-only and
-     * sent at most once per identification, only when a responder advertises PID 02.
+     * queried only when a responder advertises PID 02, with the reader's single
+     * retry after passive resynchronization.
      * The reply is private: see docs/VEHICLE_STARTUP.md for its handling.
      */
     VIN("0902"),

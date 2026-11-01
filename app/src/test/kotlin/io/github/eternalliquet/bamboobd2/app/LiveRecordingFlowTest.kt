@@ -17,6 +17,7 @@ import androidx.lifecycle.ViewModelProvider
 import io.github.eternalliquet.bamboobd2.app.bluetooth.*
 import io.github.eternalliquet.bamboobd2.app.connection.ConnectionState
 import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
+import io.github.eternalliquet.bamboobd2.core.manufacturer.porsche.Porsche
 import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
 import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 import io.github.eternalliquet.bamboobd2.core.storage.StoredSession
@@ -35,13 +36,13 @@ import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 class LiveRecordingFlowTest {
-    private fun newSocket(gated: Boolean = false) = ScriptedElmSocket(mapOf(
+    private fun newSocket(gated: Boolean = false, hold: Set<String> = emptySet()) = ScriptedElmSocket(mapOf(
         "ATE0" to "ATE0\rOK\r\r>", "ATL0" to "OK\r\r>", "ATH1" to "OK\r\r>", "ATSP0" to "OK\r\r>",
         "0100" to "7E8 06 41 00 18 1C 00 00\r\r>", "ATDPN" to "A6\r\r>", "0900" to "NO DATA\r\r>",
         "03" to "7E8 02 43 00\r\r>", "07" to "7E8 02 47 00\r\r>",
         "0104" to "7E8 03 41 04 80\r\r>", "0105" to "7E8 03 41 05 7B\r\r>",
         "010C" to "7E8 04 41 0C 1A F8\r\r>", "010D" to "7E8 03 41 0D 00\r\r>",
-    ), gatedConnect = gated)
+    ), gatedConnect = gated, hold = hold)
     private var socket = newSocket()
     @get:Rule(order = 0) val platform = object : ExternalResource() {
         private lateinit var previous: (android.app.Application) -> BluetoothPlatform
@@ -86,6 +87,37 @@ class LiveRecordingFlowTest {
         listOf("04", "05", "0C", "0D").forEach { pid ->
             rule.onNodeWithTag("recording_pid_$pid").performScrollTo().performClick()
         }
+    }
+
+    @Test fun stoppingDuringAReplyClosesTheConnectionBeforeAnotherScan() {
+        socket = newSocket(hold = setOf("0104"))
+        enter()
+        rule.runOnUiThread { assertTrue(vm.startSelectedRecording(listOf("04"))) }
+        until(10) { socket.writes().endsWith("0104\r") }
+        rule.runOnUiThread { vm.stopRecording() }
+        until(5) { vm.recording.value is LiveReadState.Finished && !vm.vehicle.leased }
+        assertTrue("An unfinished reply must not survive recording teardown", socket.isClosed)
+        assertTrue(vm.connection.value is ConnectionState.Disconnected)
+        assertEquals(LiveStopReason.USER, (vm.recording.value as LiveReadState.Finished).record.recording!!.stopReason)
+        val stoppedWrites = socket.writes()
+        rule.runOnUiThread {
+            vm.discardPendingRecording()
+            assertFalse("A new scan requires an explicit reconnect", vm.startLive())
+        }
+        assertWritesStayUnchanged(stoppedWrites)
+    }
+
+    @Test fun failedRecordingPreparationClosesTheConnection() {
+        socket = ScriptedElmSocket(TestCars.cayenne + ("03" to "LV RESET\r\r>"))
+        vm.connectForTest()
+        vm.confirmProfile(Porsche.CAYENNE_92A.id)
+        assertNotNull(vm.experimentAdapter())
+        rule.runOnUiThread { assertTrue(vm.startRecording()) }
+        until(15) { vm.recording.value is LiveReadState.Finished && !vm.vehicle.leased }
+        assertEquals(LiveStopReason.FAILED, (vm.recording.value as LiveReadState.Finished).record.recording!!.stopReason)
+        assertTrue("An adapter reset invalidates this connection and its identity", socket.isClosed)
+        assertTrue(vm.connection.value is ConnectionState.Disconnected)
+        assertNull(vm.experimentAdapter())
     }
 
     @Test fun fourReadingControlsStopWritesAndSavePartial() {
@@ -133,8 +165,8 @@ class LiveRecordingFlowTest {
         enter()
         rule.runOnUiThread { vm.stopRecording(); vm.discardPendingRecording() }
         until(5) { vm.recording.value is LiveReadState.Finished && !vm.vehicle.leased }
-        // The recording ended; the vehicle connection did not.
-        assertFalse(socket.isClosed)
+        // Recording teardown closes the stream, even when stopped from Ready.
+        assertTrue(socket.isClosed)
         val oldId = (vm.recording.value as LiveReadState.Finished).record.id
         listOf<() -> Unit>({ vm.disconnectVehicle() }, { vm.onAppBackgrounded() }).forEach { cancel ->
             rule.runOnUiThread { vm.disconnectVehicle(); vm.onAppForegrounded() }

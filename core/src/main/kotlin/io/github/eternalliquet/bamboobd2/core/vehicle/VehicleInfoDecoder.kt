@@ -70,12 +70,14 @@ object VehicleInfoDecoder {
             val pending = listOf(0x7F, 0x09, 0x78)
             val byEcu = parsed.messages.groupBy { it.ecu }
             val finals = byEcu.mapNotNull { (_, list) ->
+                // An earlier answer cannot resolve a later pending response.
+                if (list.last().bytes == pending) return@mapNotNull null
                 val answers = list.filter { it.bytes != pending }
                 answers.singleOrNull()?.takeIf { it.bytes.getOrNull(0) != 0x7F && it.bytes.getOrNull(1) == pid }
             }
             when {
                 finals.isNotEmpty() -> Finals.Messages(finals)
-                parsed.messages.all { it.bytes == pending } -> Finals.None("response pending, no final reply")
+                byEcu.values.any { it.last().bytes == pending } -> Finals.None("response pending, no final reply")
                 parsed.messages.any { it.bytes.firstOrNull() == 0x7F } -> Finals.None("negative response")
                 else -> Finals.None("unexpected reply")
             }

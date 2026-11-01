@@ -2,8 +2,8 @@ package io.github.eternalliquet.bamboobd2.core.manufacturer
 
 /**
  * A model line/generation that a manufacturer entry can recognize. Selecting one is
- * always a confirmation by the user: a VIN gives the manufacturer and model year here,
- * never the model. Years are model years.
+ * always a confirmation by the user: a VIN gives the manufacturer here; its model
+ * year remains unknown. Profile ranges describe model years.
  */
 data class VehicleProfile(
     val id: String,

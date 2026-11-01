@@ -133,6 +133,7 @@ class LiveReadTest {
         val requests = Regex(""""request": "([^"]+)"""").findAll(capture).map { it.groupValues[1] }.toList()
         assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), requests)
         assertTrue(capture.contains("codes-only (L2) session"))
+        assertTrue("The per-scan recorder must capture replies as well as requests", capture.contains("7E8 04 43 01 01 33"))
         // No device identifiers in what is kept or shared.
         val saved = io.github.eternalliquet.bamboobd2.core.storage.SessionCodec.encode(record)
         for (identifier in listOf(device.address, device.name)) {
@@ -148,6 +149,23 @@ class LiveReadTest {
         assertEquals(LiveState.Idle, vm.live.value)
         vm.disconnectVehicle()
         assertTrue("disconnect closes the socket", socket.closed.await(5, TimeUnit.SECONDS))
+    }
+
+    @Test fun changingCaptureRecordersKeepsVinRepliesOutOfGenericExports() {
+        val socket = ScriptedElmSocket(TestCars.cayenne)
+        val vm = scan(socket)
+        try {
+            val ready = vm.connection.value as ConnectionState.Ready
+            assertTrue("Identification must retain a redacted reply transcript", ready.transcript.contains("[VIN reply hidden,"))
+            assertFalse(ready.transcript.contains("7E8 10 14 49 02 01"))
+            val id = (vm.session.value as SessionState.Finished).record.id
+            idleUntil(5) { id in vm.captures.value }
+            val capture = vm.captures.value.getValue(id)
+            assertTrue("The scan must retain its own replies", capture.contains("7E8 02 43 00"))
+            assertFalse("VIN frames belong only to identification", capture.contains("7E8 10 14 49 02 01"))
+            assertFalse(capture.contains(TestCars.CAYENNE_VIN))
+            assertFalse(capture.contains("0902"))
+        } finally { vm.disconnectVehicle() }
     }
 
     @Test

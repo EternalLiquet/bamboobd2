@@ -38,7 +38,7 @@ class VehicleIdentifier(private val reader: ElmObdReader, private val budgetMill
     private suspend fun run(): IdentificationResult {
         val supported = try {
             reader.open()
-            reader.readSupportedPids()
+            reader.readSupportedPids().also { reader.checkDiscoveryCompleted() }
         } catch (e: ReaderStoppedException) {
             return IdentificationResult.Stopped(e.reason, e.message.orEmpty())
         }

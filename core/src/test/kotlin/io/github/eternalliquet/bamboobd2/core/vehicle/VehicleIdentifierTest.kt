@@ -50,7 +50,7 @@ class VehicleIdentifierTest {
     }
 
     @Test
-    fun canVinGivesMakeAndYearButLeavesModelToTheUser() = runTest {
+    fun canVinGivesMakeButLeavesYearUnknownAndModelToTheUser() = runTest {
         val run = identify(discovery + support(0x40) + vinStep("7E8", CAYENNE))
         val evidence = (run.result as IdentificationResult.Completed).evidence
         val vin = (evidence.vin as VinRead.Read).vin
@@ -106,6 +106,20 @@ class VehicleIdentifierTest {
         assertEquals(null, context.service)
     }
 
+    @Test fun aPendingReplyAfterTheVinDoesNotEstablishIdentity() = runTest {
+        val pending = "7E8 03 7F 09 78\r"
+        val final = frames("7E8", CAYENNE)
+        for ((reply, complete) in listOf(pending + final to true, final + pending to false)) {
+            val run = identify(discovery + support(0x40) + step("0902", 10L to "$reply\r>"))
+            val evidence = (run.result as IdentificationResult.Completed).evidence
+            if (complete) assertTrue(evidence.vin is VinRead.Read)
+            else {
+                assertEquals(VinRead.NotAvailable("response pending, no final reply"), evidence.vin)
+                assertTrue(ManufacturerRegistry.BUNDLED.resolve(evidence).make is MakeEvidence.Unknown)
+            }
+        }
+    }
+
     @Test
     fun truncatedOrInvalidVinRepliesAreNotEvidence() = runTest {
         val full = frames("7E8", CAYENNE)
@@ -126,6 +140,17 @@ class VehicleIdentifierTest {
         val evidence = (run.result as IdentificationResult.Completed).evidence
         assertEquals("VIN support unknown: ${VehicleInfoDecoder.CAN_ONLY}", (evidence.vin as VinRead.NotAvailable).reason)
         assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN"), run.transport.writes)
+    }
+
+    @Test fun unfinishedLegacyDiscoveryAlsoRequiresTeardown() = runTest {
+        val run = identify(init + listOf(
+            step("0100", 20L to "48 6B 10 41 00 80 00 00 01 AA\r\r>"),
+            step("ATDPN", 10L to "A3\r\r>"),
+            step("0120", 10L to "48 6B 10 41 20 00 00 00 00 AA\r"),
+        ))
+        assertTrue("A partial support map must not hide an unfinished exchange", run.result is IdentificationResult.Stopped)
+        assertEquals(StopReason.NO_RESPONSE, (run.result as IdentificationResult.Stopped).reason)
+        assertFalse(run.transport.writes.any { it.startsWith("09") })
     }
 
     @Test

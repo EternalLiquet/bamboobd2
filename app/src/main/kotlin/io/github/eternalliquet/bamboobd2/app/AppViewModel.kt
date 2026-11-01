@@ -219,7 +219,11 @@ class AppViewModel @JvmOverloads constructor(
                 try {
                     liveController.state.first { it is LiveReadState.Finished }
                 } finally { disconnectWatch.cancel() }
-            } finally { vehicle.release(lease) }
+            } finally {
+                // USER and duration-limit finishes can interrupt a reply even when
+                // the record's outcome is COMPLETE. Never reuse that byte stream.
+                vehicle.release(lease, reusable = false)
+            }
         }
         return true
     }

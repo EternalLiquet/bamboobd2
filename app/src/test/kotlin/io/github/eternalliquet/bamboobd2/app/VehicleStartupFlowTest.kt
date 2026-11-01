@@ -65,6 +65,25 @@ class VehicleStartupFlowTest {
 
     private fun context() = ((vm.connection.value as ConnectionState.Ready).vehicle as VehicleStatus.Known).context
 
+    @Test fun latePermissionResultCannotOpenASecondConnection() {
+        val car = ScriptedElmSocket(TestCars.cayenne).also { sockets += it }
+        val unexpected = ScriptedElmSocket(TestCars.brz).also { sockets += it }
+        try {
+            vm.connectForTest()
+            vm.confirmProfile(Porsche.CAYENNE_92A.id)
+            val ready = vm.connection.value
+            rule.runOnUiThread { vm.onConnectionPermissionResult(true) }
+            assertEquals("Permission delivery cannot replace an already ready connection", ready, vm.connection.value)
+            assertEquals(1, opened.size)
+            assertFalse(car.isClosed)
+            assertTrue(unexpected.writes().isEmpty())
+        } finally {
+            vm.disconnectVehicle()
+            car.close()
+            unexpected.close()
+        }
+    }
+
     @Test fun firstRunSetupIdentifiesAndConfirmationTouchesNoTransport() {
         val car = ScriptedElmSocket(TestCars.cayenne).also { sockets += it }
         rule.onNodeWithText("Set up your scanner").assertExists()

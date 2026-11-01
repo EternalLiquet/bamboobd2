@@ -109,6 +109,12 @@ class ElmObdReader(
     override fun takeNotes(): List<ReaderNote> = notes.toList().also { notes.clear() }
 
     /**
+     * Discovery retains partial support maps after a transport failure. An owner
+     * that plans no further query must still check before reusing the connection.
+     */
+    internal fun checkDiscoveryCompleted() { discoveryStop?.let { throw it } }
+
+    /**
      * Echo off, linefeeds off, headers on, automatic protocol; each must answer OK.
      * `ATSP0` replaces any fixed protocol an earlier app stored, which otherwise makes
      * a car on another protocol fail with "BUS INIT: ...ERROR" (ELM327DSJ p26).

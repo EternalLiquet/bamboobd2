@@ -31,4 +31,4 @@ Start #67 in `AppViewModel.kt`, `bluetooth/BluetoothClassic.kt`, `MainActivity.k
 
 The issue bodies were written against earlier snapshots and may still call PR65 a draft. Use the merged baseline above and recheck master before implementing. Known separate runtime wording/timing follow-up: after the v5 FC attempt, `NO DATA` is reported as malformed CAN/unexpected text. That message obscures an incomplete/no-continuation outcome; it does not prove a bad vehicle or incompatible hardware. An ECU flow-control timeout is plausible but unproven. Keep any fix separately scoped.
 
-Known separate UI-copy follow-up: `app/src/main/res/values/strings.xml`'s `live_explainer` still describes the original `0100,03,07` sequence and roughly one-minute preparation; current discovery can follow up to eight support pages within 180 seconds. This documentation audit does not change product strings or runtime behavior.
+Resolved by epic #66: `app/src/main/res/values/strings.xml`'s `live_explainer` now describes advertised support-page discovery and its 180-second limit.

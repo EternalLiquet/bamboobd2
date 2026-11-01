@@ -143,7 +143,9 @@ class BluetoothClassicTransport internal constructor(
                     if (n < 0) break
                     if (n > 0) {
                         val chunk = buffer.copyOf(n)
-                        recorder?.onRead(chunk)
+                        // Read the current per-operation property, not the constructor
+                        // parameter captured by this initializer.
+                        this@BluetoothClassicTransport.recorder?.onRead(chunk)
                         chunks.send(chunk)
                     }
                 }

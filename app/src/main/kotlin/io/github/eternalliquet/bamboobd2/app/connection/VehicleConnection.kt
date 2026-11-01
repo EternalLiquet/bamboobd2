@@ -150,7 +150,9 @@ class VehicleConnection(
     /** User-requested connection (or the startup attempt). Never retries by itself. */
     fun connect(permissionDenied: Boolean = false): Boolean {
         val adapter = store.load() ?: run { _state.value = ConnectionState.NotSetUp; return false }
-        if (isBusy()) return false
+        // A late permission/startup callback must not replace an owned socket.
+        // choose() explicitly tears down the old connection before reaching here.
+        if (isBusy() || transport != null) return false
         blockerFor(adapter, permissionDenied)?.let { _state.value = ConnectionState.Blocked(adapter, it); return false }
         startupPending = false
         val gen = ++generation
@@ -226,7 +228,7 @@ class VehicleConnection(
         if (lease !== released) return
         lease = null
         released.transport.recorder = null
-        if (!reusable) return disconnect("The scan stopped before the scanner was ready. Connect again to continue.")
+        if (!reusable) return disconnect("The scanner connection was closed. Connect again to continue.")
         if (closeWhenReleased && !foreground) disconnect("Disconnected while the app was in the background.")
     }
 
