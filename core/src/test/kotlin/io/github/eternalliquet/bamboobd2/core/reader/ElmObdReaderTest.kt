@@ -349,7 +349,7 @@ class ElmObdReaderTest {
     @Test
     fun scriptsWithUnapprovedRequestsOrIncompleteCaptureMetadataAreRejected() {
         assertTrue(script(listOf(step("ATZ"))).problems().any { "ATZ" in it })
-        assertTrue(script(listOf(step("0902"))).problems().isNotEmpty())
+        assertTrue(script(listOf(step("0904"))).problems().isNotEmpty())
         assertTrue(script(emptyList()).copy(provenance = "SANITIZED_CAPTURE").problems().any { "sha256" in it })
         assertTrue(script(emptyList()).copy(provenance = "LIVE").problems().isNotEmpty())
     }

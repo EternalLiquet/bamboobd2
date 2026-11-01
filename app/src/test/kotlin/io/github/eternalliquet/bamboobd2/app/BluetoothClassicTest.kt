@@ -18,6 +18,7 @@ import io.github.eternalliquet.bamboobd2.core.protocol.AdapterCommand
 import io.github.eternalliquet.bamboobd2.core.protocol.RequestPolicy
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportKind
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticLog
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -237,5 +238,51 @@ class BluetoothClassicTest {
         val paired = ShadowBluetoothDevice.newInstance("00:11:22:33:44:55").also { shadowOf(it).setName("VEEPEAK") }
         shadowOf(adapter).setBondedDevices(setOf(paired))
         assertEquals(BluetoothAvailability.Ready(listOf(BondedDevice("VEEPEAK", "00:11:22:33:44:55"))), platform.availability())
+    }
+
+    @Test fun diagnosticWritesDistinguishQueuedCancellationFromSocketCompletion() = runBlocking {
+        kotlinx.coroutines.supervisorScope {
+            for (cancelBeforeIo in listOf(true, false)) {
+                val pending = java.util.ArrayDeque<Runnable>()
+                val io = object : kotlinx.coroutines.CoroutineDispatcher() {
+                    override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { pending.add(block) }
+                }
+                val bytes = ByteArrayOutputStream()
+                val socket = object : RfcommSocket {
+                    override fun connect() = Unit
+                    override val input = java.io.ByteArrayInputStream(byteArrayOf())
+                    override val output = bytes
+                    override fun close() = Unit
+                }
+                var time = 0L
+                val log = DiagnosticLog(
+                    java.nio.file.Files.createTempDirectory("write-log").toFile(), emptyMap(), monoNanos = { time })
+                val session = log.startSession("vehicle", "test")
+                val transport = BluetoothClassicTransport(socket, io, traffic = session)
+                val writing = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                    transport.write(RequestPolicy.adapter(AdapterCommand.ECHO_OFF))
+                }
+                if (cancelBeforeIo) transport.close()
+                time = 5_000_000_000L
+                while (pending.isNotEmpty()) pending.remove().run()
+                if (cancelBeforeIo) {
+                    try { writing.await(); fail("closed write succeeded") } catch (_: TransportClosedException) { }
+                } else writing.await()
+                transport.close(); session.end("done")
+                val json = org.json.JSONObject(log.export().json!!)
+                val events = json.getJSONArray("sessions").getJSONObject(0).getJSONArray("events")
+                val records = (0 until events.length()).map { events.getJSONObject(it) }
+                assertTrue(records.any { it.getString("kind") == "write_attempt" })
+                val completed = records.filter { it.getString("kind") == "write_completed" }
+                if (cancelBeforeIo) {
+                    assertEquals("", bytes.toString("US-ASCII"))
+                    assertTrue(completed.isEmpty())
+                } else {
+                    assertEquals("ATE0\r", bytes.toString("US-ASCII"))
+                    assertEquals(5000L, completed.single().getLong("tMs"))
+                    assertEquals(5000L, records.single { it.getString("kind") == "write_started" }.getLong("tMs"))
+                }
+            }
+        }
     }
 }

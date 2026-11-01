@@ -9,6 +9,8 @@ import android.os.Build
 import io.github.eternalliquet.bamboobd2.core.bench.AdapterBenchCheck
 import io.github.eternalliquet.bamboobd2.core.bench.BenchResult
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
+import io.github.eternalliquet.bamboobd2.core.diagnostics.TrafficSink
+import io.github.eternalliquet.bamboobd2.core.storage.DiagnosticLog
 import io.github.eternalliquet.bamboobd2.core.protocol.AdapterTransport
 import io.github.eternalliquet.bamboobd2.core.protocol.Request
 import io.github.eternalliquet.bamboobd2.core.protocol.TransportClosedException
@@ -38,7 +40,11 @@ import kotlinx.coroutines.launch
  * app only lists bonded devices. Sources and permissions: docs/BLUETOOTH_TRANSPORT.md.
  */
 
-/** A paired device as listed to the user. The address is used to connect and is never stored. */
+/**
+ * A paired device as listed to the user. The address is used to connect; only the saved
+ * scanner's address is kept, in app-private preferences (connection/SavedAdapterStore.kt).
+ * It never enters records, captures, reports or logs.
+ */
 data class BondedDevice(val name: String, val address: String)
 
 sealed interface BluetoothAvailability {
@@ -113,10 +119,17 @@ class AndroidBluetoothPlatform(private val context: Context) : BluetoothPlatform
 class BluetoothClassicTransport internal constructor(
     private val socket: RfcommSocket,
     private val io: CoroutineDispatcher,
-    /** Records the raw conversation when set (L2 sessions); never changes what is sent. */
-    private val recorder: CaptureRecorder? = null,
+    recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
+    /** Whole-connection logging admits bounded work without waiting for disk or adding requests. */
+    private val traffic: TrafficSink? = null,
 ) : AdapterTransport {
+    /**
+     * Records the raw conversation while set; never changes what is sent. The owner of
+     * the shared connection swaps it per operation, so one operation's capture never
+     * contains another's exchanges (in particular, identification's VIN reply).
+     */
+    @Volatile var recorder: CaptureRecorder? = recorder
     override val kind: TransportKind = TransportKind.LIVE
 
     private val returned = ConcurrentLinkedDeque<ByteArray>()
@@ -134,12 +147,17 @@ class BluetoothClassicTransport internal constructor(
                     if (n < 0) break
                     if (n > 0) {
                         val chunk = buffer.copyOf(n)
-                        recorder?.onRead(chunk)
+                        // Read the current per-operation property, not the constructor
+                        // parameter captured by this initializer.
+                        this@BluetoothClassicTransport.recorder?.onRead(chunk)
+                        traffic?.onRead(chunk)
                         chunks.send(chunk)
                     }
                 }
+                if (!closed) traffic?.onStreamEnded("end of stream")
             } catch (e: IOException) {
                 // The connection ended; readers see the end of the stream.
+                if (!closed) traffic?.onStreamEnded("read error: ${e.message ?: e::class.simpleName}")
             } finally {
                 chunks.close()
                 disconnected.complete(Unit)
@@ -150,13 +168,16 @@ class BluetoothClassicTransport internal constructor(
     override suspend fun write(request: Request) {
         if (closed) throw TransportClosedException("Bluetooth connection closed")
         recorder?.onWrite(request.text)
+        traffic?.onWriteAttempt(request.text)
         try {
             coroutineScope {
                 val writing = async(io) {
                     currentCoroutineContext().ensureActive()
                     if (closed) throw TransportClosedException("Bluetooth connection closed")
+                    traffic?.onWrite(request.text)
                     socket.output.write(request.encoded())
                     socket.output.flush()
+                    traffic?.onWriteCompleted(request.text)
                 }
                 try {
                     writing.await()
@@ -168,8 +189,15 @@ class BluetoothClassicTransport internal constructor(
             }
         } catch (e: IOException) {
             // Our own close() on cancellation makes the write fail; report that as cancellation.
+            traffic?.onWriteFailed(request.text, e.message ?: e::class.simpleName.orEmpty())
             currentCoroutineContext().ensureActive()
             throw TransportClosedException("Bluetooth write failed: ${e.message}")
+        } catch (e: CancellationException) {
+            traffic?.onWriteFailed(request.text, "write cancelled; delivery unknown")
+            throw e
+        } catch (e: TransportClosedException) {
+            traffic?.onWriteFailed(request.text, e.message ?: "connection closed; delivery unknown")
+            throw e
         }
     }
 
@@ -180,6 +208,7 @@ class BluetoothClassicTransport internal constructor(
 
     /** Closes the socket; a blocked read ends. Never reopened: a new connection is a new transport. */
     fun close() {
+        if (!closed) traffic?.onLocalClose()
         closed = true
         runCatching { socket.close() }
         pump.cancel()
@@ -206,6 +235,7 @@ internal suspend fun connectClassic(
     io: CoroutineDispatcher,
     recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
+    traffic: TrafficSink? = null,
 ): ClassicConnection {
     val socket = try {
         platform.openSocket(device.address)
@@ -237,7 +267,7 @@ internal suspend fun connectClassic(
         runCatching { socket.close() }
         return ClassicConnection.Failed("could not connect: ${e::class.simpleName}")
     }
-    val transport = BluetoothClassicTransport(socket, io, recorder, receiveCapacity)
+    val transport = BluetoothClassicTransport(socket, io, recorder, receiveCapacity, traffic)
     try {
         currentCoroutineContext().ensureActive()
         return ClassicConnection.Connected(transport)
@@ -254,12 +284,13 @@ sealed interface BenchRun {
 
 /**
  * L1 path: connects to one paired device, runs the adapter-only [AdapterBenchCheck]
- * and closes. Its transport never leaves this class. The only other user of a
- * Bluetooth connection is the codes-only (L2) live read in AppViewModel.
+ * and closes. Its transport never leaves this class. AppViewModel closes the shared
+ * vehicle connection before starting it, so only one connection exists at a time.
  */
 class BluetoothBench(
     private val platform: BluetoothPlatform,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val diagnostics: DiagnosticLog? = null,
 ) {
     /**
      * Cancelling the caller closes the socket, including during the blocking connect.
@@ -267,16 +298,29 @@ class BluetoothBench(
      * after cancelling.
      */
     suspend fun run(device: BondedDevice, onCheck: (AdapterBenchCheck) -> Unit = {}): BenchRun {
-        val transport = when (val connection = connectClassic(platform, device, io)) {
-            is ClassicConnection.Failed -> return BenchRun.ConnectFailed(connection.reason)
+        val log = diagnostics?.startSession("bench", device.name)
+        log?.app("connect_start")
+        val connection = try { connectClassic(platform, device, io, traffic = log) }
+            catch (e: CancellationException) { log?.end("cancelled while connecting"); throw e }
+        val transport = when (connection) {
+            is ClassicConnection.Failed -> {
+                log?.app("connect_failed", connection.reason)
+                log?.end("connect failed")
+                return BenchRun.ConnectFailed(connection.reason)
+            }
             is ClassicConnection.Connected -> connection.transport
         }
+        log?.app("connected")
+        log?.operationStart("bench")
+        var outcome = "CANCELLED"
         try {
             val check = AdapterBenchCheck(transport)
             onCheck(check)
-            return BenchRun.Finished(check.run())
+            return BenchRun.Finished(check.run().also { outcome = it.stop.name })
         } finally {
+            log?.operationEnd("bench", outcome)
             transport.close()
+            log?.end("bench finished")
         }
     }
 }

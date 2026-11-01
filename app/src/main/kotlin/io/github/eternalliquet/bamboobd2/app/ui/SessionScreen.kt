@@ -27,6 +27,8 @@ import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
 import io.github.eternalliquet.bamboobd2.app.SaveStatus
 import io.github.eternalliquet.bamboobd2.core.session.SessionState
+import io.github.eternalliquet.bamboobd2.core.model.Provenance
+import io.github.eternalliquet.bamboobd2.core.model.SessionOutcome
 import io.github.eternalliquet.bamboobd2.core.storage.SaveResult
 
 @Composable
@@ -81,6 +83,8 @@ fun SessionScreen(vm: AppViewModel, onDone: () -> Unit) {
                     // LIVE sessions only: the raw adapter conversation, for review before any fixture use.
                     captures[s.record.id]?.let { CopyButton(text = it, label = R.string.copy_capture) }
                     SessionSummaryActions(s.record)
+                    // A live session that didn't complete: offer the whole connection's log.
+                    if (s.record.provenance == Provenance.LIVE && s.record.outcome != SessionOutcome.COMPLETE) DiagnosticExportButton(vm)
                     saveMessage?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }

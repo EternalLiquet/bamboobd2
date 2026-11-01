@@ -42,7 +42,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
             delay(1000)
         }
     }
-    val record = if (!pending || live is LiveState.Connecting || live is LiveState.Failed) null else when (val s = state) {
+    val record = if (!pending || live is LiveState.Failed) null else when (val s = state) {
         is LiveReadState.Preparing -> s.record
         is LiveReadState.Ready -> s.record
         is LiveReadState.Recording -> s.record
@@ -59,7 +59,6 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
     fun leave() {
         when {
             saving -> Unit
-            live is LiveState.Connecting -> { vm.cancelLiveConnect(); onDone() }
             live is LiveState.Failed -> onDone()
             !pending -> onDone()
             !finished && state !is LiveReadState.Idle -> vm.stopRecording()
@@ -161,6 +160,8 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
                     if (status == SaveStatus.Saving) Text(stringResource(R.string.recording_saving))
                     if (result is SaveResult.Saved) Text(stringResource(R.string.saved_ok))
                     if (result is SaveResult.Failed) Text(stringResource(R.string.save_failed, result.reason))
+                    // Stopped by something other than the user: offer the whole connection's log.
+                    if (r.stopReason != LiveStopReason.USER) DiagnosticExportButton(vm)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::saveRecording, enabled = status != SaveStatus.Saving && result !is SaveResult.Saved,
                             modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }

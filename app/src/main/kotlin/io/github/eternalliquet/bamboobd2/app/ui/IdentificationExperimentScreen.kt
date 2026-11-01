@@ -21,7 +21,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.AppViewModel
 import io.github.eternalliquet.bamboobd2.app.R
-import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
 import io.github.eternalliquet.bamboobd2.core.experiment.ExperimentOutcome
 import io.github.eternalliquet.bamboobd2.core.experiment.IdentificationExperiment
 import kotlinx.coroutines.Dispatchers
@@ -32,25 +31,21 @@ import kotlinx.coroutines.withContext
 @Composable
 fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
     val state by vm.experiment.collectAsStateWithLifecycle()
-    val availability by vm.experimentBluetooth.collectAsStateWithLifecycle()
+    val connection by vm.connection.collectAsStateWithLifecycle()
+    // Only when this connection's identity offers the experiment; recomputed as it changes.
+    val adapter = remember(connection) { vm.experimentAdapter() }
     val reuseRequired by vm.experimentReuseRequired.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selected by remember { mutableStateOf<BondedDevice?>(null) }
     var reviewed by rememberSaveable { mutableStateOf(false) }
     var showPlan by rememberSaveable { mutableStateOf(false) }
     var showTranscript by rememberSaveable { mutableStateOf(false) }
-    var permissionDenied by remember { mutableStateOf(false) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
     var exportText by remember { mutableStateOf("") }
     var reviewExport by remember { mutableStateOf(false) }
     var identifiersReviewed by remember { mutableStateOf(false) }
     var previousReport by remember { mutableStateOf<String?>(null) }
-    val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        permissionDenied = !it
-        vm.refreshExperimentBluetooth()
-    }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val reviewedReport = vm.takeExperimentExport()
         if (uri != null && reviewedReport == null) {
@@ -64,7 +59,7 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
             } catch (_: Exception) { "Could not export the report. Your private copy is unchanged." }
         }
     }
-    LaunchedEffect(Unit) { vm.refreshExperimentBluetooth(); previousReport = vm.savedExperimentReport() }
+    LaunchedEffect(Unit) { previousReport = vm.savedExperimentReport() }
     val leave = { vm.stopExperiment(); onBack() }
     BackHandler(onBack = leave)
     DisposableEffect(lifecycle) {
@@ -121,20 +116,18 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                         OutlinedButton(onClick = { vm.confirmExperimentAdapterPowerCycle(); reviewed = false }, modifier = Modifier.fillMaxWidth()) {
                             Text("I unplugged and reconnected the scanner")
                         }
+                    } else if (adapter == null) {
+                        Text("Available only while connected to a car identified as a Porsche, with the second-generation (92A) Cayenne confirmed. Go back and connect first.")
                     } else {
-                        Availability(availability, permissionDenied,
-                            onRequest = { vm.bluetoothPermission?.let(requestPermission::launch) },
-                            onRefresh = { selected = null; vm.refreshExperimentBluetooth() },
-                            onPick = { selected = it; reviewed = false }, pickPrompt = R.string.experiment_pick)
-                        selected?.let { device ->
-                            Text("Selected: ${device.name}", style = MaterialTheme.typography.titleMedium)
+                        adapter.let { device ->
+                            Text("Scanner: ${device.name}. Starting closes the normal connection and opens a separate one for this experiment.", style = MaterialTheme.typography.titleMedium)
                             Text("Park securely, parking brake applied, ignition on and engine off. Use stable power and close other diagnostic apps. Stop for warnings, display disturbance or abnormal sounds.")
                             Row {
                                 Checkbox(checked = reviewed, onCheckedChange = { reviewed = it })
                                 Text("I reviewed the exact test and approve these two reads and their flow-control frames now. The car is parked and ready.", modifier = Modifier.padding(top = 8.dp))
                             }
                             Button(onClick = {
-                                if (vm.startExperiment(device, reviewed)) { reviewed = false; showTranscript = false; exportMessage = null }
+                                if (vm.startExperiment(reviewed)) { reviewed = false; showTranscript = false; exportMessage = null }
                                 else exportMessage = "Another session is active, or the adapter needs a power cycle. Finish that before starting."
                             }, enabled = reviewed, modifier = Modifier.fillMaxWidth()) { Text("Connect and run two reads") }
                         }
@@ -151,6 +144,8 @@ fun IdentificationExperimentScreen(vm: AppViewModel, onBack: () -> Unit) {
                         if (state.saved) Text("Report saved privately on this phone.")
                         state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         OutlinedButton(onClick = { exportText = vm.experimentReport(); identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export private report") }
+                        // The redacted connection log, with timing, for an attempt that didn't finish.
+                        if (state.result?.outcome != ExperimentOutcome.OBSERVED) DiagnosticExportButton(vm)
                     } else if (previousReport != null) {
                         OutlinedButton(onClick = { exportText = previousReport!!; identifiersReviewed = false; reviewExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export previous private report") }
                     }

@@ -109,6 +109,12 @@ class ElmObdReader(
     override fun takeNotes(): List<ReaderNote> = notes.toList().also { notes.clear() }
 
     /**
+     * Discovery retains partial support maps after a transport failure. An owner
+     * that plans no further query must still check before reusing the connection.
+     */
+    internal fun checkDiscoveryCompleted() { discoveryStop?.let { throw it } }
+
+    /**
      * Echo off, linefeeds off, headers on, automatic protocol; each must answer OK.
      * `ATSP0` replaces any fixed protocol an earlier app stored, which otherwise makes
      * a car on another protocol fail with "BUS INIT: ...ERROR" (ELM327DSJ p26).
@@ -234,6 +240,25 @@ class ElmObdReader(
             result is ObdResult.Dtcs -> DtcRead.Incomplete(result.codes, pendingReason(unresolved))
             else -> DtcRead.NotRead(describe(result))
         }
+    }
+
+    /** The reply form [readSupportedPids] established from ATDPN, or null before it succeeded. */
+    val protocolForm: ProtocolForm? get() = format?.form
+
+    /**
+     * One Mode 09 (vehicle information) exchange, parsed but not decoded: the caller's
+     * Mode 09 decoder validates it. Uses the same deadline, retry and serialization
+     * rules as every other request. Requires [readSupportedPids] to have set the form.
+     */
+    suspend fun readVehicleInformation(request: VehicleRequest): ParsedResponse {
+        require(request.text.startsWith("09")) { "not a vehicle-information request" }
+        discoveryStop?.let { throw it }
+        val format = checkNotNull(format) { "protocol not determined" }
+        phase = "vehicle information ${request.text}"
+        val parsed = ElmResponseParser.parse(exchange(RequestPolicy.vehicle(request), profile.vehicleRequestMillis), RequestPolicy.vehicle(request), format)
+        if (parsed is ParsedResponse.AdapterError && parsed.kind == AdapterErrorKind.LV_RESET)
+            throw ReaderStoppedException(StopReason.ADAPTER_RESET, "LV RESET during $phase")
+        return parsed
     }
 
     override suspend fun readPid(pid: String): List<ReadingResult> = readPidResults(pid, observations = false)

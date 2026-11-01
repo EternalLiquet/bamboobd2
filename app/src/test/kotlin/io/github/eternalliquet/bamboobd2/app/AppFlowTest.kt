@@ -56,12 +56,11 @@ class AppFlowTest {
     }
 
     @Test
-    fun identificationRequiresExplicitDeviceSelectionAndReview() {
-        rule.onNodeWithText("Identification experiment").performScrollTo().performClick()
-        rule.onNodeWithText("Read complete part numbers").assertIsDisplayed()
-        rule.onNodeWithText("Connect and run two reads").assertDoesNotExist()
-        rule.onNodeWithContentDescription("Back").performClick()
-        rule.onNodeWithText("Identification experiment").performScrollTo().assertIsDisplayed()
+    fun identificationExperimentIsNotOfferedWithoutAnIdentifiedCar() {
+        // No connection, so no manufacturer section and no experiment entry on the home screen.
+        rule.onNodeWithText("Set up your scanner").assertIsDisplayed()
+        rule.onNodeWithText("Open experiment").assertDoesNotExist()
+        rule.onNodeWithText("Porsche features").assertDoesNotExist()
     }
 
     @Test

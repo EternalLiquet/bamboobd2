@@ -17,9 +17,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
-import io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothAvailability
-import io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothPlatform
-import io.github.eternalliquet.bamboobd2.app.bluetooth.BondedDevice
+import io.github.eternalliquet.bamboobd2.app.connection.ConnectionState
+import androidx.compose.ui.test.assertIsNotEnabled
 import io.github.eternalliquet.bamboobd2.app.bluetooth.RfcommSocket
 import io.github.eternalliquet.bamboobd2.app.ui.PROVENANCE_BANNER_TAG
 import io.github.eternalliquet.bamboobd2.core.capture.CaptureRecorder
@@ -60,6 +59,7 @@ import org.robolectric.shadows.ShadowLooper
 class LiveReadTest {
     @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+    @org.junit.After fun forgetSavedScanner() = forgetActivityScanner(rule)
 
     private fun waitForSavedRow(text: String) {
         rule.waitUntil(5_000) {
@@ -72,37 +72,8 @@ class LiveReadTest {
         rule.onNodeWithText(text).assertExists()
     }
 
-    /** Answers each CR-terminated command from [replies]; anything else gets no answer. */
-    private class FakeElmSocket(private val replies: Map<String, String>, private val connectError: IOException? = null) : RfcommSocket {
-        private val written = ByteArrayOutputStream()
-        val closed = CountDownLatch(1)
-        private val toApp = PipedOutputStream()
-        override val input: InputStream = PipedInputStream(toApp, 8192)
-        override fun connect() { connectError?.let { throw it } }
-        override val output: OutputStream = object : OutputStream() {
-            private val line = StringBuilder()
-            override fun write(b: Int) {
-                synchronized(written) { written.write(b) }
-                if (b == '\r'.code) {
-                    replies[line.toString()]?.let { toApp.write(it.toByteArray(Charsets.US_ASCII)); toApp.flush() }
-                    line.setLength(0)
-                } else {
-                    line.append(b.toChar())
-                }
-            }
-        }
-        override fun close() { runCatching { toApp.close() }; closed.countDown() }
-        fun writtenText() = synchronized(written) { written.toString(Charsets.US_ASCII.name()) }
-    }
-
-    private class FakePlatform(private val socket: RfcommSocket) : BluetoothPlatform {
-        override val connectPermission: String? = null
-        override fun availability() = BluetoothAvailability.Ready(listOf(device))
-        override fun openSocket(address: String) = socket
-    }
-
     private companion object {
-        val device = BondedDevice("VEEPEAK", "00:11:22:33:44:55")
+        val device = TEST_SCANNER
         // Shaped like the ELM327 data sheet's CAN examples. Synthetic, not from a car.
         val carReplies = mapOf(
             "ATE0" to "ATE0\rOK\r\r>",
@@ -111,6 +82,8 @@ class LiveReadTest {
             "ATSP0" to "OK\r\r>",
             "0100" to "SEARCHING...\r7E8 06 41 00 BE 1F B8 10\r\r>",
             "ATDPN" to "A6\r\r>",
+            // Generic discovery answers; Mode 09 does not, so identification leaves the car unidentified.
+            "0900" to "NO DATA\r\r>",
             "03" to "7E8 04 43 01 01 33\r\r>",
             "07" to "7E8 02 47 00\r\r>",
         )
@@ -127,28 +100,25 @@ class LiveReadTest {
     private fun viewModel(socket: RfcommSocket): AppViewModel {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val dir = Files.createTempDirectory("live").toFile()
-        return AppViewModel(app, FileSessionStore(dir), Dispatchers.IO, FakePlatform(socket))
+        return AppViewModel(app, FileSessionStore(dir), Dispatchers.IO, ScannerPlatform { socket })
     }
 
-    private fun idleUntil(seconds: Long, condition: () -> Boolean) {
-        val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)
-        while (!condition()) {
-            check(System.nanoTime() < end) { "condition not met in ${seconds}s" }
-            ShadowLooper.idleMainLooper(20, TimeUnit.MILLISECONDS)
-            Thread.sleep(5)
+    /** Connected and identified on the shared connection, then one scan of [scope]. */
+    private fun scan(socket: RfcommSocket, scope: ReadScope = ReadScope.CODES_ONLY): AppViewModel =
+        viewModel(socket).also { vm ->
+            vm.connectForTest()
+            assertTrue(vm.startLive(scope))
+            idleUntil(20) { vm.session.value is SessionState.Finished }
         }
-    }
 
     @Test
     fun codesOnlyReadSendsOnlySetupMapAndCodesAndKeepsALiveRecordAndCapture() {
-        val socket = FakeElmSocket(carReplies)
-        val vm = viewModel(socket)
-        vm.startLive(device)
-        idleUntil(20) { vm.session.value is SessionState.Finished }
+        val socket = ScriptedElmSocket(carReplies)
+        val vm = scan(socket)
         val record = (vm.session.value as SessionState.Finished).record
 
-        // Exactly the L2 sequence: no sensor PIDs, no other vehicle request.
-        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writtenText())
+        // Identification, then exactly the L2 sequence: no sensor PIDs, no other vehicle request.
+        assertEquals(TestCars.IDENTIFY_NO_VIN + "ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writes())
         assertEquals(Provenance.LIVE, record.provenance)
         assertEquals(SessionOutcome.COMPLETE, record.outcome)
         assertEquals(listOf("P0133"), record.dtcs.map { it.code })
@@ -163,27 +133,47 @@ class LiveReadTest {
         val requests = Regex(""""request": "([^"]+)"""").findAll(capture).map { it.groupValues[1] }.toList()
         assertEquals(listOf("ATE0", "ATL0", "ATH1", "ATSP0", "0100", "ATDPN", "03", "07"), requests)
         assertTrue(capture.contains("codes-only (L2) session"))
+        assertTrue("The per-scan recorder must capture replies as well as requests", capture.contains("7E8 04 43 01 01 33"))
         // No device identifiers in what is kept or shared.
         val saved = io.github.eternalliquet.bamboobd2.core.storage.SessionCodec.encode(record)
         for (identifier in listOf(device.address, device.name)) {
             assertTrue("$identifier in capture", identifier !in capture)
             assertTrue("$identifier in record", identifier !in saved)
         }
-        assertTrue("connection closed after the session", socket.closed.await(5, TimeUnit.SECONDS))
+        // The connection stays open for the next scan until the user disconnects.
+        idleUntil(5) { !vm.vehicle.leased }
+        assertFalse(socket.isClosed)
         // With no screen to acknowledge it, the result hand-off stays pending; acknowledging consumes it.
         assertEquals(LiveState.Started, vm.live.value)
         vm.acknowledgeLiveStarted()
-        assertTrue(vm.live.value is LiveState.Available)
+        assertEquals(LiveState.Idle, vm.live.value)
+        vm.disconnectVehicle()
+        assertTrue("disconnect closes the socket", socket.closed.await(5, TimeUnit.SECONDS))
+    }
+
+    @Test fun changingCaptureRecordersKeepsVinRepliesOutOfGenericExports() {
+        val socket = ScriptedElmSocket(TestCars.cayenne)
+        val vm = scan(socket)
+        try {
+            val ready = vm.connection.value as ConnectionState.Ready
+            assertTrue("Identification must retain a redacted reply transcript", ready.transcript.contains("[VIN reply hidden,"))
+            assertFalse(ready.transcript.contains("7E8 10 14 49 02 01"))
+            val id = (vm.session.value as SessionState.Finished).record.id
+            idleUntil(5) { id in vm.captures.value }
+            val capture = vm.captures.value.getValue(id)
+            assertTrue("The scan must retain its own replies", capture.contains("7E8 02 43 00"))
+            assertFalse("VIN frames belong only to identification", capture.contains("7E8 10 14 49 02 01"))
+            assertFalse(capture.contains(TestCars.CAYENNE_VIN))
+            assertFalse(capture.contains("0902"))
+        } finally { vm.disconnectVehicle() }
     }
 
     @Test
     fun selectedSnapshotRequestsFourConfirmedPidsOnceAndSavesAllValues() {
-        val socket = FakeElmSocket(sensorReplies)
-        val vm = viewModel(socket)
-        vm.startLive(device, ReadScope.FULL)
-        idleUntil(20) { vm.session.value is SessionState.Finished }
+        val socket = ScriptedElmSocket(sensorReplies)
+        val vm = scan(socket, ReadScope.FULL)
         val record = (vm.session.value as SessionState.Finished).record
-        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r0105\r010C\r010D\r", socket.writtenText())
+        assertEquals(TestCars.IDENTIFY_NO_VIN + "ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r0105\r010C\r010D\r", socket.writes())
         assertEquals("FULL", record.events.first { it.kind == SessionController.READ_SCOPE }.detail)
         assertEquals(Provenance.LIVE, record.provenance)
         assertEquals(SessionOutcome.COMPLETE, record.outcome)
@@ -199,7 +189,6 @@ class LiveReadTest {
         assertTrue(record.readings.all { it.atMillis >= record.startedAt && it.atMillis <= record.endedAt!! })
         idleUntil(5) { record.id in vm.captures.value }
         assertTrue(vm.captures.value.getValue(record.id).contains("sensor snapshot"))
-        assertTrue(socket.closed.await(5, TimeUnit.SECONDS))
 
         val store = FileSessionStore(Files.createTempDirectory("snapshot-reopen").toFile())
         store.save(record)
@@ -219,51 +208,40 @@ class LiveReadTest {
 
     @Test
     fun partialAndUnknownMapsNeverCauseUnconfirmedSensorRequests() {
-        val partial = FakeElmSocket(sensorReplies + ("0100" to "7E8 06 41 00 10 10 00 00\r\r>"))
-        val partialVm = viewModel(partial)
-        partialVm.startLive(device, ReadScope.FULL)
-        idleUntil(20) { partialVm.session.value is SessionState.Finished }
+        val partial = ScriptedElmSocket(sensorReplies + ("0100" to "7E8 06 41 00 10 10 00 00\r\r>"))
+        val partialVm = scan(partial, ReadScope.FULL)
         val partialRecord = (partialVm.session.value as SessionState.Finished).record
-        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r010C\r", partial.writtenText())
+        assertEquals(TestCars.IDENTIFY_NO_VIN + "ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r0104\r010C\r", partial.writes())
         assertFalse(partialRecord.readings.any { it.pid == "05" || it.pid == "0D" })
 
-        val unknown = FakeElmSocket(sensorReplies + ("0100" to "NO DATA\r\r>"))
-        val unknownVm = viewModel(unknown)
-        unknownVm.startLive(device, ReadScope.FULL)
-        idleUntil(20) { unknownVm.session.value is SessionState.Finished }
+        val unknown = ScriptedElmSocket(sensorReplies + ("0100" to "NO DATA\r\r>"))
+        val unknownVm = scan(unknown, ReadScope.FULL)
         val unknownRecord = (unknownVm.session.value as SessionState.Finished).record
-        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", unknown.writtenText())
+        // No responder in discovery: identification asks nothing else.
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r" + "ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", unknown.writes())
         assertEquals(SupportedPids.Unknown, unknownRecord.supportedPids)
         assertTrue(unknownRecord.readings.isEmpty())
         assertFalse(unknownRecord.readings.any { it.result is ReadingResult.Value })
     }
 
     @Test
-    fun liveChoiceStartsCodesOnlyAndExplainsThatSnapshotHasNoVehicleTest() {
-        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
-        rule.onNodeWithText("Codes only").assertIsSelected()
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
-        rule.onNodeWithText("Codes + sensor snapshot").performScrollTo().performClick()
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — codes + one sensor snapshot; no clearing")
-        rule.onNodeWithText("Not yet tested on a vehicle", substring = true).assertExists()
-        rule.onNodeWithContentDescription("Back").performClick()
-        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
-        rule.onNodeWithText("Codes only").assertIsSelected()
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
+    fun withoutAConnectionHomeOffersSetupAndScanningIsDisabled() {
+        rule.onNodeWithText("Set up your scanner").assertExists()
+        rule.onNodeWithText("Scan this car").performScrollTo().assertIsNotEnabled()
+        rule.onNodeWithText("Connect to the car first.").assertExists()
+        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("READ-ONLY — never clears codes or changes car settings")
     }
 
     @Test
     fun busInitFailureIsShownWithReasonsAndNeverAsNoCodes() {
         // Every vehicle request ends like the owner's BRZ captures, even after ATSP0.
         val busInitError = "BUS INIT: ...ERROR\r\r>"
-        val socket = FakeElmSocket(
+        val socket = ScriptedElmSocket(
             carReplies + mapOf("0100" to busInitError, "ATDPN" to "3\r\r>", "03" to busInitError, "07" to busInitError),
         )
-        val live = viewModel(socket)
-        live.startLive(device)
-        idleUntil(20) { live.session.value is SessionState.Finished }
+        val live = scan(socket)
         val record = (live.session.value as SessionState.Finished).record
-        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writtenText())
+        assertEquals("ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r" + "ATE0\rATL0\rATH1\rATSP0\r0100\rATDPN\r03\r07\r", socket.writes())
         assertTrue(record.readNothing)
         assertTrue(!record.allCodesRead)
 
@@ -288,15 +266,20 @@ class LiveReadTest {
 
     @Test
     fun aConnectFailureStartsNoSession() {
-        val vm = viewModel(FakeElmSocket(carReplies, connectError = IOException("read failed")))
-        vm.startLive(device)
-        idleUntil(10) { vm.live.value is LiveState.Failed }
-        assertTrue((vm.live.value as LiveState.Failed).reason.startsWith("could not connect"))
+        val vm = viewModel(ScriptedElmSocket(carReplies, connectError = IOException("read failed")))
+        assertTrue(vm.chooseScanner(device))
+        idleUntil(10) { vm.connection.value is ConnectionState.Disconnected }
+        val state = vm.connection.value as ConnectionState.Disconnected
+        assertTrue(state.reason!!.startsWith("Couldn't connect to VEEPEAK"))
+        assertTrue(state.detail!!.startsWith("could not connect"))
+        // No scan can start without the connection, and nothing retries by itself.
+        assertFalse(vm.startLive())
+        assertTrue((vm.live.value as LiveState.Failed).reason.startsWith("Not connected"))
         assertEquals(SessionState.Idle, vm.session.value)
     }
 
     @Test
-    fun anAdapterThatNeverAnswersEndsAsAFailedLiveSessionOnTheSessionScreen() {
+    fun anAdapterThatNeverAnswersRequiresReconnectBeforeScanning() {
         // The real Android socket path, to Robolectric's shadow socket, which never answers.
         val vm = ViewModelProvider(rule.activity)[AppViewModel::class.java]
         val app = vm.getApplication<Application>()
@@ -306,19 +289,21 @@ class LiveReadTest {
         val paired = ShadowBluetoothDevice.newInstance("00:11:22:33:44:55").also { shadowOf(it).setName("VEEPEAK") }
         shadowOf(adapter).setBondedDevices(setOf(paired))
 
-        rule.onNodeWithText("Read codes from the car (Bluetooth)", substring = true).performScrollTo().performClick()
+        rule.onNodeWithText("Choose scanner").performScrollTo().performClick()
         rule.waitUntil(5_000) {
             ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Paired devices.", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodes(hasText("Paired devices", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE READ — car codes only, no sensor readings or clearing")
         rule.onNodeWithText("VEEPEAK").performScrollTo().performClick()
-        // ATE0 gets no prompt: the reader waits its deadline and the resync window, then stops.
+        // No terminal prompt means the socket cannot safely be lent to a scan.
         rule.waitUntil(40_000) {
             ShadowLooper.idleMainLooper(200, TimeUnit.MILLISECONDS)
-            rule.onAllNodes(hasText("Stopped by an error: nothing was read")).fetchSemanticsNodes().isNotEmpty()
+            vm.connection.value is ConnectionState.Disconnected
         }
-        rule.onNodeWithTag(PROVENANCE_BANNER_TAG).assertTextEquals("LIVE — data read from a connected adapter")
-        rule.onNodeWithText("Copy raw capture for review").performScrollTo()
+        rule.onNodeWithText("Identification stopped. Connect again to continue.").assertExists()
+        rule.onNodeWithText("Connect").performScrollTo().assertExists()
+        rule.onNodeWithText("Scan this car").assertIsNotEnabled()
+        assertFalse(vm.startLive())
+        assertEquals(SessionState.Idle, vm.session.value)
     }
 }

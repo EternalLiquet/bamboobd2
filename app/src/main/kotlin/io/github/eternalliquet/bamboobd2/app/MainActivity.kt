@@ -17,6 +17,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eternalliquet.bamboobd2.app.ui.IdentificationExperimentScreen
 import io.github.eternalliquet.bamboobd2.app.ui.BenchScreen
 import io.github.eternalliquet.bamboobd2.app.ui.HomeScreen
+import io.github.eternalliquet.bamboobd2.app.ui.DiagnosticExportButton
+import io.github.eternalliquet.bamboobd2.app.ui.ScannerSetupScreen
+import io.github.eternalliquet.bamboobd2.app.ui.VehicleActions
+import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
+import io.github.eternalliquet.bamboobd2.core.session.SessionState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.remember
 import io.github.eternalliquet.bamboobd2.app.ui.LiveReadScreen
 import io.github.eternalliquet.bamboobd2.app.ui.LiveRecordingScreen
 import io.github.eternalliquet.bamboobd2.app.ui.SavedSessionsScreen
@@ -34,8 +42,14 @@ class MainActivity : ComponentActivity() {
                 val nav = rememberNavController()
                 val live by vm.live.collectAsStateWithLifecycle()
                 val recordingPending by vm.recordingPending.collectAsStateWithLifecycle()
+                val connection by vm.connection.collectAsStateWithLifecycle()
+                val session by vm.session.collectAsStateWithLifecycle()
+                val recording by vm.recording.collectAsStateWithLifecycle()
+                val connectionPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vm::onConnectionPermissionResult)
                 DisposableEffect(vm) {
                     val observer = LifecycleEventObserver { _, event ->
+                        // ON_START also runs the single startup connection attempt (once per ViewModel).
+                        if (event == Lifecycle.Event.ON_START) vm.onAppForegrounded()
                         if (event == Lifecycle.Event.ON_STOP && !isChangingConfigurations) vm.onAppBackgrounded()
                     }
                     lifecycle.addObserver(observer)
@@ -43,10 +57,27 @@ class MainActivity : ComponentActivity() {
                 }
                 NavHost(navController = nav, startDestination = "home") {
                     composable("home") {
+                        // A scan or recording in progress holds the shared connection.
+                        val busy = session is SessionState.Running || recordingPending ||
+                            (recording !is LiveReadState.Idle && recording !is LiveReadState.Finished)
                         HomeScreen(
                             replays = vm.replays,
                             liveResultPending = live == LiveState.Started || recordingPending,
                             pendingRecording = recordingPending,
+                            connection = connection,
+                            profiles = remember(connection) { vm.selectableProfiles() },
+                            connectionBusy = busy,
+                            diagnosticExport = { DiagnosticExportButton(vm) },
+                            vehicleActions = VehicleActions(
+                                choose = { nav.navigate("setup") },
+                                connect = vm::connectVehicle,
+                                disconnect = vm::disconnectVehicle,
+                                forget = vm::forgetScanner,
+                                requestPermission = { vm.bluetoothPermission?.let(connectionPermission::launch) ?: vm.connectVehicle() },
+                                identifyAgain = { vm.identifyAgain() },
+                                confirmProfile = vm::confirmProfile,
+                                openExperiment = { nav.navigate("experiment") },
+                            ),
                             // Navigate only when a session actually started.
                             onStart = { scenario -> if (vm.start(scenario)) nav.navigate("session") },
                             onStartReplay = { id -> if (vm.startReplay(id)) nav.navigate("session") },
@@ -57,6 +88,9 @@ class MainActivity : ComponentActivity() {
                             onOpenExperiment = { nav.navigate("experiment") },
                             onOpenLive = { nav.navigate("live") },
                         )
+                    }
+                    composable("setup") {
+                        ScannerSetupScreen(vm = vm, onDone = { nav.popBackStack("home", inclusive = false) }, onBack = { nav.popBackStack() })
                     }
                     composable("session") {
                         SessionScreen(

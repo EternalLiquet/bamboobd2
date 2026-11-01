@@ -1,5 +1,7 @@
 # PR65 handoff for vehicle-aware startup
 
+> Historical. Epic #66 has since been implemented; the delivered architecture is in [VEHICLE_STARTUP.md](VEHICLE_STARTUP.md) and `AGENTS.md`. The evidence boundary and experiment contracts below still apply.
+
 Baseline checked 2026-11-01: [PR65](https://github.com/EternalLiquet/bamboobd2/pull/65) merged to master as `ffe9d207ddce04cdb452e161e03ed6899920fd6f`. Version `0.2.2-part-number.20261031`, code 5. [Project status](../PROJECT_STATUS.md) is the current capability summary; older plans preserve their historical scope. Epic #66 and children #67 through #70 are open planning work, not implemented architecture.
 
 PR65 delivers an Android Bluetooth Classic identification experiment, separate from normal OBD scanning. It reads F187 once on each fixed route (`729→793`, `714→77E`) and conditionally sends one manual flow-control frame per route to collect a 14-byte response. It does not implement epic #66 or a manufacturer registry.
@@ -29,4 +31,4 @@ Start #67 in `AppViewModel.kt`, `bluetooth/BluetoothClassic.kt`, `MainActivity.k
 
 The issue bodies were written against earlier snapshots and may still call PR65 a draft. Use the merged baseline above and recheck master before implementing. Known separate runtime wording/timing follow-up: after the v5 FC attempt, `NO DATA` is reported as malformed CAN/unexpected text. That message obscures an incomplete/no-continuation outcome; it does not prove a bad vehicle or incompatible hardware. An ECU flow-control timeout is plausible but unproven. Keep any fix separately scoped.
 
-Known separate UI-copy follow-up: `app/src/main/res/values/strings.xml`'s `live_explainer` still describes the original `0100,03,07` sequence and roughly one-minute preparation; current discovery can follow up to eight support pages within 180 seconds. This documentation audit does not change product strings or runtime behavior.
+Resolved by epic #66: `app/src/main/res/values/strings.xml`'s `live_explainer` now describes advertised support-page discovery and its 180-second limit.
