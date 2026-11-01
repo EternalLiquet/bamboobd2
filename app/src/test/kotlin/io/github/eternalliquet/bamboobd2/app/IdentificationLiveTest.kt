@@ -3,6 +3,9 @@ package io.github.eternalliquet.bamboobd2.app
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import io.github.eternalliquet.bamboobd2.app.bluetooth.*
+import io.github.eternalliquet.bamboobd2.app.connection.Blocker
+import io.github.eternalliquet.bamboobd2.app.connection.ConnectionState
+import io.github.eternalliquet.bamboobd2.core.manufacturer.porsche.Porsche
 import io.github.eternalliquet.bamboobd2.core.experiment.ExperimentOutcome
 import io.github.eternalliquet.bamboobd2.core.storage.FileSessionStore
 import java.io.*
@@ -61,11 +64,24 @@ class IdentificationLiveTest {
         override fun close() { closed.countDown(); release.countDown(); runCatching { pipe.close() }; runCatching { input.close() } }
         fun writes() = synchronized(bytes) { bytes.toString("US-ASCII").split('\r').filter { it.isNotEmpty() } }
     }
+    /** Queued sockets first (the normal vehicle connections), then the experiment's [socket]. */
     private class Platform(val socket: Socket) : BluetoothPlatform {
         var opens = 0
+        val queue = ArrayDeque<RfcommSocket>()
         override val connectPermission: String? = null
         override fun availability() = BluetoothAvailability.Ready(listOf(device))
-        override fun openSocket(address: String): RfcommSocket { opens++; return socket }
+        override fun openSocket(address: String): RfcommSocket { opens++; return queue.removeFirstOrNull() ?: socket }
+    }
+    /** Connects to a constructed Cayenne and confirms the 92A, the only state that offers the experiment. */
+    private fun allow(model: AppViewModel, p: Platform): ScriptedElmSocket {
+        val car = ScriptedElmSocket(TestCars.cayenne)
+        p.queue.add(car)
+        model.connectForTest()
+        assertNull(model.experimentAdapter())
+        model.confirmProfile(Porsche.CAYENNE_92A.id)
+        assertNotNull(model.experimentAdapter())
+        assertEquals(TestCars.IDENTIFY_WITH_VIN, car.writes())
+        return car
     }
     private fun vm(platform: Platform) = AppViewModel(ApplicationProvider.getApplicationContext<Application>(),
         FileSessionStore(Files.createTempDirectory("experiment-test").toFile()), Dispatchers.IO, platform)
@@ -79,14 +95,18 @@ class IdentificationLiveTest {
     }
     @Test fun realConnectionWiringRunsOnlyFixedReadsAndSavesPrivateReport() {
         val p = Platform(Socket()); val vm = vm(p)
-        assertTrue(vm.startExperiment(device, reviewed = true))
+        val car = allow(vm, p)
+        assertTrue(vm.startExperiment(reviewed = true))
+        // The normal connection closed before the experiment opened its own; it sent nothing more.
+        assertTrue(car.isClosed)
+        assertEquals(TestCars.IDENTIFY_WITH_VIN, car.writes())
         until { !vm.experiment.value.busy }
         val result = vm.experiment.value.result!!
         assertEquals(ExperimentOutcome.OBSERVED, result.outcome)
         assertEquals("RAW_CAPTURE", result.recording.provenance)
         assertEquals(listOf("0322F18700000000", "0322F18700000000"), p.socket.writes().filter { !it.startsWith("AT") })
         assertTrue(p.socket.writes().contains("ATSH714"))
-        assertEquals(1, p.opens)
+        assertEquals(2, p.opens)
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
         assertTrue(vm.experiment.value.saved)
         assertFalse(vm.experimentReport().contains(device.address))
@@ -94,7 +114,8 @@ class IdentificationLiveTest {
     }
     @Test fun realWiringCollectsBothIdentitiesWithAtMostFourCanWrites() {
         val p = Platform(Socket(prompt = false, multiFrame = true)); val model = vm(p)
-        assertTrue(model.startExperiment(device, reviewed = true))
+        allow(model, p)
+        assertTrue(model.startExperiment(reviewed = true))
         until { !model.experiment.value.busy }
         assertEquals(ExperimentOutcome.OBSERVED, model.experiment.value.result!!.outcome)
         assertEquals(listOf("0322F18700000000", "30020A0000000000", "0322F18700000000", "30020A0000000000"),
@@ -105,33 +126,38 @@ class IdentificationLiveTest {
     }
     @Test fun noInitialPromptStillCompletesFixedReads() {
         val p = Platform(Socket(prompt = false)); val vm = vm(p)
-        assertTrue(vm.startExperiment(device, reviewed = true))
+        allow(vm, p)
+        assertTrue(vm.startExperiment(reviewed = true))
         until { !vm.experiment.value.busy }
         assertEquals(ExperimentOutcome.OBSERVED, vm.experiment.value.result!!.outcome)
         assertEquals("ATPC", p.socket.writes().first())
         assertEquals(2, p.socket.writes().count { it == "0322F18700000000" })
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
-        assertEquals(1, p.opens)
+        assertEquals(2, p.opens)
     }
     @Test fun explicitReviewAndExclusiveOwnershipAreRequiredAndBackgroundClosesConnect() {
         val p = Platform(Socket(blockConnect = true)); val vm = vm(p)
-        assertFalse(vm.startExperiment(device, reviewed = false))
-        assertEquals(0, p.opens)
-        assertTrue(vm.startExperiment(device, reviewed = true))
-        until("experiment socket connect entered") { p.socket.entered.count == 0L }
-        vm.startBench(device); vm.startLive(device)
-        assertFalse(vm.startRecording(device))
-        assertFalse(vm.startExperiment(device, reviewed = true))
+        allow(vm, p)
+        assertFalse(vm.startExperiment(reviewed = false))
         assertEquals(1, p.opens)
+        assertTrue(vm.startExperiment(reviewed = true))
+        until("experiment socket connect entered") { p.socket.entered.count == 0L }
+        vm.startBench(device)
+        assertFalse(vm.startLive())
+        assertFalse(vm.startRecording())
+        assertFalse(vm.startExperiment(reviewed = true))
+        assertFalse(vm.connectVehicle())
+        assertEquals(2, p.opens)
         vm.onAppBackgrounded()
         until("background cancellation completed: ${vm.experiment.value.phase}") { !vm.experiment.value.busy }
         assertTrue(p.socket.closed.await(1, TimeUnit.SECONDS))
         assertTrue(p.socket.writes().isEmpty())
-        assertEquals(1, p.opens)
+        assertEquals(2, p.opens)
     }
     @Test fun unsettledStartupWithoutWritesDoesNotBlockOlderFunctions() {
         val p = Platform(Socket(initial = "unfinished")); val model = vm(p)
-        assertTrue(model.startExperiment(device, reviewed = true))
+        allow(model, p)
+        assertTrue(model.startExperiment(reviewed = true))
         until { !model.experiment.value.busy }
         assertEquals(ExperimentOutcome.STOPPED, model.experiment.value.result!!.outcome)
         assertTrue(p.socket.writes().isEmpty())
@@ -156,26 +182,64 @@ class IdentificationLiveTest {
     }
     @Test fun reuseGuardSurvivesViewModelRecreationUntilOwnerConfirmsPowerCycle() {
         val p = Platform(Socket(prompt = false)); val first = vm(p)
-        assertTrue(first.startExperiment(device, reviewed = true))
+        allow(first, p)
+        assertTrue(first.startExperiment(reviewed = true))
         until { !first.experiment.value.busy }
+        // The home screen shows the power-cycle requirement instead of a Connect button.
+        until { first.connection.value is ConnectionState.Blocked }
         val next = vm(p)
         assertTrue(next.experimentReuseRequired.value)
-        next.startBench(device); next.startLive(device)
-        assertFalse(next.startRecording(device))
-        assertFalse(next.startExperiment(device, reviewed = true))
-        assertEquals(1, p.opens)
+        next.startBench(device)
+        assertFalse(next.startLive())
+        assertFalse(next.startRecording())
+        assertFalse(next.startExperiment(reviewed = true))
+        assertFalse(next.connectVehicle())
+        assertEquals(Blocker.POWER_CYCLE_REQUIRED, (next.connection.value as ConnectionState.Blocked).blocker)
+        assertEquals(2, p.opens)
         next.confirmExperimentAdapterPowerCycle()
         assertFalse(next.experimentReuseRequired.value)
+        assertTrue(next.connection.value is ConnectionState.Disconnected)
         assertFalse(vm(p).experimentReuseRequired.value)
     }
     @Test fun existingBenchOwnerPreventsExperimentConnection() {
         val p = Platform(Socket(blockConnect = true)); val vm = vm(p)
+        val car = allow(vm, p)
         vm.startBench(device)
+        // The bench check closed the normal connection first; one connection at a time.
+        assertTrue(car.isClosed)
         until { p.socket.entered.count == 0L }
-        assertFalse(vm.startExperiment(device, reviewed = true))
-        assertEquals(1, p.opens)
+        assertFalse(vm.startExperiment(reviewed = true))
+        assertFalse(vm.connectVehicle())
+        assertEquals(2, p.opens)
         vm.cancelBench()
         until { p.socket.closed.count == 0L }
     }
-    companion object { private val device = BondedDevice("Constructed adapter", "00:11:22:33:44:55") }
+    @Test fun experimentNeedsThisConnectionsConfirmedCayenneNeverAnEarlierCar() {
+        val p = Platform(Socket()); val model = vm(p)
+        val brz = ScriptedElmSocket(TestCars.brz).also { p.queue.add(it) }
+        model.connectForTest()
+        model.confirmProfile(Porsche.CAYENNE_92A.id)
+        assertNull(model.experimentAdapter())
+        assertFalse(model.startExperiment(reviewed = true))
+
+        model.disconnectVehicle()
+        p.queue.add(ScriptedElmSocket(TestCars.cayenne))
+        model.connectForTest()
+        assertNull(model.experimentAdapter())
+        model.confirmProfile(Porsche.CAYENNE_92A.id)
+        assertNotNull(model.experimentAdapter())
+
+        // Same scanner moved back to the BRZ: the confirmed Cayenne does not carry over.
+        model.disconnectVehicle()
+        val brzAgain = ScriptedElmSocket(TestCars.brz).also { p.queue.add(it) }
+        model.connectForTest()
+        assertNull(model.experimentAdapter())
+        assertFalse(model.startExperiment(reviewed = true))
+        assertEquals(3, p.opens)
+        // Only the generic identification sequence ever reached either BRZ connection.
+        assertEquals(TestCars.IDENTIFY_WITH_VIN, brz.writes())
+        assertEquals(TestCars.IDENTIFY_WITH_VIN, brzAgain.writes())
+        assertTrue(p.socket.writes().isEmpty())
+    }
+    companion object { private val device = TEST_SCANNER }
 }

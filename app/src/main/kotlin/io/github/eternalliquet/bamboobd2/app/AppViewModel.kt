@@ -19,6 +19,13 @@ import io.github.eternalliquet.bamboobd2.core.live.LiveReadState
 import io.github.eternalliquet.bamboobd2.core.model.LiveStopReason
 import io.github.eternalliquet.bamboobd2.app.bluetooth.ClassicConnection
 import io.github.eternalliquet.bamboobd2.app.bluetooth.connectClassic
+import io.github.eternalliquet.bamboobd2.app.connection.ConnectionState
+import io.github.eternalliquet.bamboobd2.app.connection.SavedAdapter
+import io.github.eternalliquet.bamboobd2.app.connection.SavedAdapterStore
+import io.github.eternalliquet.bamboobd2.app.connection.VehicleConnection
+import io.github.eternalliquet.bamboobd2.app.connection.VehicleStatus
+import io.github.eternalliquet.bamboobd2.core.manufacturer.CapabilityStatus
+import io.github.eternalliquet.bamboobd2.core.manufacturer.ManufacturerRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import androidx.lifecycle.AndroidViewModel
@@ -72,10 +79,9 @@ sealed interface BenchState {
     data class Failed(val device: String, val reason: String) : BenchState
 }
 
-/** The codes-only (L2) live read before its session starts. */
+/** A scan or recording on the shared vehicle connection, before its own screen takes over. */
 sealed interface LiveState {
-    data class Available(val availability: BluetoothAvailability, val permissionDenied: Boolean = false) : LiveState
-    data class Connecting(val device: String) : LiveState
+    data object Idle : LiveState
     data class Failed(val device: String, val reason: String) : LiveState
 
     /**
@@ -102,6 +108,44 @@ class AppViewModel @JvmOverloads constructor(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val bluetooth: BluetoothPlatform = BluetoothPlatforms.create(application),
 ) : AndroidViewModel(application) {
+
+    /**
+     * The one connection to the saved scanner and its per-connection vehicle context.
+     * Scans and recording borrow its transport; the bench check and experiment close it
+     * before opening their own. See docs/VEHICLE_STARTUP.md.
+     */
+    val vehicle = VehicleConnection(viewModelScope, bluetooth, io, SavedAdapterStore(application),
+        powerCycleRequired = { experimentReuseRequired.value },
+        otherToolActive = { _experiment.value.busy || benchJob?.isActive == true })
+    val connection: StateFlow<ConnectionState> get() = vehicle.state
+
+    /** For the scanner setup screen; reads state only and never connects. */
+    fun bluetoothAvailability(): BluetoothAvailability = bluetooth.availability()
+
+    /** Activity start: the one startup attempt the first time, then only a state refresh. */
+    fun onAppForegrounded() {
+        vehicle.startup()
+        vehicle.onForegrounded()
+    }
+
+    private fun adapterName() = vehicle.savedAdapter?.name ?: "scanner"
+
+    // Plain user requests from the home and setup screens.
+    fun chooseScanner(device: BondedDevice) = vehicle.choose(device)
+    fun connectVehicle() = vehicle.connect()
+    fun disconnectVehicle() = vehicle.disconnect()
+    fun forgetScanner() = vehicle.forget()
+    fun identifyAgain() = vehicle.identifyAgain()
+    fun confirmProfile(profileId: String?) = vehicle.confirmProfile(profileId)
+
+    /** After the permission prompt: a grant continues the same connection flow. */
+    fun onConnectionPermissionResult(granted: Boolean) {
+        if (granted) vehicle.connect() else vehicle.refresh(permissionDenied = true)
+    }
+
+    /** Profiles the user may confirm for the current connection's evidence. */
+    fun selectableProfiles() = ((connection.value as? ConnectionState.Ready)?.vehicle as? VehicleStatus.Known)
+        ?.context?.selectableProfiles(ManufacturerRegistry.BUNDLED).orEmpty()
 
     private val controller = SessionController(viewModelScope)
 
@@ -142,44 +186,31 @@ class AppViewModel @JvmOverloads constructor(
     private var recordingStartedAt = 0L
     fun recordingElapsedMillis(): Long = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceIn(0L, 600_000L)
 
-    fun startRecording(device: BondedDevice): Boolean {
+    /** Prepares a recording on the shared connection; nothing is read until the user picks readings. */
+    fun startRecording(): Boolean {
         if (experimentReuseRequired.value) {
-            _live.value = LiveState.Failed(device.name, EXPERIMENT_REUSE_MESSAGE)
+            _live.value = LiveState.Failed(adapterName(), EXPERIMENT_REUSE_MESSAGE)
             return false
         }
         if (_experiment.value.busy || recordingJob?.isActive == true || liveJob?.isActive == true || benchJob?.isActive == true ||
             session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
+        val lease = vehicle.acquire() ?: run {
+            _live.value = LiveState.Failed(adapterName(), NOT_CONNECTED_MESSAGE)
+            return false
+        }
+        val transport = lease.transport
+        recordingStartedAt = SystemClock.elapsedRealtime()
+        val prepared = liveController.prepare { gate -> ElmObdReader(transport, "bluetooth:classic", requestGate = gate) }
+        if (!prepared) {
+            vehicle.release(lease)
+            _live.value = LiveState.Failed(adapterName(), "another recording is running")
+            return false
+        }
         _recordingPending.value = true
-        val connecting = LiveState.Connecting(device.name)
-        _live.value = connecting
+        _live.value = LiveState.Idle
         recordingJob = viewModelScope.launch {
-            val connection = try { connectClassic(bluetooth, device, io) }
-                catch (e: CancellationException) {
-                    // An older cancelled connect must not overwrite a newer attempt.
-                    if (_live.value === connecting) {
-                        _recordingPending.value = false
-                        _live.value = LiveState.Available(bluetooth.availability())
-                    }
-                    throw e
-                }
-            if (connection is ClassicConnection.Failed) {
-                _recordingPending.value = false
-                _live.value = LiveState.Failed(device.name, connection.reason)
-                return@launch
-            }
-            val transport = (connection as ClassicConnection.Connected).transport
             try {
-                recordingStartedAt = SystemClock.elapsedRealtime()
-                val prepared = liveController.prepare { gate ->
-                    ElmObdReader(transport, "bluetooth:classic", requestGate = gate)
-                }
-                if (!prepared) {
-                    _recordingPending.value = false
-                    _live.value = LiveState.Failed(device.name, "another recording is running")
-                    return@launch
-                }
-                _live.value = LiveState.Available(bluetooth.availability())
-                // Ready and Paused do not read; an EOF must still end this connection.
+                // Ready and Paused do not read; an EOF must still end this recording.
                 val disconnectWatch = launch {
                     transport.awaitDisconnect()
                     liveController.stop(LiveStopReason.DISCONNECTED)
@@ -187,7 +218,7 @@ class AppViewModel @JvmOverloads constructor(
                 try {
                     liveController.state.first { it is LiveReadState.Finished }
                 } finally { disconnectWatch.cancel() }
-            } finally { transport.close() }
+            } finally { vehicle.release(lease) }
         }
         return true
     }
@@ -206,8 +237,8 @@ class AppViewModel @JvmOverloads constructor(
         if (recording.value !is LiveReadState.Idle && recording.value !is LiveReadState.Finished)
             stopRecording(LiveStopReason.CANCELLED)
         // Codes/snapshot reads may finish while stopped; their Started hand-off remains
-        // pending for the screen on resume. Only recording setup is stopped here.
-        if (_recordingPending.value && _live.value is LiveState.Connecting) cancelLiveConnect()
+        // pending for the screen on resume. The vehicle connection closes when idle.
+        vehicle.onBackgrounded()
     }
     fun finishRecording() {
         if (recording.value !is LiveReadState.Finished) return
@@ -298,6 +329,8 @@ class AppViewModel @JvmOverloads constructor(
         }
         // One Bluetooth use at a time: never alongside a live read.
         if (_experiment.value.busy || benchJob?.isActive == true || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value) return
+        // The vehicle connection closes first; a scan holding it blocks the check.
+        if (!vehicle.releaseForOtherTool()) return
         _bench.value = BenchState.Connecting(device.name)
         benchJob = viewModelScope.launch {
             var check: AdapterBenchCheck? = null
@@ -325,7 +358,7 @@ class AppViewModel @JvmOverloads constructor(
 
     // One selected read scope over Bluetooth Classic; no automatic reconnect.
 
-    private val _live = MutableStateFlow<LiveState>(LiveState.Available(BluetoothAvailability.PermissionNeeded))
+    private val _live = MutableStateFlow<LiveState>(LiveState.Idle)
     val live: StateFlow<LiveState> = _live.asStateFlow()
     private var liveJob: Job? = null
 
@@ -333,24 +366,18 @@ class AppViewModel @JvmOverloads constructor(
     private val _captures = MutableStateFlow<Map<String, String>>(emptyMap())
     val captures: StateFlow<Map<String, String>> = _captures.asStateFlow()
 
-    fun refreshLive(permissionDenied: Boolean = false) {
-        // Never drop a connection in progress or an unacknowledged result hand-off.
-        if (_live.value is LiveState.Connecting || _live.value == LiveState.Started) return
-        _live.value = LiveState.Available(bluetooth.availability(), permissionDenied)
-    }
-
-    /** On opening the live-read screen: keeps a connection failure or a pending hand-off until the user moves on. */
-    fun refreshLiveIfIdle() {
-        if (_live.value is LiveState.Available) refreshLive()
+    /** Clears a shown failure; never drops an unacknowledged result hand-off. */
+    fun refreshLive() {
+        if (_live.value is LiveState.Failed) _live.value = LiveState.Idle
     }
 
     /**
-     * Explicitly drops a pending live result: a read still running is cancelled (its
-     * connection closes), then the session is cleared. Nothing reconnects.
+     * Explicitly drops a pending live result: a read still running is cancelled, then
+     * the session is cleared. The vehicle connection stays as it is.
      */
     fun discardPendingLive() {
         if (!liveResultPending()) return
-        _live.value = LiveState.Available(bluetooth.availability())
+        _live.value = LiveState.Idle
         controller.cancel()
         viewModelScope.launch {
             controller.state.first { it !is SessionState.Running }
@@ -360,40 +387,41 @@ class AppViewModel @JvmOverloads constructor(
 
     /** The live-read screen has navigated to the started session: the hand-off is consumed. */
     fun acknowledgeLiveStarted() {
-        if (_live.value == LiveState.Started) _live.value = LiveState.Available(bluetooth.availability())
+        if (_live.value == LiveState.Started) _live.value = LiveState.Idle
     }
 
-    fun onLivePermissionResult(granted: Boolean) = refreshLive(permissionDenied = !granted)
-
-    fun startLive(device: BondedDevice, readScope: ReadScope = ReadScope.CODES_ONLY) {
+    /**
+     * One codes or codes+snapshot session on the shared connection. Its raw capture
+     * starts with the session's own setup commands; identification is not included.
+     * False when nothing started.
+     */
+    fun startLive(readScope: ReadScope = ReadScope.CODES_ONLY): Boolean {
         if (experimentReuseRequired.value) {
-            _live.value = LiveState.Failed(device.name, EXPERIMENT_REUSE_MESSAGE)
-            return
+            _live.value = LiveState.Failed(adapterName(), EXPERIMENT_REUSE_MESSAGE)
+            return false
         }
         // Also never while a finished result still waits to be shown: it may be unsaved.
         if (_experiment.value.busy || liveJob?.isActive == true || recordingJob?.isActive == true || _recordingPending.value || benchJob?.isActive == true || session.value is SessionState.Running ||
             _live.value == LiveState.Started
-        ) return
-        // This immutable value belongs to this connection attempt, even if UI state changes.
+        ) return false
+        val lease = vehicle.acquire() ?: run {
+            _live.value = LiveState.Failed(adapterName(), NOT_CONNECTED_MESSAGE)
+            return false
+        }
+        // This immutable value belongs to this session, even if UI state changes.
         val selectedScope = readScope
-        _live.value = LiveState.Connecting(device.name)
+        val recorder = CaptureRecorder()
+        lease.transport.recorder = recorder
+        // The controller gates any sensor request on the supported map; provenance
+        // comes from the LIVE transport, not from the selected scope.
+        if (!controller.start(ElmObdReader(lease.transport, "bluetooth:classic"), selectedScope)) {
+            vehicle.release(lease)
+            _live.value = LiveState.Failed(adapterName(), "another session is running")
+            return false
+        }
+        _live.value = LiveState.Started
         liveJob = viewModelScope.launch {
-            val recorder = CaptureRecorder()
-            val transport = when (val connection = connectClassic(bluetooth, device, io, recorder)) {
-                is ClassicConnection.Failed -> {
-                    _live.value = LiveState.Failed(device.name, connection.reason)
-                    return@launch
-                }
-                is ClassicConnection.Connected -> connection.transport
-            }
             try {
-                // The controller gates any sensor request on the supported map; provenance
-                // comes from the LIVE transport, not from the selected scope.
-                if (!controller.start(ElmObdReader(transport, "bluetooth:classic"), selectedScope)) {
-                    _live.value = LiveState.Failed(device.name, "another session is running")
-                    return@launch
-                }
-                _live.value = LiveState.Started
                 val finished = controller.state.first { it is SessionState.Finished } as SessionState.Finished
                 val id = finished.record.id
                 val scopeLabel = when (selectedScope) {
@@ -404,36 +432,21 @@ class AppViewModel @JvmOverloads constructor(
                     "${finished.record.outcome}. Unreviewed raw capture: see docs/CAPTURE_IMPORT.md."
                 _captures.update { it + (id to recorder.json(id, source)) }
             } finally {
-                // No reconnect: a new read is a new connection and a new session. The Started
-                // hand-off stays until the screen acknowledges it.
-                transport.close()
+                // The connection stays open for the next scan; the Started hand-off stays
+                // until the screen acknowledges it.
+                vehicle.release(lease)
             }
         }
+        return true
     }
 
-    /**
-     * On leaving the live-read screen: stops a connection attempt, or a session that
-     * started in the same instant (it would otherwise run with no screen showing it).
-     */
+    /** On leaving the live-read screen: stops a session that started with no screen showing it. */
     fun cancelLiveConnect() {
-        when (_live.value) {
-            is LiveState.Connecting -> {
-                recordingJob?.cancel()
-                // A new connect has no new record yet; the controller may still hold
-                // a previously finished record rather than Idle.
-                _recordingPending.value = false
-                liveJob?.cancel()
-                _live.value = LiveState.Available(bluetooth.availability())
-            }
-            LiveState.Started -> controller.cancel()
-            else -> Unit
-        }
+        if (_live.value == LiveState.Started) controller.cancel()
     }
 
     private val _experiment = MutableStateFlow(ExperimentUiState())
     val experiment: StateFlow<ExperimentUiState> = _experiment.asStateFlow()
-    private val _experimentBluetooth = MutableStateFlow<BluetoothAvailability>(BluetoothAvailability.PermissionNeeded)
-    val experimentBluetooth: StateFlow<BluetoothAvailability> = _experimentBluetooth.asStateFlow()
     private val experimentPreferences = application.getSharedPreferences("identification-safety", 0)
     private val _experimentReuseRequired = MutableStateFlow(experimentPreferences.getBoolean("power-cycle-required", false))
     val experimentReuseRequired: StateFlow<Boolean> = _experimentReuseRequired.asStateFlow()
@@ -443,14 +456,29 @@ class AppViewModel @JvmOverloads constructor(
     private var experimentJob: Job? = null
     private var experimentTransport: io.github.eternalliquet.bamboobd2.app.bluetooth.BluetoothClassicTransport? = null
 
-    fun refreshExperimentBluetooth() {
-        if (!_experiment.value.busy) _experimentBluetooth.value = bluetooth.availability()
+    /**
+     * The saved scanner, when this connection's identity offers the research experiment
+     * (a Porsche whose owner confirmed the 92A Cayenne). Null otherwise: a remembered
+     * adapter or an earlier car never enables it.
+     */
+    fun experimentAdapter(): SavedAdapter? {
+        val ready = connection.value as? ConnectionState.Ready ?: return null
+        val context = (ready.vehicle as? VehicleStatus.Known)?.context ?: return null
+        return ready.adapter.takeIf {
+            context.capabilities.any { it.definition.id == EXPERIMENT_CAPABILITY && it.status == CapabilityStatus.RESEARCH_ONLY }
+        }
     }
 
-    /** All start gates run on the main dispatcher; busy stays set until the socket is closed. */
-    fun startExperiment(device: BondedDevice, reviewed: Boolean): Boolean {
+    /**
+     * All start gates run on the main dispatcher; busy stays set until the socket is closed.
+     * The experiment closes the shared connection and opens its own, unchanged from #64.
+     */
+    fun startExperiment(reviewed: Boolean): Boolean {
+        val adapter = experimentAdapter() ?: return false
+        val device = adapter.device()
         if (!reviewed || experimentReuseRequired.value || _experiment.value.busy || listOf(benchJob, liveJob, recordingJob).any { it != null && !it.isCompleted } ||
             session.value is SessionState.Running || liveResultPending() || _recordingPending.value) return false
+        if (!vehicle.releaseForOtherTool()) return false
         // Persist before opening the socket. A killed process cannot accidentally reuse experimental adapter settings.
         if (!experimentPreferences.edit().putBoolean("power-cycle-required", true).commit()) {
             _experiment.value = ExperimentUiState(phase = "Could not save the adapter reuse guard. No connection attempted.")
@@ -516,6 +544,9 @@ class AppViewModel @JvmOverloads constructor(
                         // Returning to a cancelled Main context can throw before any
                         // following statement. Release ownership inside this cleanup.
                         _experiment.update { it.copy(busy = false) }
+                        // Shows the power-cycle requirement on the home screen if it applies.
+                        // VehicleConnection runs on the main dispatcher, never on this IO context.
+                        viewModelScope.launch { vehicle.refresh() }
                     }
                 }
             }
@@ -532,8 +563,10 @@ class AppViewModel @JvmOverloads constructor(
 
     fun confirmExperimentAdapterPowerCycle() {
         if (_experiment.value.busy) return
-        if (experimentPreferences.edit().putBoolean("power-cycle-required", false).commit())
+        if (experimentPreferences.edit().putBoolean("power-cycle-required", false).commit()) {
             _experimentReuseRequired.value = false
+            vehicle.refresh()
+        }
     }
 
     /** Keep the owner-reviewed snapshot across Activity recreation while the document picker is open. */
@@ -567,6 +600,8 @@ class AppViewModel @JvmOverloads constructor(
 
     private companion object {
         const val EXPERIMENT_REUSE_MESSAGE = "Unplug and reconnect the scanner after the identification experiment, then confirm this on the Identification experiment screen."
+        const val NOT_CONNECTED_MESSAGE = "Not connected. Connect to your scanner on the home screen first."
+        const val EXPERIMENT_CAPABILITY = "porsche.cayenne92a.part-number-experiment"
     }
 
     private fun appVersion(): String {

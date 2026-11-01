@@ -100,7 +100,7 @@ class ReplayFlowTest {
 
     @Test
     fun replaySessionCompletesSavesAndReopensAsReplay() {
-        banner("OFFLINE — no adapter or vehicle connection")
+        banner("READ-ONLY — never clears codes or changes car settings")
         startReplay("CAN, one stored code")
         banner("REPLAY — scripted adapter data, not a live scan")
         rule.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()

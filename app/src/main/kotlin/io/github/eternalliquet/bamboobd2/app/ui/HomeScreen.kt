@@ -27,6 +27,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.eternalliquet.bamboobd2.app.R
+import io.github.eternalliquet.bamboobd2.app.connection.ConnectionState
+import io.github.eternalliquet.bamboobd2.app.connection.VehicleStatus
+import io.github.eternalliquet.bamboobd2.core.manufacturer.VehicleProfile
 import io.github.eternalliquet.bamboobd2.core.protocol.ReplayScript
 import io.github.eternalliquet.bamboobd2.core.reader.FakeScenario
 
@@ -35,6 +38,11 @@ fun HomeScreen(
     replays: List<ReplayScript>,
     liveResultPending: Boolean,
     pendingRecording: Boolean = false,
+    connection: ConnectionState = ConnectionState.NotSetUp,
+    profiles: List<VehicleProfile> = emptyList(),
+    /** A scan or recording holds the connection. */
+    connectionBusy: Boolean = false,
+    vehicleActions: VehicleActions? = null,
     onStart: (FakeScenario) -> Unit,
     onStartReplay: (String) -> Unit,
     onOpenSaved: () -> Unit,
@@ -46,7 +54,7 @@ fun HomeScreen(
 ) {
     // "fake:<scenario>" or "replay:<script id>", so the choice survives recreation.
     var selected by rememberSaveable { mutableStateOf("fake:${FakeScenario.NO_CODES.name}") }
-    DiagnosticScaffold(title = stringResource(R.string.app_name)) { padding ->
+    DiagnosticScaffold(title = stringResource(R.string.app_name), banner = R.string.home_banner) { padding ->
         Column(
             modifier = Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -57,7 +65,20 @@ fun HomeScreen(
                 Button(onClick = onOpenPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (pendingRecording) R.string.pending_recording_open else R.string.pending_live_open)) }
                 OutlinedButton(onClick = onDiscardPendingLive, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (pendingRecording) R.string.pending_recording_discard else R.string.pending_live_discard)) }
             }
-            Text(stringResource(R.string.home_title), style = MaterialTheme.typography.titleLarge)
+            if (vehicleActions != null) {
+                VehicleCard(connection, profiles, connectionBusy, vehicleActions)
+                val ready = connection as? ConnectionState.Ready
+                Text(stringResource(R.string.scan_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                Text(stringResource(if (ready != null) R.string.scan_explainer else R.string.scan_connect_first), style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = onOpenLive, enabled = ready != null && !liveResultPending, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.scan_open))
+                }
+                ((ready?.vehicle as? VehicleStatus.Known)?.context)?.let { ManufacturerCard(it, onOpenExperiment) }
+            }
+            OutlinedButton(onClick = onOpenSaved, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.saved_sessions))
+            }
+            Text(stringResource(R.string.practice_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
             Text(stringResource(R.string.home_explainer), style = MaterialTheme.typography.bodyMedium)
             Column(Modifier.selectableGroup()) {
                 Text(stringResource(R.string.simulated_heading), style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
@@ -76,17 +97,9 @@ fun HomeScreen(
             ) {
                 Text(stringResource(R.string.start))
             }
-            OutlinedButton(onClick = onOpenSaved, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.saved_sessions))
-            }
+            Text(stringResource(R.string.tools_heading), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
             OutlinedButton(onClick = onOpenBench, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.bench_open))
-            }
-            OutlinedButton(onClick = onOpenExperiment, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.experiment_title))
-            }
-            OutlinedButton(onClick = onOpenLive, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.live_open))
             }
         }
     }

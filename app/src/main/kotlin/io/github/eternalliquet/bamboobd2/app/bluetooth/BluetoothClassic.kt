@@ -38,7 +38,11 @@ import kotlinx.coroutines.launch
  * app only lists bonded devices. Sources and permissions: docs/BLUETOOTH_TRANSPORT.md.
  */
 
-/** A paired device as listed to the user. The address is used to connect and is never stored. */
+/**
+ * A paired device as listed to the user. The address is used to connect; only the saved
+ * scanner's address is kept, in app-private preferences (connection/SavedAdapterStore.kt).
+ * It never enters records, captures, reports or logs.
+ */
 data class BondedDevice(val name: String, val address: String)
 
 sealed interface BluetoothAvailability {
@@ -113,10 +117,15 @@ class AndroidBluetoothPlatform(private val context: Context) : BluetoothPlatform
 class BluetoothClassicTransport internal constructor(
     private val socket: RfcommSocket,
     private val io: CoroutineDispatcher,
-    /** Records the raw conversation when set (L2 sessions); never changes what is sent. */
-    private val recorder: CaptureRecorder? = null,
+    recorder: CaptureRecorder? = null,
     receiveCapacity: Int = Channel.UNLIMITED,
 ) : AdapterTransport {
+    /**
+     * Records the raw conversation while set; never changes what is sent. The owner of
+     * the shared connection swaps it per operation, so one operation's capture never
+     * contains another's exchanges (in particular, identification's VIN reply).
+     */
+    @Volatile var recorder: CaptureRecorder? = recorder
     override val kind: TransportKind = TransportKind.LIVE
 
     private val returned = ConcurrentLinkedDeque<ByteArray>()
@@ -254,8 +263,8 @@ sealed interface BenchRun {
 
 /**
  * L1 path: connects to one paired device, runs the adapter-only [AdapterBenchCheck]
- * and closes. Its transport never leaves this class. The only other user of a
- * Bluetooth connection is the codes-only (L2) live read in AppViewModel.
+ * and closes. Its transport never leaves this class. AppViewModel closes the shared
+ * vehicle connection before starting it, so only one connection exists at a time.
  */
 class BluetoothBench(
     private val platform: BluetoothPlatform,

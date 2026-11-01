@@ -42,7 +42,7 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
             delay(1000)
         }
     }
-    val record = if (!pending || live is LiveState.Connecting || live is LiveState.Failed) null else when (val s = state) {
+    val record = if (!pending || live is LiveState.Failed) null else when (val s = state) {
         is LiveReadState.Preparing -> s.record
         is LiveReadState.Ready -> s.record
         is LiveReadState.Recording -> s.record
@@ -59,7 +59,6 @@ fun LiveRecordingScreen(vm: AppViewModel, onDone: () -> Unit) {
     fun leave() {
         when {
             saving -> Unit
-            live is LiveState.Connecting -> { vm.cancelLiveConnect(); onDone() }
             live is LiveState.Failed -> onDone()
             !pending -> onDone()
             !finished && state !is LiveReadState.Idle -> vm.stopRecording()
